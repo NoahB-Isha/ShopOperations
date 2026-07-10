@@ -1,0 +1,21 @@
+# Production reverse proxy (compose `prod` profile).
+#
+# The campus box should NOT be exposed by router port-forwarding: put a
+# Cloudflare Tunnel in front (cloudflared -> http://localhost:80). The tunnel
+# terminates TLS and absorbs DDoS; Caddy just routes. If a tunnel is ever
+# impossible, change :80 to the public hostname and Caddy will fetch
+# Let's Encrypt certificates itself — then firewall everything except 80/443.
+
+:80 {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

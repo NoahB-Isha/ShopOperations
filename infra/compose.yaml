@@ -1,0 +1,99 @@
+# Full local stack: `make dev`. Campus-box production uses the same file with
+# the `prod` profile (Caddy serving the built frontend) behind a Cloudflare
+# Tunnel. All services restart on boot — campus power blips are expected.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ilops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ilops}
+      POSTGRES_DB: ${POSTGRES_DB:-ilops}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ilops} -d ${POSTGRES_DB:-ilops}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ilops:ilops@db:5432/ilops}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./docs:/app/docs:ro # coordinator workbook for the roster import
+      - appdata:/app/backend/data # generated demo fixtures, shared with the worker
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "worker.main"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ilops:ilops@db:5432/ilops}
+      RUN_MIGRATIONS: "0" # backend owns migrations
+    volumes:
+      - ./docs:/app/docs:ro
+      - appdata:/app/backend/data
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+      target: dev
+    restart: unless-stopped
+    environment:
+      VITE_API_PROXY: http://backend:8000
+      # bind-mount file events don't always reach the container; poll instead
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ---- production profile: static frontend + reverse proxy ----------------
+  caddy:
+    profiles: [prod]
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+      target: prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  appdata:
+  frontend_node_modules:

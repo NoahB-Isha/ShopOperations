@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": [
+        "compose",
+        "-f",
+        "infra/compose.yaml",
+        "--project-directory",
+        ".",
+        "--project-name",
+        "shopops",
+        "up",
+        "frontend"
+      ],
+      "port": 5173
+    }
+  ]
+}
