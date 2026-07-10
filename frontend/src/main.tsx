@@ -1,4 +1,4 @@
-import "@fontsource-variable/fraunces";
+import "@fontsource-variable/fraunces/full.css"; // full axes — WONK powers the quirky display type
 import "@fontsource-variable/inter";
 import "./styles/tokens.css";
 

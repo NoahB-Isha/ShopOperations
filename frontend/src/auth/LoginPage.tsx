@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { AuthConfig, SessionOut } from "../api/types";
 import { Button, Card, Field, Input, useToast } from "../design";
 import { homeForRoles } from "../nav";
+import { FlowerMark } from "../shell/AppShell";
 import { useAuth } from "./AuthContext";
 
 type Step = "identifier" | "code";
@@ -100,21 +101,26 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-canvas px-4">
-      <div className="w-full max-w-sm">
+    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-surface px-4">
+      {/* tonal blobs — the fun lives in the background */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-primary-container/70 blur-3xl" />
+        <div className="absolute -right-20 -bottom-32 h-96 w-96 rounded-full bg-tertiary-container/70 blur-3xl" />
+        <div className="absolute top-10 right-1/4 h-44 w-44 rounded-full bg-secondary-container/60 blur-2xl" />
+      </div>
+
+      <div className="relative w-full max-w-sm">
         <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <span className="grid h-12 w-12 place-items-center rounded-full bg-copper shadow-soft">
-            <span className="h-4 w-4 rounded-full bg-surface" />
-          </span>
+          <FlowerMark size={56} />
           <div>
-            <h1 className="display text-2xl">Isha Life Shop Ops</h1>
-            <p className="mt-1 text-sm text-ink-faint">
+            <h1 className="display text-[28px]">Isha Life Shop Ops</h1>
+            <p className="mt-1 text-sm text-on-surface-variant">
               Inventory, transfers & ordering for North America
             </p>
           </div>
         </div>
 
-        <Card className="p-6">
+        <Card variant="elevated" pad={false} className="rounded-(--radius-xl) p-7">
           {step === "identifier" ? (
             <form
               onSubmit={(e) => {
@@ -149,13 +155,16 @@ export function LoginPage() {
               }}
               className="flex flex-col gap-4"
             >
-              <div className="text-sm text-ink-soft">
+              <div className="text-sm text-on-surface-variant">
                 Code sent {channel === "email" ? "to" : "by text to"}{" "}
-                <span className="font-medium text-ink">{identifier}</span>
+                <span className="font-medium text-on-surface">{identifier}</span>
               </div>
               {devCode && (
-                <div className="rounded-(--radius-sm) border border-gold/40 bg-gold-tint px-3 py-2
-                  text-[13px] text-gold" data-testid="dev-code">
+                <div
+                  className="rounded-(--radius-md) bg-tertiary-container px-3.5 py-2.5
+                    text-[13px] text-on-tertiary-container"
+                  data-testid="dev-code"
+                >
                   Dev mode — your code is <span className="font-mono font-bold">{devCode}</span>{" "}
                   (pre-filled below)
                 </div>
@@ -165,7 +174,6 @@ export function LoginPage() {
                   ref={codeRef}
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="••••••"
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   className="text-center font-mono text-xl tracking-[0.5em]"
@@ -182,7 +190,7 @@ export function LoginPage() {
                   setDevCode(null);
                   setError("");
                 }}
-                className="text-center text-[13px] text-ink-faint hover:text-copper-deep"
+                className="text-center text-[13px] font-medium text-primary underline-offset-2 hover:underline"
               >
                 Use a different email or phone
               </button>
@@ -190,7 +198,7 @@ export function LoginPage() {
           )}
         </Card>
 
-        <p className="mt-5 text-center text-[12.5px] leading-5 text-ink-faint">
+        <p className="mt-5 text-center text-[12.5px] leading-5 text-on-surface-variant">
           Sessions last 30 days on trusted devices.
           <br />
           Need access? Ask the office to send you an invite.

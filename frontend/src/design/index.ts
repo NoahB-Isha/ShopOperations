@@ -1,6 +1,6 @@
-export { Badge, StatusDot } from "./Badge";
+export { Badge, StatusDot, toneForLabel } from "./Badge";
 export type { BadgeTone } from "./Badge";
-export { Button } from "./Button";
+export { Button, Fab } from "./Button";
 export { Card, PageHeader, Stat } from "./Card";
 export { DataTable, Pagination } from "./DataTable";
 export type { Column } from "./DataTable";

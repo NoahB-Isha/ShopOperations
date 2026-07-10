@@ -22,10 +22,11 @@ export function useToast() {
   );
 }
 
-const kindStyles: Record<ToastKind, string> = {
-  success: "border-forest/30 bg-forest-tint text-forest-deep",
-  error: "border-danger/30 bg-danger-tint text-danger",
-  info: "border-line-strong bg-surface text-ink-soft",
+/* M3 snackbars: inverse surface, bottom-left, one colored dot of feeling. */
+const dotColor: Record<ToastKind, string> = {
+  success: "bg-success-container",
+  error: "bg-[#ffb4ab]",
+  info: "bg-inverse-primary",
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -44,14 +45,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-80 flex-col gap-2">
+      {/* bottom-24 on phones keeps snackbars clear of the bottom navigation bar */}
+      <div className="pointer-events-none fixed bottom-24 left-4 z-50 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2 md:bottom-4">
         {toasts.map((t) => (
           <div
             key={t.id}
             role="status"
-            className={`animate-toast-in pointer-events-auto rounded-(--radius-md) border
-              px-4 py-3 text-sm shadow-lifted ${kindStyles[t.kind]}`}
+            className="animate-toast-in pointer-events-auto flex items-center gap-2.5
+              rounded-(--radius-md) bg-inverse-surface px-4 py-3 text-sm
+              text-inverse-on-surface shadow-(--shadow-e3)"
           >
+            <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor[t.kind]}`} aria-hidden />
             {t.message}
           </div>
         ))}

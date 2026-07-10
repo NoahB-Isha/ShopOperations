@@ -5,7 +5,7 @@ export function Spinner({ size = 16, className = "" }: { size?: number; classNam
       height={size}
       viewBox="0 0 24 24"
       fill="none"
-      className={`animate-spin ${className}`}
+      className={`animate-spin ${className || "text-primary"}`}
       aria-label="Loading"
       role="status"
     >

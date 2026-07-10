@@ -14,7 +14,7 @@ function Backdrop({ onClose, children }: { onClose: () => void; children: ReactN
   }, [onClose]);
   return createPortal(
     <div
-      className="animate-fade-in fixed inset-0 z-40 bg-ink/30 backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-40 bg-scrim/35"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       {children}
@@ -23,6 +23,22 @@ function Backdrop({ onClose, children }: { onClose: () => void; children: ReactN
   );
 }
 
+function CloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <button
+      onClick={onClose}
+      aria-label="Close"
+      className="state-layer grid h-9 w-9 shrink-0 place-items-center rounded-full
+        text-on-surface-variant"
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
+/** M3 basic dialog: 28dp corners, surface-container-high, emphasized entrance. */
 export function Dialog({
   open,
   onClose,
@@ -45,32 +61,23 @@ export function Dialog({
         <div
           role="dialog"
           aria-label={title}
-          className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-(--radius-lg)
-            border border-line bg-surface shadow-lifted`}
+          className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} animate-dialog-in
+            rounded-(--radius-xl) bg-surface-container-high shadow-(--shadow-e3)`}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between border-b border-line px-5 py-4">
-            <h2 className="display text-lg">{title}</h2>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="rounded p-1 text-ink-faint hover:bg-raised hover:text-ink"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
+          <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
+            <h2 className="display text-xl">{title}</h2>
+            <CloseButton onClose={onClose} />
           </div>
-          <div className="max-h-[65vh] overflow-y-auto px-5 py-4">{children}</div>
-          {footer && (
-            <div className="flex justify-end gap-2 border-t border-line px-5 py-3.5">{footer}</div>
-          )}
+          <div className="max-h-[65vh] overflow-y-auto px-6 py-4">{children}</div>
+          {footer && <div className="flex justify-end gap-2 px-6 pt-1 pb-5">{footer}</div>}
         </div>
       </div>
     </Backdrop>
   );
 }
 
+/** M3 side sheet, sliding in with emphasized easing. */
 export function Drawer({
   open,
   onClose,
@@ -89,25 +96,19 @@ export function Drawer({
     <Backdrop onClose={onClose}>
       <div
         role="dialog"
-        className="animate-fade-in fixed inset-y-0 right-0 flex w-full max-w-md flex-col
-          border-l border-line bg-surface shadow-lifted"
+        className="animate-sheet-in fixed inset-y-0 right-0 flex w-full max-w-md flex-col
+          rounded-l-(--radius-xl) bg-surface-container-low shadow-(--shadow-e3)"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="display min-w-0 truncate pr-3 text-lg">{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-ink-faint hover:bg-raised hover:text-ink"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+        <div className="flex items-center justify-between gap-3 px-6 py-5">
+          <h2 className="display min-w-0 truncate pr-2 text-lg">{title}</h2>
+          <CloseButton onClose={onClose} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-2 border-t border-line px-5 py-3.5">{footer}</div>
+          <div className="flex justify-end gap-2 border-t border-outline-variant/60 px-6 py-4">
+            {footer}
+          </div>
         )}
       </div>
     </Backdrop>

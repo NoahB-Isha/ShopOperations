@@ -88,19 +88,19 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="overflow-hidden rounded-(--radius-md) border border-line bg-surface shadow-soft">
+    <div className="overflow-hidden rounded-(--radius-lg) bg-surface-container-low">
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-line bg-raised/70">
+            <tr className="bg-surface-container">
               {columns.map((col) => (
                 <th
                   key={col.key}
                   style={col.width ? { width: col.width } : undefined}
-                  className={`label-caps px-3.5 py-2.5 text-left select-none
+                  className={`label-m px-3.5 py-3 text-left select-none
                     ${col.align === "right" ? "text-right" : ""}
                     ${col.hideBelow ? hideClass[col.hideBelow] : ""}
-                    ${col.sortable ? "cursor-pointer hover:text-copper-deep" : ""}`}
+                    ${col.sortable ? "cursor-pointer transition-colors hover:text-primary" : ""}`}
                   onClick={() => toggleSort(col)}
                   aria-sort={
                     activeSort?.key === col.key
@@ -111,7 +111,7 @@ export function DataTable<T>({
                   <span className="inline-flex items-center gap-1">
                     {col.header}
                     {activeSort?.key === col.key && (
-                      <span aria-hidden className="text-copper">
+                      <span aria-hidden className="animate-pop text-primary">
                         {activeSort.dir === "asc" ? "↑" : "↓"}
                       </span>
                     )}
@@ -123,10 +123,10 @@ export function DataTable<T>({
           <tbody>
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i} className="border-b border-line/60">
+                  <tr key={i} className="border-b border-outline-variant/50">
                     {columns.map((c) => (
                       <td key={c.key} className={`px-3.5 py-3 ${c.hideBelow ? hideClass[c.hideBelow] : ""}`}>
-                        <div className="h-3.5 w-4/5 animate-pulse rounded bg-line/70" />
+                        <div className="h-3.5 w-4/5 animate-pulse rounded-full bg-outline-variant/60" />
                       </td>
                     ))}
                   </tr>
@@ -135,8 +135,8 @@ export function DataTable<T>({
                   <tr
                     key={rowKey(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    className={`border-b border-line/60 last:border-b-0 transition-colors
-                      ${onRowClick ? "cursor-pointer hover:bg-copper-tint/40" : "hover:bg-raised/50"}`}
+                    className={`border-b border-outline-variant/50 transition-colors last:border-b-0
+                      ${onRowClick ? "cursor-pointer hover:bg-primary/8" : "hover:bg-on-surface/4"}`}
                   >
                     {columns.map((col) => (
                       <td
@@ -161,7 +161,7 @@ export function DataTable<T>({
         )}
       </div>
       {footer && (
-        <div className="flex items-center justify-between border-t border-line bg-raised/50 px-3.5 py-2 text-[13px] text-ink-faint">
+        <div className="flex items-center justify-between bg-surface-container px-3.5 py-2 text-[13px] text-on-surface-variant">
           {footer}
         </div>
       )}

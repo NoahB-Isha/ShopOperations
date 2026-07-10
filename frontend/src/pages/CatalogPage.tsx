@@ -7,11 +7,13 @@ import {
   Button,
   DataTable,
   Dialog,
+  Fab,
   Field,
   Input,
   PageHeader,
   Pagination,
   Select,
+  toneForLabel,
   useToast,
 } from "../design";
 import type { Column } from "../design";
@@ -116,7 +118,8 @@ export function CatalogPage() {
         ),
       },
       { key: "category", header: "Category", sortable: true, hideBelow: "md",
-        render: (p) => <span className="text-ink-soft">{p.category}</span> },
+        render: (p) =>
+          p.category ? <Badge tone={toneForLabel(p.category)}>{p.category}</Badge> : null },
       {
         key: "bwhse",
         header: "Bwhse",
@@ -168,13 +171,6 @@ export function CatalogPage() {
             ? `${facets.total_active.toLocaleString()} active products · search by name, SKU, or barcode`
             : "Loading…"
         }
-        actions={
-          isAdmin && (
-            <Button variant="secondary" size="sm" onClick={() => setNewOpen(true)}>
-              + Non-Odoo item
-            </Button>
-          )
-        }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
@@ -182,7 +178,7 @@ export function CatalogPage() {
           placeholder="Search products…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="max-w-xs [--control-radius:9999px]"
           aria-label="Search products"
         />
         <div className="w-52">
@@ -227,6 +223,15 @@ export function CatalogPage() {
           />
         }
       />
+
+      {isAdmin && (
+        <Fab
+          label="New item"
+          onClick={() => setNewOpen(true)}
+          className="fixed right-6 bottom-6 z-30"
+          title="Add a non-Odoo item (water, cookies — dept-orderable, no stock tracking)"
+        />
+      )}
 
       <ProductDrawer product={selected} onClose={() => setSelected(null)} isAdmin={isAdmin} />
       <NewItemDialog

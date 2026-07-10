@@ -55,13 +55,19 @@ test("product drawer shows stock and the tag editor", async ({ page }) => {
 test("styleguide renders every section", async ({ page }) => {
   await login(page, "admin@demo.ishalife.test");
   await page.goto("/styleguide");
-  for (const section of ["Palette", "Type", "Buttons", "Badges & status", "Forms", "Data table", "Empty state"]) {
+  for (const section of ["Color roles", "Type", "Buttons", "Chips & status", "Forms", "Data table", "Empty state"]) {
     await expect(page.getByRole("heading", { name: section })).toBeVisible();
   }
 });
 
-test("health endpoint reports fixture mode honestly", async ({ request }) => {
+test("health endpoint reports mode and staleness honestly", async ({ request }) => {
   const health = await (await request.get("/api/v1/health")).json();
-  expect(health.odoo_mode).toBe("fixture");
-  expect(health.writes_enabled).toBe(false);
+  // Works against fixture-mode demos AND live-credential dev stacks: what we
+  // assert is the honest-reporting contract, not which mode we're in.
+  expect(["fixture", "live"]).toContain(health.odoo_mode);
+  expect(typeof health.writes_enabled).toBe("boolean");
+  for (const domain of ["products", "stock", "sales", "incoming"]) {
+    expect(health.sync[domain]).toBeDefined();
+    expect(typeof health.sync[domain].stale).toBe("boolean");
+  }
 });

@@ -7,6 +7,7 @@ import {
   Dialog,
   Drawer,
   EmptyState,
+  Fab,
   Field,
   Input,
   PageHeader,
@@ -15,47 +16,57 @@ import {
   Stat,
   StatusDot,
   Toggle,
+  toneForLabel,
   useToast,
 } from "../design";
 import type { Column } from "../design";
 
-const swatches = [
-  ["canvas", "bg-canvas border border-line"],
-  ["surface", "bg-surface border border-line"],
-  ["raised", "bg-raised border border-line"],
-  ["ink", "bg-ink"],
-  ["ink-soft", "bg-ink-soft"],
-  ["ink-faint", "bg-ink-faint"],
-  ["line", "bg-line"],
-  ["copper", "bg-copper"],
-  ["copper-deep", "bg-copper-deep"],
-  ["copper-tint", "bg-copper-tint border border-line"],
-  ["forest", "bg-forest"],
-  ["forest-tint", "bg-forest-tint border border-line"],
-  ["gold", "bg-gold"],
-  ["gold-tint", "bg-gold-tint border border-line"],
-  ["danger", "bg-danger"],
-  ["danger-tint", "bg-danger-tint border border-line"],
+/* ---- color roles ---------------------------------------------------- */
+const roleSwatches = [
+  ["primary", "bg-primary text-on-primary"],
+  ["primary-container", "bg-primary-container text-on-primary-container"],
+  ["secondary", "bg-secondary text-on-secondary"],
+  ["secondary-container", "bg-secondary-container text-on-secondary-container"],
+  ["tertiary", "bg-tertiary text-on-tertiary"],
+  ["tertiary-container", "bg-tertiary-container text-on-tertiary-container"],
+  ["error", "bg-error text-on-error"],
+  ["error-container", "bg-error-container text-on-error-container"],
+  ["success", "bg-success text-on-success"],
+  ["success-container", "bg-success-container text-on-success-container"],
+  ["warn", "bg-warn text-on-warn"],
+  ["warn-container", "bg-warn-container text-on-warn-container"],
+  ["inverse-surface", "bg-inverse-surface text-inverse-on-surface"],
+  ["outline", "bg-outline text-surface"],
+] as const;
+
+const surfaceLadder = [
+  ["surface", "bg-surface"],
+  ["container-lowest", "bg-surface-container-lowest"],
+  ["container-low", "bg-surface-container-low"],
+  ["container", "bg-surface-container"],
+  ["container-high", "bg-surface-container-high"],
+  ["container-highest", "bg-surface-container-highest"],
 ] as const;
 
 interface DemoRow {
   sku: string;
   name: string;
+  category: string;
   qty: number;
   price: number;
 }
 
 const demoRows: DemoRow[] = [
-  { sku: "CA0023000009", name: "Copper Water Bottle — 950ml", qty: 120, price: 34 },
-  { sku: "RU0000000005", name: "Rudraksha Mala — 5mm", qty: 2, price: 24 },
-  { sku: "IN0000000777", name: "Sandalwood Incense", qty: 0, price: 9 },
-  { sku: "BL0000000021", name: "Bloom Ghee", qty: 46, price: 18 },
+  { sku: "CA0023000009", name: "Copper Water Bottle — 950ml", category: "Copper", qty: 120, price: 34 },
+  { sku: "RU0000000005", name: "Rudraksha Mala — 5mm", category: "Rudraksha", qty: 2, price: 24 },
+  { sku: "IN0000000777", name: "Sandalwood Incense", category: "Incense & Dhoop", qty: 0, price: 9 },
+  { sku: "BL0000000021", name: "Bloom Ghee", category: "Bloom", qty: 46, price: 18 },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mb-10">
-      <h2 className="display mb-4 border-b border-line pb-2 text-xl">{title}</h2>
+      <h2 className="display mb-4 text-xl">{title}</h2>
       {children}
     </section>
   );
@@ -66,11 +77,14 @@ export function StyleguidePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toggled, setToggled] = useState(true);
+  const [untoggled, setUntoggled] = useState(false);
 
   const columns: Column<DemoRow>[] = [
     { key: "sku", header: "SKU", sortable: true,
       render: (r) => <span className="font-mono text-[12.5px]">{r.sku}</span> },
     { key: "name", header: "Product", sortable: true },
+    { key: "category", header: "Category",
+      render: (r) => <Badge tone={toneForLabel(r.category)}>{r.category}</Badge> },
     { key: "qty", header: "On hand", align: "right", sortable: true },
     { key: "price", header: "Price", align: "right", sortable: true,
       render: (r) => `$${r.price.toFixed(2)}` },
@@ -80,15 +94,24 @@ export function StyleguidePage() {
     <>
       <PageHeader
         title="Styleguide"
-        subtitle="The design system, rendered live — tokens, type, and every core component."
+        subtitle="Material 3, warmed up — color roles, type, and every core component, rendered live."
       />
 
-      <Section title="Palette">
-        <div className="grid grid-cols-4 gap-3 sm:grid-cols-8">
-          {swatches.map(([name, cls]) => (
-            <div key={name}>
-              <div className={`h-14 rounded-(--radius-sm) shadow-soft ${cls}`} />
-              <div className="mt-1.5 font-mono text-[11px] text-ink-faint">{name}</div>
+      <Section title="Color roles">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          {roleSwatches.map(([name, cls]) => (
+            <div
+              key={name}
+              className={`flex h-16 items-end rounded-(--radius-md) p-2 text-[10.5px] font-semibold ${cls}`}
+            >
+              {name}
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex overflow-hidden rounded-(--radius-md) border border-outline-variant">
+          {surfaceLadder.map(([name, cls]) => (
+            <div key={name} className={`flex-1 px-2 py-4 text-center text-[10px] text-on-surface-variant ${cls}`}>
+              {name}
             </div>
           ))}
         </div>
@@ -96,53 +119,70 @@ export function StyleguidePage() {
 
       <Section title="Type">
         <div className="flex flex-col gap-3">
-          <div className="display text-3xl">Fraunces carries the voice — warm, settled, sure.</div>
-          <div className="display text-xl text-ink-soft">Section headings sit a size down.</div>
-          <p className="max-w-xl text-sm text-ink">
+          <div className="display text-3xl">Fraunces goes wonky on purpose.</div>
+          <div className="display text-xl text-on-surface-variant">
+            Headings keep the quirk; everything else keeps the peace.
+          </div>
+          <p className="max-w-xl text-sm text-on-surface">
             Inter handles everything operational: tables, forms, and long labels. Body text stays
             at 15px with relaxed leading so dense pages read calmly.
           </p>
-          <p className="text-[13px] text-ink-faint">
-            Faint 13px text carries hints, timestamps, and secondary detail.
+          <p className="text-[13px] text-on-surface-variant">
+            13px secondary text carries hints, timestamps, and detail.
           </p>
-          <span className="label-caps">Small-caps micro labels structure tables & fields</span>
+          <span className="label-m">Label medium structures tables & fields</span>
           <span className="font-mono text-[13px]">CA0023000009 · monospace for SKUs and references</span>
         </div>
       </Section>
 
       <Section title="Buttons">
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button>Primary</Button>
-          <Button variant="secondary">Secondary</Button>
-          <Button variant="ghost">Ghost</Button>
+          <Button>Filled</Button>
+          <Button variant="secondary">Tonal</Button>
+          <Button variant="outlined">Outlined</Button>
+          <Button variant="elevated">Elevated</Button>
+          <Button variant="ghost">Text</Button>
           <Button variant="danger">Danger</Button>
           <Button loading>Saving…</Button>
           <Button disabled>Disabled</Button>
           <Button size="sm">Small</Button>
-          <Button variant="secondary" size="sm" icon={<span>+</span>}>With icon</Button>
+          <Fab label="New item" onClick={() => toast.info("FABs hold the page's one big action.")} />
         </div>
       </Section>
 
-      <Section title="Badges & status">
+      <Section title="Chips & status">
         <div className="flex flex-wrap items-center gap-2.5">
           <Badge>neutral</Badge>
           <Badge tone="copper">Air only</Badge>
           <Badge tone="forest">fresh</Badge>
           <Badge tone="gold">stale</Badge>
           <Badge tone="danger">Expires 2026-09-01</Badge>
+          <Badge tone="secondary">secondary</Badge>
+          <Badge tone="tertiary">tertiary</Badge>
           <Badge tone="outline">untracked</Badge>
           <StatusDot ok label="Synced · live Odoo" />
           <StatusDot ok={false} warn label="Sync stale" />
           <StatusDot ok={false} label="Odoo auth failing!" />
           <Spinner />
         </div>
+        <p className="mt-3 text-[13px] text-on-surface-variant">
+          Category chips pick their color by name hash — same label, same color, every time:
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {["Copper", "Rudraksha", "Bloom", "Incense & Dhoop", "Snacks", "Books & Media"].map((c) => (
+            <Badge key={c} tone={toneForLabel(c)}>{c}</Badge>
+          ))}
+        </div>
       </Section>
 
       <Section title="Forms">
-        <Card className="max-w-md">
+        <Card className="max-w-md" variant="elevated">
           <div className="flex flex-col gap-4">
-            <Field label="Email or phone" help="We'll send a one-time code.">
+            <Field label="Email or phone" help="Filled fields float their labels.">
               <Input placeholder="you@example.org" />
+            </Field>
+            <Field label="Display name">
+              <Input defaultValue="Sachi Mutluru" />
             </Field>
             <Field label="Zone" error="Pick a zone for this coordinator.">
               <Select defaultValue="">
@@ -151,7 +191,15 @@ export function StyleguidePage() {
                 <option>Canada</option>
               </Select>
             </Field>
-            <Toggle checked={toggled} onChange={setToggled} label="Dept-orderable" />
+            <div className="flex items-center gap-6">
+              <Toggle checked={toggled} onChange={setToggled} label="Dept-orderable" />
+              <Toggle checked={untoggled} onChange={setUntoggled} label="Off" />
+            </div>
+            <Input
+              aria-label="Pill search"
+              placeholder="Pill search fields for tables…"
+              className="[--control-radius:9999px]"
+            />
           </div>
         </Card>
       </Section>
@@ -178,16 +226,16 @@ export function StyleguidePage() {
       <Section title="Feedback">
         <div className="flex flex-wrap gap-2.5">
           <Button variant="secondary" onClick={() => toast.success("Draft transfer created — review it in Odoo.")}>
-            Success toast
+            Success snackbar
           </Button>
           <Button variant="secondary" onClick={() => toast.error("Odoo rejected the transfer: missing picking type.")}>
-            Error toast
+            Error snackbar
           </Button>
           <Button variant="secondary" onClick={() => toast.info("Sync started.")}>
-            Info toast
+            Info snackbar
           </Button>
           <Button variant="secondary" onClick={() => setDialogOpen(true)}>Dialog</Button>
-          <Button variant="secondary" onClick={() => setDrawerOpen(true)}>Drawer</Button>
+          <Button variant="secondary" onClick={() => setDrawerOpen(true)}>Side sheet</Button>
         </div>
       </Section>
 
@@ -210,9 +258,9 @@ export function StyleguidePage() {
           </>
         }
       >
-        <p className="text-sm leading-6 text-ink-soft">
-          Dialogs confirm consequential actions. They close on Escape or backdrop click, and the
-          primary action sits bottom-right.
+        <p className="text-sm leading-6 text-on-surface-variant">
+          Dialogs confirm consequential actions. 28dp corners, emphasized easing, Escape or
+          backdrop to dismiss — the primary action sits bottom-right.
         </p>
       </Dialog>
 
@@ -222,9 +270,9 @@ export function StyleguidePage() {
         title="Copper Water Bottle — 950ml"
         footer={<Button onClick={() => setDrawerOpen(false)}>Close</Button>}
       >
-        <p className="text-sm leading-6 text-ink-soft">
-          Drawers hold detail views — product records, order lines — sliding in from the right
-          without losing the table behind.
+        <p className="text-sm leading-6 text-on-surface-variant">
+          Side sheets hold detail views — product records, order lines — sliding in with
+          emphasized easing without losing the table behind.
         </p>
       </Drawer>
     </>

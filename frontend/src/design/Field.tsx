@@ -6,24 +6,23 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 
-const controlBase =
-  "w-full rounded-(--radius-sm) border border-line-strong bg-surface px-3 text-sm " +
-  "text-ink placeholder:text-ink-faint transition-colors " +
-  "hover:border-copper/50 focus:border-copper focus:outline-none " +
-  "disabled:bg-raised disabled:text-ink-faint";
+/* All control styling lives in tokens.css as `.m3-control` (component layer),
+   so Tailwind utilities passed via className override cleanly. Bare controls
+   are compact filled fields; inside <Field> they grow to the 56px floating-
+   label anatomy. `--control-radius` lets call sites go full-pill. */
 
 export function Input({
   className = "",
   ...rest
 }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
-  return <input className={`${controlBase} h-10 ${className}`} {...rest} />;
+  return <input placeholder=" " className={`m3-control ${className}`} {...rest} />;
 }
 
 export function Textarea({
   className = "",
   ...rest
 }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={`${controlBase} py-2 min-h-20 ${className}`} {...rest} />;
+  return <textarea placeholder=" " className={`m3-control ${className}`} {...rest} />;
 }
 
 export function Select({
@@ -32,10 +31,11 @@ export function Select({
   ...rest
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={`${controlBase} h-10 pr-8 appearance-none bg-no-repeat bg-right ${className}`}
+    <select
+      className={`m3-control bg-right bg-no-repeat ${className}`}
       style={{
         backgroundImage:
-          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23948b78' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23817567' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E\")",
         backgroundPosition: "right 0.6rem center",
       }}
       {...rest}
@@ -60,17 +60,20 @@ export function Field({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="label-caps mb-1.5 block">{label}</span>
-      {children}
+      <span className={`m3-field ${error ? "m3-field--error" : ""}`}>
+        {children}
+        <span className="m3-field-label">{label}</span>
+      </span>
       {error ? (
-        <span className="mt-1 block text-[13px] text-danger">{error}</span>
+        <span className="mt-1 block px-3.5 text-[13px] text-error">{error}</span>
       ) : help ? (
-        <span className="mt-1 block text-[13px] text-ink-faint">{help}</span>
+        <span className="mt-1 block px-3.5 text-[13px] text-on-surface-variant">{help}</span>
       ) : null}
     </label>
   );
 }
 
+/** M3 switch: chunky track, thumb that grows and gains a check when on. */
 export function Toggle({
   checked,
   onChange,
@@ -89,18 +92,33 @@ export function Toggle({
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`inline-flex items-center gap-2 select-none disabled:opacity-50`}
+      className="inline-flex select-none items-center gap-2.5 disabled:opacity-40"
     >
       <span
-        className={`relative h-5.5 w-9.5 rounded-full transition-colors duration-150
-          ${checked ? "bg-forest" : "bg-line-strong"}`}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200
+          ${checked ? "bg-primary" : "border-2 border-outline bg-surface-container-highest"}`}
       >
         <span
-          className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-surface shadow-soft
-            transition-transform duration-150 ${checked ? "translate-x-4.5" : "translate-x-0.5"}`}
-        />
+          className={`absolute top-1/2 grid -translate-y-1/2 place-items-center rounded-full
+            transition-all duration-200 ease-(--ease-emphasized)
+            ${
+              checked
+                ? "left-[calc(100%-1.5rem-2px)] h-6 w-6 bg-on-primary text-primary"
+                : "left-1 h-4 w-4 bg-outline text-transparent"
+            }`}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+            <path
+              d="M2.5 6.5 5 9l4.5-6"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
       </span>
-      {label && <span className="text-sm text-ink-soft">{label}</span>}
+      {label && <span className="text-sm text-on-surface-variant">{label}</span>}
     </button>
   );
 }
