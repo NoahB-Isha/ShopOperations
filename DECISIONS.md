@@ -63,6 +63,23 @@ it painful.
 
 ## Build decisions
 
+**2026-07-10 — Design pivot: Material Design 3, fun/colorful/quirky** *(Phase 1.5)*
+Noah's call, superseding the brief's "Linear/Notion-quiet" direction: the app now follows M3 —
+color roles seeded from the Isha palette (vivid copper primary, peacock-teal secondary, berry
+tertiary, warm cotton surface ladder), pill buttons, tonal containers, floating-label filled
+fields, chips, FAB, bottom navigation on phones, Fraunces with WONK=1 for display type. Quirk
+stays in safe places (brand mark, empty states, container colors), never in data tables or
+safety-critical UI. Component APIs kept stable; legacy color names alias to M3 roles in
+`tokens.css`. `CLAUDE.md` design-language section updated.
+
+**2026-07-10 — Stock quants match by location SUBTREE; staging is hyphenated** *(Phase 1.5)*
+First live sync revealed production reality: staging's `complete_name` is
+`III/Stock/III-FLOOR-STAGING` (hyphen, not the space in early notes), and BWHSE stock lives in
+hundreds of bin sub-locations (`III/Stock/BWHSE/A/1/1/1`). The stock sync now queries quants
+with `child_of` and classifies by path prefix (longest root first); exact-id matching would have
+missed most warehouse stock. `ODOO_LOCATION_NAMES` accepts multiple spellings per key. Live
+verified: 2,016 product-location rows, ~296k BWHSE units.
+
 **2026-07-10 — Ambiguous roster rows import as inactive, never guessed** *(Phase 1)*
 The sheet has two conflicting "active" columns ('?', 'NA', blanks). Resolution: `Active?` wins,
 then `Is Active as of Jan 2026?`; anything unresolvable imports as **inactive** with an

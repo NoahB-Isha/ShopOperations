@@ -65,7 +65,7 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
 
 ### Design language
 
-Elegant, calm, and fast — closer to Linear/Notion than to enterprise ERP chrome. Warm neutral palette with a single accent drawn from the Isha Life brand (earthy tones — think unbleached cotton, copper, deep forest green); generous whitespace; one excellent typeface pair; subtle motion only where it communicates state. Dense data tables where operators live (warehouse, ordering) and simple, almost consumer-grade flows where volunteers live (city center order form should feel like a well-made checkout, usable on a phone). Dark mode optional, mobile-first for the orderer and floor roles, desktop-first for office/warehouse roles.
+**Material Design 3, warmed up — fun, colorful, quirky at times, but always functional** (Noah's call 2026-07-10, superseding the earlier Linear-quiet direction; see DECISIONS.md). M3 color roles seeded from the Isha palette: vivid copper primary, peacock-teal secondary, berry tertiary, and a warm unbleached-cotton surface ladder — all defined in `frontend/src/styles/tokens.css` (legacy color names alias to M3 roles there). M3 anatomy throughout: pill buttons with state layers, tonal containers, floating-label filled text fields, chips, switches, snackbars on inverse surface, an extended FAB for a page's one big action, navigation drawer with pill indicators on desktop and a bottom navigation bar on phones (roles with ≤5 destinations). Type: Fraunces variable (WONK on — the quirk lives in display headings) + Inter for everything operational. Motion uses M3 emphasized easings and communicates state. Quirk belongs in safe places — the brand flower, empty states, container colors — never in data tables or safety-critical UI. Dense data tables where operators live (warehouse, ordering) and simple, almost consumer-grade flows where volunteers live (city center order form should feel like a well-made checkout, usable on a phone). Dark mode optional, mobile-first for the orderer and floor roles, desktop-first for office/warehouse roles.
 
 ### Engineering standards
 
@@ -95,8 +95,14 @@ Elegant, calm, and fast — closer to Linear/Notion than to enterprise ERP chrom
   are domestic. Odoo variants can share a `default_code` — first one wins in the catalog.
 - Incoming stock: `stock.move` where `state in (assigned, confirmed, waiting,
   partially_available)` and `picking_code = "incoming"`.
-- App locations by `complete_name`: `III/Stock/BWHSE`, `III/Stock/III-FLOOR`,
-  `III/Stock/III-FLOOR STAGING` (mapped in `app/models/snapshots.py::ODOO_LOCATION_NAMES`).
+- App locations by `complete_name`: `III/Stock/BWHSE`, `III/Stock/III-FLOOR`, and
+  `III/Stock/III-FLOOR-STAGING` — **hyphenated** (verified live 2026-07-10; the space spelling
+  survives only in old fixtures; `ODOO_LOCATION_NAMES` accepts both). BWHSE stores stock in
+  hundreds of bin sub-locations (`III/Stock/BWHSE/A/1/1/1`), so quants MUST be matched by
+  subtree (`child_of` + path-prefix classification in `app/sync/stock.py`), never by exact
+  location id. Floor has a `Vending Machine` child (counts as floor). Also live:
+  `III/CityCenter/<City>` per-center internal locations (54+ — the transfer target for
+  city-center flows in later phases) and `III/Stock/SHIP`.
 - Foundation modules to build on (never around): `app/odoo/writer.py` (all writes; add new
   operations to `OPERATION_FLAGS` + a typed method), `app/odoo/simulator.py` (extend RELATIONS /
   ONE2MANY registries for new query shapes), `app/sync/runner.py` (new sync domains register in
