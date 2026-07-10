@@ -1,0 +1,56 @@
+﻿We’re working on an new app for managing the inventory for Isha Life USA. This document has some info about our current process.
+
+
+Current SOPs:
+
+
+Isha Life North American Headquarters are located at Isha Institute of Inner Sciences in Tennessee (III). The campus hosts a vibrant community of spiritual seekers who live in tune with nature and the surrounding area. Most people on campus are volunteers. Isha Life is an arm of the organization which offers products that support a yogic lifestyle and also serves as fundraising. Isha life products are stored in bulk at the Blue Warehouse. There’s an in person shop on campus (951 Isha Lane), an online store (ishalife.com), and pop up stores in 54 City Centers peppered across the North American continent. These city centers are documented in  “IL City Coordinators.xlxs”. Inventory for all these locations is managed in an instance of Odoo 19.
+
+
+Locations and what happens there:
+
+
+Isha Life Coimbatore, India:
+Shipments are assembled from various vendors within India and are then shipped to the USA. All of this takes place outside of our Odoo tracking. Communication about these shipments is happening over email by sending spreadsheets and more casual email communications.
+
+
+
+
+Blue Warehouse, III, Tennessee, USA (Odoo locations: III/Stock, III/Stock/BWHSE)
+
+
+Incoming Shipments from India are received, logged, and stored. Online orders are fulfilled and shipped out. Internal transfers logged in odoo are fulfilled here as well. Internal transfers could be to the shop on campus, or to any of our city centers.
+
+
+
+
+Isha Life Shoppe, III (Odoo locations: III/Stock/III-FLOOR STAGING, III/Stock/III-FLOOR)
+
+
+Transfers from the warehouse are received, logged and stored. There’s a back stockroom for storing product, as well as a nicely styled front area. When items are sent from the blue warehouse to the shop floor, they are first sent to III-FLOOR STAGING, a virtual location that holds the items until they’ve been counted. At this point, another transfer is manually created to move the items from floor staging to floor. Any missing items are held in the virtual staging location. Items that were sent in greater quantity are communicated to the warehouse team who make inventory adjustments manually.
+
+
+
+
+A day at the Isha Life Shoppe:
+
+
+The day starts with sweeping, lighting lamps, and starting the music in the store. Once the doors are open a couple volunteers handle restocking. It’s a mix of seeing visually what needs to be restocked, and checking a sheet that’s updated using a simple script. (see https://github.com/noahballinger/ILscripts)
+
+
+Customers start to trickle in. Sometimes they want an item in a different size. A volunteer will first ask “Skubot” a python based chatbot that communicates via whatsapp. The bot offers an easy way to get product info (Here’s the git for skubot: https://github.com/noahballinger/skubot.git). If a product quantity is low or OOS according to the bot, usually a volunteer will go back and check just to be sure. If an item is missing they’ll tell a volunteer that takes care of ordering. Sometimes the item is OOS completely in the blue warehouse. Sometimes it’s available. This part is a bit tricky, as our data quality is poor especially when it gets into the low numbers,.
+
+
+While this goes on, volunteers in the office or in the back looking at various aspects of the business. They’ll look at ordering more items from india (this happens every 3 months), ordering stock to the floor from warehouse, ordering select domestic products from local US vendors, ordering prodcuts on amazon, communicating with city centers, and a variety of other administrative tasks.
+
+Additional reading:
+
+
+IL CIty Coordinators.xlxs
+Copy of OPS APP FEATURE LIST.xlxs
+https://github.com/noahballinger/skubot.git
+https://github.com/noahballinger/ILscripts
+https://github.com/noahballinger/ops (a previous attempt at an operations app)
+
+
+https://docs.google.com/spreadsheets/d/1rzzT72pJY0Hrvy7rB44ZEKhYkWrB-nOKszLTSzHyzCg/edit?usp=sharing
