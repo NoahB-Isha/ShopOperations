@@ -24,11 +24,16 @@ class LocationKey(str, enum.Enum):
     STAGING = "staging"
 
 
-# Odoo complete_name -> app location key (the four locations the app cares about)
+# Odoo complete_name -> app location key. Several spellings may map to one
+# key (production's staging is hyphenated; older fixtures used a space) — the
+# stock sync requires every KEY to resolve, not every name. Quants are matched
+# by SUBTREE: BWHSE keeps stock in bin sub-locations (III/Stock/BWHSE/A/1/1/1),
+# verified against the live instance 2026-07-10.
 ODOO_LOCATION_NAMES = {
     "III/Stock/BWHSE": LocationKey.BWHSE.value,
     "III/Stock/III-FLOOR": LocationKey.FLOOR.value,
-    "III/Stock/III-FLOOR STAGING": LocationKey.STAGING.value,
+    "III/Stock/III-FLOOR-STAGING": LocationKey.STAGING.value,  # production
+    "III/Stock/III-FLOOR STAGING": LocationKey.STAGING.value,  # legacy fixtures
 }
 
 

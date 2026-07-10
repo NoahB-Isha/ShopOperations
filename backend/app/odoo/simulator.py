@@ -212,11 +212,42 @@ class OdooSimulator:
                     "Restructure the query or extend the simulator."
                 )
             field, op, expected = term
+            if op == "child_of":
+                if not self._child_of(model, rec, field, expected):
+                    return False
+                continue
             actual = self._resolve(model, rec, field)
             scalar = self._m2o_id(actual)
             if not self._compare(scalar, op, expected):
                 return False
         return True
+
+    def _child_of(self, model: str, rec: dict, field: str, expected) -> bool:
+        """Subtree membership like Odoo's child_of, resolved by complete_name
+        prefix (fixture locations carry their full path as the display name)."""
+        roots = list(expected) if isinstance(expected, list | tuple) else [expected]
+        value = rec.get(field)
+        value_id = self._m2o_id(value)
+        if value_id in roots:
+            return True
+        related = RELATIONS.get((model, field))
+
+        def name_of(rid) -> str:
+            if related is None:
+                return ""
+            for r in self._rows(related):
+                if r.get("id") == rid:
+                    return str(r.get("complete_name") or r.get("name") or "")
+            return ""
+
+        value_name = name_of(value_id)
+        if not value_name and isinstance(value, list | tuple) and len(value) == 2:
+            value_name = str(value[1] or "")
+        for rid in roots:
+            root_name = name_of(rid)
+            if root_name and (value_name == root_name or value_name.startswith(root_name + "/")):
+                return True
+        return False
 
     @staticmethod
     def _compare(actual: Any, op: str, expected: Any) -> bool:

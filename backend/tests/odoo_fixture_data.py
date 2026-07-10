@@ -39,8 +39,11 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     locations = [
         {"id": 11, "complete_name": "III/Stock", "usage": "view"},
         {"id": 12, "complete_name": "III/Stock/BWHSE", "usage": "internal"},
+        # legacy space spelling on purpose — ODOO_LOCATION_NAMES must accept it
         {"id": 13, "complete_name": "III/Stock/III-FLOOR STAGING", "usage": "internal"},
         {"id": 14, "complete_name": "III/Stock/III-FLOOR", "usage": "internal"},
+        # warehouse bin: quants here must roll up into bwhse (subtree matching)
+        {"id": 15, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
     ]
     picking_types = [
         {"id": 1, "name": "III: Receipts", "code": "incoming"},
@@ -54,6 +57,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         _q(5, 203, "Sandalwood Incense", 13, "III/Stock/III-FLOOR STAGING", 4),
         _q(6, 204, "Banana Chips", 12, "III/Stock/BWHSE", 300),
         _q(7, 999, "Ghost Product", 12, "III/Stock/BWHSE", 55),  # unknown -> skipped
+        _q(8, 201, "Copper Water Bottle — 950ml", 15, "III/Stock/BWHSE/A/1/1/1", 30),  # bin
     ]
 
     pos_orders = [
@@ -126,7 +130,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     return {
         "product_count": 8,  # 9 records, one duplicate default_code collapsed
         "expected_stock": {
-            ("CA0023000009", "bwhse"): 120.0,
+            ("CA0023000009", "bwhse"): 150.0,  # 120 at the root + 30 in bin A/1/1/1
             ("CA0023000009", "floor"): 12.0,
             ("RU0000000005", "bwhse"): 40.0,
             ("IN0000000777", "floor"): 6.0,

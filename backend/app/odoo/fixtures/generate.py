@@ -18,10 +18,14 @@ from pathlib import Path
 LOCATIONS = [
     {"id": 11, "complete_name": "III/Stock", "usage": "view"},
     {"id": 12, "complete_name": "III/Stock/BWHSE", "usage": "internal"},
-    {"id": 13, "complete_name": "III/Stock/III-FLOOR STAGING", "usage": "internal"},
+    # hyphenated like production (verified live 2026-07-10)
+    {"id": 13, "complete_name": "III/Stock/III-FLOOR-STAGING", "usage": "internal"},
     {"id": 14, "complete_name": "III/Stock/III-FLOOR", "usage": "internal"},
     {"id": 15, "complete_name": "Partner Locations/Customers", "usage": "customer"},
     {"id": 16, "complete_name": "Partner Locations/Vendors", "usage": "supplier"},
+    # warehouse bins — production stores most BWHSE stock in bins like these
+    {"id": 17, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
+    {"id": 18, "complete_name": "III/Stock/BWHSE/B/2/1/1", "usage": "internal"},
 ]
 
 PICKING_TYPES = [
@@ -147,17 +151,23 @@ def generate_fixtures(
     # ------------------------------------------------------------- quants
     quants: list[dict] = []
     qid = 1
+    bwhse_spots = [
+        (12, "III/Stock/BWHSE"),
+        (17, "III/Stock/BWHSE/A/1/1/1"),
+        (18, "III/Stock/BWHSE/B/2/1/1"),
+    ]
     for p in products:
         vel = p["_velocity"] * rng.uniform(0.1, 2.2)
         if rng.random() < 0.85:
             qid += 1
-            quants.append(_quant(qid, p, 12, "III/Stock/BWHSE", round(max(0, rng.gauss(vel * 3, vel)), 0)))
+            loc_id, loc_name = rng.choice(bwhse_spots)  # much of BWHSE lives in bins
+            quants.append(_quant(qid, p, loc_id, loc_name, round(max(0, rng.gauss(vel * 3, vel)), 0)))
         if rng.random() < 0.30:
             qid += 1
             quants.append(_quant(qid, p, 14, "III/Stock/III-FLOOR", float(rng.randint(0, 48))))
         if rng.random() < 0.012:
             qid += 1
-            quants.append(_quant(qid, p, 13, "III/Stock/III-FLOOR STAGING", float(rng.randint(1, 24))))
+            quants.append(_quant(qid, p, 13, "III/Stock/III-FLOOR-STAGING", float(rng.randint(1, 24))))
 
     # ------------------------------------------------------------- sales
     # One synthetic order per channel per month, holding one line per selling
