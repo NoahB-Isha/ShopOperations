@@ -40,18 +40,19 @@ function Brand() {
 /** M3 navigation drawer items: full-width pills, secondary-container when active. */
 function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
   return (
-    <nav className="mt-5 flex flex-col gap-1" aria-label="Main">
+    <nav className="stagger-children mt-5 flex flex-col gap-1" aria-label="Main">
       {items.map((item) => (
         <NavLink
           key={item.path}
           to={item.path}
           onClick={onNavigate}
           className={({ isActive }) =>
-            `state-layer flex h-11 items-center gap-3 rounded-full px-4 text-sm transition-colors
+            `state-layer flex h-11 items-center gap-3 rounded-full px-4 text-sm
+             transition-[transform,background-color,color] duration-200 ease-(--ease-spring)
              ${
                isActive
                  ? "bg-secondary-container font-semibold text-on-secondary-container"
-                 : "font-medium text-on-surface-variant"
+                 : "font-medium text-on-surface-variant hover:translate-x-1"
              }`
           }
         >
@@ -82,11 +83,11 @@ function BottomNav({ items }: { items: NavItem[] }) {
             <>
               <span
                 className={`grid h-8 w-16 place-items-center rounded-full transition-all
-                  duration-200 ease-(--ease-emphasized)
+                  duration-300 ease-(--ease-spring)
                   ${
                     isActive
-                      ? "bg-secondary-container text-on-secondary-container"
-                      : "text-on-surface-variant group-hover:bg-on-surface/5"
+                      ? "scale-110 bg-secondary-container text-on-secondary-container"
+                      : "text-on-surface-variant group-hover:scale-105 group-hover:bg-on-surface/5"
                   }`}
               >
                 {item.icon}
@@ -216,7 +217,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           </div>
         </header>
         <main
-          className={`mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8
+          className={`stagger-children mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8
             ${bottomBar ? "pb-28 md:pb-8" : ""}`}
         >
           {children}

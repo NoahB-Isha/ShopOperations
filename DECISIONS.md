@@ -63,6 +63,16 @@ it painful.
 
 ## Build decisions
 
+**2026-07-10 — Palette v2: dynamic color around brand orange #f36f21** *(Phase 1.5)*
+Noah's follow-up to the M3 pivot: primary is now brand orange #f36f21 (deep-umber on-primary
+for real contrast), grounded by rich indigo secondary and electric teal tertiary; almond-cream
+light surfaces and an automatic deep-slate-indigo dark scheme (prefers-color-scheme override of
+the CSS variables — no toggle, no state). Typography scaled up to editorial Display/Headline
+sizes (page titles are display-large), and motion went springy: `--ease-spring`
+micro-interactions, staggered entrances, drifting login blobs, all gated by
+prefers-reduced-motion and kept out of data tables. Visual layer only — zero changes to data
+flow, state, or component logic.
+
 **2026-07-10 — Design pivot: Material Design 3, fun/colorful/quirky** *(Phase 1.5)*
 Noah's call, superseding the brief's "Linear/Notion-quiet" direction: the app now follows M3 —
 color roles seeded from the Isha palette (vivid copper primary, peacock-teal secondary, berry

@@ -17,9 +17,8 @@ export function EmptyState({
         bg-surface-container-low px-8 py-14 text-center"
     >
       <div
-        className="mb-4 grid h-16 w-16 -rotate-6 place-items-center rounded-(--radius-lg)
-          bg-tertiary-container text-on-tertiary-container transition-transform
-          duration-300 hover:rotate-6"
+        className="animate-float mb-5 grid h-20 w-20 place-items-center rounded-(--radius-lg)
+          bg-tertiary-container text-on-tertiary-container"
         aria-hidden
       >
         {icon ?? (
@@ -33,8 +32,8 @@ export function EmptyState({
           </svg>
         )}
       </div>
-      <div className="display text-lg text-on-surface">{title}</div>
-      {hint && <div className="mt-1.5 max-w-sm text-sm text-on-surface-variant">{hint}</div>}
+      <div className="headline text-on-surface">{title}</div>
+      {hint && <div className="mt-2 max-w-sm text-sm text-on-surface-variant">{hint}</div>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );

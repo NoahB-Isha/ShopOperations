@@ -65,8 +65,8 @@ const demoRows: DemoRow[] = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-10">
-      <h2 className="display mb-4 text-xl">{title}</h2>
+    <section className="mb-12">
+      <h2 className="headline mb-5">{title}</h2>
       {children}
     </section>
   );
@@ -118,14 +118,16 @@ export function StyleguidePage() {
       </Section>
 
       <Section title="Type">
-        <div className="flex flex-col gap-3">
-          <div className="display text-3xl">Fraunces goes wonky on purpose.</div>
-          <div className="display text-xl text-on-surface-variant">
-            Headings keep the quirk; everything else keeps the peace.
+        <div className="flex flex-col gap-4">
+          <div className="display-xl text-primary">Big, bold, a little wonky.</div>
+          <div className="display-l">Display large fronts every page.</div>
+          <div className="headline text-on-surface-variant">
+            Headlines keep the quirk; everything else keeps the peace.
           </div>
           <p className="max-w-xl text-sm text-on-surface">
             Inter handles everything operational: tables, forms, and long labels. Body text stays
-            at 15px with relaxed leading so dense pages read calmly.
+            at 15px with relaxed leading so dense pages read calmly — the punch lives in the
+            display scale, not in the data.
           </p>
           <p className="text-[13px] text-on-surface-variant">
             13px secondary text carries hints, timestamps, and detail.

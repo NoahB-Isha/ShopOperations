@@ -60,9 +60,9 @@ export function Stat({
   };
   return (
     <div className={`min-w-40 rounded-(--radius-lg) p-5 ${tones[tone]}`}>
-      <div className="text-xs font-semibold tracking-wide opacity-80">{label}</div>
-      <div className="display mt-1 text-[26px] leading-8">{value}</div>
-      {hint && <div className="mt-1 text-[13px] opacity-75">{hint}</div>}
+      <div className="text-xs font-bold tracking-wide uppercase opacity-75">{label}</div>
+      <div className="display mt-1.5 text-[clamp(1.9rem,3vw,2.5rem)] leading-none">{value}</div>
+      {hint && <div className="mt-1.5 text-[13px] opacity-75">{hint}</div>}
     </div>
   );
 }
@@ -77,10 +77,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="display text-[28px] leading-9">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-on-surface-variant">{subtitle}</p>}
+        <h1 className="display-l text-on-surface">{title}</h1>
+        {subtitle && <p className="mt-2 text-[15px] text-on-surface-variant">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>

@@ -48,8 +48,10 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center rounded-full font-medium
-        transition-shadow duration-150 select-none whitespace-nowrap
+      className={`inline-flex items-center justify-center rounded-full font-semibold
+        transition-[transform,box-shadow] duration-200 ease-(--ease-spring) select-none
+        whitespace-nowrap enabled:hover:-translate-y-px enabled:hover:scale-[1.03]
+        enabled:active:translate-y-0 enabled:active:scale-95
         ${styles[variant]} ${sizes[size]} ${className}`}
       disabled={disabled || loading}
       {...rest}
@@ -70,17 +72,24 @@ export function Fab({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; icon?: ReactNode }) {
   return (
     <button
-      className={`state-layer inline-flex h-14 items-center gap-2.5 rounded-(--radius-lg)
-        bg-tertiary-container px-5 text-sm font-semibold text-on-tertiary-container
-        shadow-(--shadow-e2) transition-all duration-200 hover:shadow-(--shadow-e3)
-        active:scale-[0.97] ${className}`}
+      className={`state-layer group animate-pop-in inline-flex h-14 items-center gap-2.5
+        rounded-(--radius-lg) bg-tertiary-container px-5 text-sm font-bold
+        text-on-tertiary-container shadow-(--shadow-e2)
+        transition-[transform,box-shadow] duration-300 ease-(--ease-spring)
+        hover:-translate-y-1 hover:scale-105 hover:shadow-(--shadow-e3)
+        active:translate-y-0 active:scale-95 ${className}`}
       {...rest}
     >
-      {icon ?? (
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-          <path d="M9 3v12M3 9h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      )}
+      <span
+        className="transition-transform duration-300 ease-(--ease-spring) group-hover:rotate-90"
+        aria-hidden
+      >
+        {icon ?? (
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M9 3v12M3 9h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        )}
+      </span>
       {label}
     </button>
   );

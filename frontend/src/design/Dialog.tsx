@@ -66,7 +66,7 @@ export function Dialog({
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
-            <h2 className="display text-xl">{title}</h2>
+            <h2 className="headline">{title}</h2>
             <CloseButton onClose={onClose} />
           </div>
           <div className="max-h-[65vh] overflow-y-auto px-6 py-4">{children}</div>
@@ -101,7 +101,7 @@ export function Drawer({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-6 py-5">
-          <h2 className="display min-w-0 truncate pr-2 text-lg">{title}</h2>
+          <h2 className="headline min-w-0 truncate pr-2">{title}</h2>
           <CloseButton onClose={onClose} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">{children}</div>

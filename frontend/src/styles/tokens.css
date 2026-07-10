@@ -1,32 +1,34 @@
 @import "tailwindcss";
 
 /* ============================================================
-   Isha Life Ops — Material Design 3 tokens (light scheme)
+   Isha Life Ops — Material 3 dynamic color around #f36f21
 
-   Fun, colorful, quirky at times — still functional. A vivid
-   copper primary keeps the Isha soul, joined by a peacock-teal
-   secondary and a berry tertiary. Neutrals stay warm (unbleached
-   cotton) but follow the M3 surface-container ladder. Fraunces
-   (WONK on!) carries display type; Inter does the work.
+   Vibrant orange carries every key action and active state; a
+   rich indigo grounds it, an electric teal sparks the accents.
+   Surfaces are never grey: almond-cream in light, deep slate-
+   indigo in dark (auto via prefers-color-scheme — pure CSS, no
+   state). Type is oversized and editorial (Fraunces, WONK on);
+   motion is springy and staggered, and stands down under
+   prefers-reduced-motion.
    ============================================================ */
 
 @theme {
-  /* ---- M3 color roles ------------------------------------- */
-  --color-primary: #b0490c;
-  --color-on-primary: #ffffff;
-  --color-primary-container: #ffdbc8;
-  --color-on-primary-container: #3a1500;
+  /* ---- M3 color roles — LIGHT (dark overrides below @theme) - */
+  --color-primary: #f36f21;
+  --color-on-primary: #331400; /* deep umber: punchy + real contrast on brand orange */
+  --color-primary-container: #ffdbc7;
+  --color-on-primary-container: #360f00;
   --color-inverse-primary: #ffb68c;
 
-  --color-secondary: #14676b;
+  --color-secondary: #4a55b8; /* rich indigo — grounds the orange */
   --color-on-secondary: #ffffff;
-  --color-secondary-container: #a7eff2;
-  --color-on-secondary-container: #002021;
+  --color-secondary-container: #dfe0ff;
+  --color-on-secondary-container: #0b1866;
 
-  --color-tertiary: #92437c;
+  --color-tertiary: #00777c; /* deep teal; its container goes electric */
   --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #ffd8ec;
-  --color-on-tertiary-container: #3b0029;
+  --color-tertiary-container: #7ef4f0;
+  --color-on-tertiary-container: #002021;
 
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
@@ -36,28 +38,28 @@
   /* custom roles (M3 "custom colors"): success + warning */
   --color-success: #2f6b27;
   --color-on-success: #ffffff;
-  --color-success-container: #b3f2a4;
+  --color-success-container: #b0f2a0;
   --color-on-success-container: #042100;
 
   --color-warn: #7a5900;
   --color-on-warn: #ffffff;
-  --color-warn-container: #ffdea1;
+  --color-warn-container: #ffdf9b;
   --color-on-warn-container: #271900;
 
-  /* neutral / surface ladder (warm) */
-  --color-surface-dim: #e4dbcc;
-  --color-surface: #fdf6ec;
+  /* neutral / surface ladder — warm almond-cream, never flat grey */
+  --color-surface-dim: #e8d7c6;
+  --color-surface: #fdf2e7;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f8f0e3;
-  --color-surface-container: #f2e9da;
-  --color-surface-container-high: #ece3d1;
-  --color-surface-container-highest: #e6ddc9;
-  --color-on-surface: #201b13;
-  --color-on-surface-variant: #4f4539;
-  --color-outline: #817567;
-  --color-outline-variant: #d3c4b1;
-  --color-inverse-surface: #363024;
-  --color-inverse-on-surface: #fbefdf;
+  --color-surface-container-low: #f9ecdd;
+  --color-surface-container: #f4e4d1;
+  --color-surface-container-high: #eedcc6;
+  --color-surface-container-highest: #e8d4bb;
+  --color-on-surface: #231a10;
+  --color-on-surface-variant: #54463a;
+  --color-outline: #877562;
+  --color-outline-variant: #dcc6ad;
+  --color-inverse-surface: #3a2e21;
+  --color-inverse-on-surface: #ffeddd;
   --color-scrim: #000000;
 
   /* ---- legacy aliases (pre-M3 class names still in use) ---- */
@@ -69,7 +71,7 @@
   --color-line: var(--color-outline-variant);
   --color-line-strong: var(--color-outline);
   --color-copper: var(--color-primary);
-  --color-copper-deep: #8a3c06;
+  --color-copper-deep: #cf5410;
   --color-copper-tint: var(--color-primary-container);
   --color-forest: var(--color-success);
   --color-forest-deep: var(--color-on-success-container);
@@ -91,26 +93,31 @@
   --radius-lg: 1rem; /* 16 */
   --radius-xl: 1.75rem; /* 28 */
 
-  /* ---- elevation (M3 levels, soft) ------------------------- */
-  --shadow-e1: 0 1px 2px rgb(32 27 19 / 0.3), 0 1px 3px 1px rgb(32 27 19 / 0.12);
-  --shadow-e2: 0 1px 2px rgb(32 27 19 / 0.3), 0 2px 6px 2px rgb(32 27 19 / 0.12);
-  --shadow-e3: 0 4px 8px 3px rgb(32 27 19 / 0.13), 0 1px 3px rgb(32 27 19 / 0.3);
+  /* ---- elevation ------------------------------------------- */
+  --shadow-e1: 0 1px 2px rgb(35 26 16 / 0.3), 0 1px 3px 1px rgb(35 26 16 / 0.12);
+  --shadow-e2: 0 1px 2px rgb(35 26 16 / 0.3), 0 2px 6px 2px rgb(35 26 16 / 0.12);
+  --shadow-e3: 0 4px 8px 3px rgb(35 26 16 / 0.13), 0 1px 3px rgb(35 26 16 / 0.3);
   /* legacy aliases */
   --shadow-soft: var(--shadow-e1);
   --shadow-lifted: var(--shadow-e3);
 
-  /* ---- motion (M3 easings) --------------------------------- */
+  /* ---- motion: springy, alive, purposeful ------------------- */
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* overshoot — the bounce */
 
-  --animate-toast-in: snackbar-in 0.35s var(--ease-emphasized-decelerate);
+  --animate-toast-in: snackbar-in 0.45s var(--ease-spring);
   --animate-fade-in: fade-in 0.2s ease-out;
-  --animate-dialog-in: dialog-in 0.32s var(--ease-emphasized-decelerate);
-  --animate-sheet-in: sheet-in 0.4s var(--ease-emphasized);
-  --animate-pop: pop 0.3s var(--ease-emphasized-decelerate);
+  --animate-dialog-in: dialog-in 0.4s var(--ease-spring);
+  --animate-sheet-in: sheet-in 0.45s var(--ease-emphasized);
+  --animate-pop: pop 0.35s var(--ease-spring);
+  --animate-pop-in: pop-in 0.4s var(--ease-spring) both;
+  --animate-rise-in: rise-in 0.5s var(--ease-spring) both;
+  --animate-float: float 5.5s ease-in-out infinite;
+  --animate-drift: drift 16s ease-in-out infinite;
 
   @keyframes snackbar-in {
-    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    from { opacity: 0; transform: translateY(24px) scale(0.9); }
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
   @keyframes fade-in {
@@ -118,7 +125,7 @@
     to { opacity: 1; }
   }
   @keyframes dialog-in {
-    from { opacity: 0; transform: scale(0.92) translateY(8px); }
+    from { opacity: 0; transform: scale(0.88) translateY(14px); }
     to { opacity: 1; transform: scale(1) translateY(0); }
   }
   @keyframes sheet-in {
@@ -126,12 +133,84 @@
     to { transform: translateX(0); }
   }
   @keyframes pop {
-    0% { transform: scale(0.85); }
-    60% { transform: scale(1.04); }
+    0% { transform: scale(0.7); }
+    55% { transform: scale(1.12); }
     100% { transform: scale(1); }
   }
-  @keyframes spin-slow {
-    to { transform: rotate(360deg); }
+  @keyframes pop-in {
+    0% { opacity: 0; transform: scale(0.6); }
+    60% { opacity: 1; transform: scale(1.06); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotate(-6deg); }
+    50% { transform: translateY(-7px) rotate(-2deg); }
+  }
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(2.5rem, -1.75rem) scale(1.1); }
+  }
+}
+
+/* ---- DARK scheme: deep slate-indigo, orange glows on it ------
+   Pure CSS re-theme: utilities read var(--color-*), so overriding
+   the custom properties flips the whole app. No state, no toggle. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #ffb283;
+    --color-on-primary: #4a1a00;
+    --color-primary-container: #9c4207;
+    --color-on-primary-container: #ffdbc7;
+    --color-inverse-primary: #f36f21;
+
+    --color-secondary: #bfc4ff;
+    --color-on-secondary: #141f75;
+    --color-secondary-container: #3542a0;
+    --color-on-secondary-container: #dfe0ff;
+
+    --color-tertiary: #55dde0;
+    --color-on-tertiary: #003738;
+    --color-tertiary-container: #00565a;
+    --color-on-tertiary-container: #9df3f2;
+
+    --color-error: #ffb4ab;
+    --color-on-error: #690005;
+    --color-error-container: #93000a;
+    --color-on-error-container: #ffdad6;
+
+    --color-success: #98db88;
+    --color-on-success: #0c3900;
+    --color-success-container: #1e5313;
+    --color-on-success-container: #b0f2a0;
+
+    --color-warn: #eec148;
+    --color-on-warn: #3f2e00;
+    --color-warn-container: #5c4300;
+    --color-on-warn-container: #ffdf9b;
+
+    --color-surface-dim: #0e101a;
+    --color-surface: #131523;
+    --color-surface-container-lowest: #0c0e18;
+    --color-surface-container-low: #191c2c;
+    --color-surface-container: #1f2334;
+    --color-surface-container-high: #292d40;
+    --color-surface-container-highest: #34384d;
+    --color-on-surface: #e6e2f0;
+    --color-on-surface-variant: #b6b1c6;
+    --color-outline: #807a95;
+    --color-outline-variant: #41455c;
+    --color-inverse-surface: #e6e2f0;
+    --color-inverse-on-surface: #2c2738;
+
+    --color-copper-deep: #ffcaa5;
+
+    --shadow-e1: 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 3px 1px rgb(0 0 0 / 0.3);
+    --shadow-e2: 0 1px 2px rgb(0 0 0 / 0.5), 0 2px 6px 2px rgb(0 0 0 / 0.3);
+    --shadow-e3: 0 4px 8px 3px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -150,6 +229,7 @@ body {
 
 ::selection {
   background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
 }
 
 /* Text fields carry their own M3 focus indicator (the bottom border), so the
@@ -161,18 +241,42 @@ body {
 }
 
 @layer components {
-  /* ---- M3 type scale (the ones this app uses) -------------- */
+  /* ---- oversized editorial type scale ----------------------- */
   .display,
   .headline-l {
     font-family: var(--font-display);
     font-variation-settings: "SOFT" 60, "WONK" 1; /* the quirk lives here */
-    font-weight: 580;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  .display-xl {
+    font-family: var(--font-display);
+    font-variation-settings: "SOFT" 60, "WONK" 1;
+    font-weight: 640;
+    font-size: clamp(2.75rem, 6vw, 4.25rem);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+  }
+  .display-l {
+    font-family: var(--font-display);
+    font-variation-settings: "SOFT" 60, "WONK" 1;
+    font-weight: 620;
+    font-size: clamp(2.1rem, 4.5vw, 3.25rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+  }
+  .headline {
+    font-family: var(--font-display);
+    font-variation-settings: "SOFT" 60, "WONK" 1;
+    font-weight: 600;
+    font-size: clamp(1.5rem, 2.5vw, 1.875rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
   }
   .title-l {
     font-family: var(--font-sans);
     font-size: 1.125rem;
-    font-weight: 600;
+    font-weight: 650;
     letter-spacing: -0.005em;
   }
   .title-m {
@@ -188,7 +292,6 @@ body {
   }
   .label-m,
   .label-caps {
-    /* M3 label-medium: sentence case, no tracking games */
     font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.03em;
@@ -199,8 +302,7 @@ body {
     color: var(--color-on-surface-variant);
   }
 
-  /* ---- M3 state layers ------------------------------------- */
-  /* Apply on interactive surfaces; tint derives from currentColor. */
+  /* ---- M3 state layers -------------------------------------- */
   .state-layer {
     position: relative;
     isolation: isolate;
@@ -219,19 +321,34 @@ body {
     opacity: 0.08;
   }
   .state-layer:active::after {
-    opacity: 0.12;
+    opacity: 0.14;
   }
+  .state-layer:disabled::after {
+    display: none;
+  }
+
+  /* ---- staggered entrances ----------------------------------
+     Put .stagger-children on a container; its direct children rise
+     in one after another. CSS-only — replays on route mount. */
+  .stagger-children > * {
+    animation: rise-in 0.5s var(--ease-spring) both;
+  }
+  .stagger-children > :nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > :nth-child(2) { animation-delay: 50ms; }
+  .stagger-children > :nth-child(3) { animation-delay: 100ms; }
+  .stagger-children > :nth-child(4) { animation-delay: 150ms; }
+  .stagger-children > :nth-child(5) { animation-delay: 200ms; }
+  .stagger-children > :nth-child(6) { animation-delay: 250ms; }
+  .stagger-children > :nth-child(7) { animation-delay: 300ms; }
+  .stagger-children > :nth-child(8) { animation-delay: 350ms; }
+  .stagger-children > :nth-child(n + 9) { animation-delay: 400ms; }
 
   /* quirky, sparingly: the brand mark twirls when you say hello */
   .twirl-on-hover {
-    transition: transform 0.6s var(--ease-emphasized);
+    transition: transform 0.7s var(--ease-spring);
   }
   .twirl-on-hover:hover {
-    transform: rotate(180deg);
-  }
-
-  .state-layer:disabled::after {
-    display: none;
+    transform: rotate(180deg) scale(1.08);
   }
 
   /* ---- M3 filled text fields ---------------------------------
@@ -261,7 +378,7 @@ body {
   .m3-control:focus-visible {
     outline: none;
     border-bottom-color: var(--color-primary);
-    background-color: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface-container-highest));
+    background-color: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-container-highest));
   }
   .m3-control:disabled {
     background-color: color-mix(in srgb, var(--color-on-surface) 6%, transparent);
@@ -301,7 +418,7 @@ body {
     color: var(--color-on-surface-variant);
     font-size: 0.9375rem;
     pointer-events: none;
-    transition: all 160ms var(--ease-emphasized);
+    transition: all 200ms var(--ease-spring);
   }
   .m3-field:has(textarea) .m3-field-label {
     top: 1.875rem;
@@ -334,5 +451,16 @@ body {
   }
   .m3-field--error .m3-field-label {
     color: var(--color-error);
+  }
+}
+
+/* Motion is a garnish, never a requirement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

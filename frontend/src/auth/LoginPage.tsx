@@ -102,19 +102,19 @@ export function LoginPage() {
 
   return (
     <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-surface px-4">
-      {/* tonal blobs — the fun lives in the background */}
+      {/* tonal blobs — the fun lives in the background, and it drifts */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-primary-container/70 blur-3xl" />
-        <div className="absolute -right-20 -bottom-32 h-96 w-96 rounded-full bg-tertiary-container/70 blur-3xl" />
-        <div className="absolute top-10 right-1/4 h-44 w-44 rounded-full bg-secondary-container/60 blur-2xl" />
+        <div className="animate-drift absolute -top-24 -left-24 h-80 w-80 rounded-full bg-primary-container/80 blur-3xl" />
+        <div className="animate-drift absolute -right-20 -bottom-32 h-96 w-96 rounded-full bg-tertiary-container/70 blur-3xl [animation-delay:-5s]" />
+        <div className="animate-drift absolute top-10 right-1/4 h-44 w-44 rounded-full bg-secondary-container/60 blur-2xl [animation-delay:-10s]" />
       </div>
 
-      <div className="relative w-full max-w-sm">
-        <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <FlowerMark size={56} />
+      <div className="stagger-children relative w-full max-w-sm">
+        <div className="mb-7 flex flex-col items-center gap-4 text-center">
+          <FlowerMark size={64} />
           <div>
-            <h1 className="display text-[28px]">Isha Life Shop Ops</h1>
-            <p className="mt-1 text-sm text-on-surface-variant">
+            <h1 className="display-l">Isha Life Shop Ops</h1>
+            <p className="mt-2 text-[15px] text-on-surface-variant">
               Inventory, transfers & ordering for North America
             </p>
           </div>
@@ -161,8 +161,8 @@ export function LoginPage() {
               </div>
               {devCode && (
                 <div
-                  className="rounded-(--radius-md) bg-tertiary-container px-3.5 py-2.5
-                    text-[13px] text-on-tertiary-container"
+                  className="animate-pop-in rounded-(--radius-md) bg-tertiary-container px-3.5
+                    py-2.5 text-[13px] text-on-tertiary-container"
                   data-testid="dev-code"
                 >
                   Dev mode — your code is <span className="font-mono font-bold">{devCode}</span>{" "}
