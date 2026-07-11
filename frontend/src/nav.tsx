@@ -53,6 +53,7 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/audit", label: "Audit log", icon: Icons.scroll },
     { path: "/orders", label: "Orders", icon: Icons.clipboard },
     { path: "/styleguide", label: "Styleguide", icon: Icons.palette },
+    { path: "/palette-lab", label: "Palette lab", icon: Icons.palette },
   ],
   warehouse: [
     { path: "/incoming", label: "Incoming", icon: Icons.truck },

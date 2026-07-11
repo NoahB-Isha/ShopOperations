@@ -9,6 +9,7 @@ import { AppShell } from "./shell/AppShell";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ComingSoon } from "./pages/ComingSoon";
 import { MyCentersPage } from "./pages/MyCentersPage";
+import { PaletteLabPage } from "./pages/PaletteLabPage";
 import { StyleguidePage } from "./pages/StyleguidePage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { CentersPage } from "./pages/admin/CentersPage";
@@ -71,6 +72,9 @@ export default function App() {
               } />
               <Route path="/styleguide" element={
                 <Protected title="Styleguide"><StyleguidePage /></Protected>
+              } />
+              <Route path="/palette-lab" element={
+                <Protected title="Palette lab" roles={["admin"]}><PaletteLabPage /></Protected>
               } />
 
               {/* admin */}
