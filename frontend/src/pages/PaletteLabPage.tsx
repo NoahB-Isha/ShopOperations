@@ -20,7 +20,9 @@ import {
   toneForLabel,
 } from "../design";
 import type { Column } from "../design";
+import { useToast } from "../design/Toast";
 import { FlowerMark } from "../shell/AppShell";
+import { setPalette } from "../theme";
 
 interface DemoRow {
   sku: string;
@@ -217,27 +219,41 @@ function Swatch({ hex, label }: { hex: string; label: string }) {
 }
 
 export function PaletteLabPage() {
+  const toast = useToast();
+  const apply = (id: string, name: string) => {
+    setPalette(id);
+    toast.success(`${name} is now your theme.`);
+  };
   return (
     <>
       <PageHeader
-        title="Palette lab"
+        title="Themes"
         subtitle={
           <>
-            Four supporting casts for the locked primary <span className="font-mono font-semibold text-primary">#f36f21</span>.
-            Same page, same components — only the colors change. Squint, scroll, pick.
+            Four palettes around the locked primary <span className="font-mono font-semibold text-primary">#f36f21</span> —
+            pick one here or from the palette button in the top bar. Dark mode is one global
+            scheme and follows your system.
           </>
         }
       />
       <div className="flex flex-col gap-12">
         {VARIANTS.map((v) => (
           <section key={v.id} id={v.id} aria-label={v.name}>
-            <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               <h2 className="headline">{v.name}</h2>
               <div className="flex flex-wrap gap-1.5">
                 {v.swatches.map((s) => (
                   <Swatch key={s.label} {...s} />
                 ))}
               </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="ml-auto"
+                onClick={() => apply(v.id, v.name)}
+              >
+                Use this theme
+              </Button>
             </div>
             <p className="mb-1 max-w-3xl text-sm text-on-surface">{v.story}</p>
             <p className="mb-4 max-w-3xl text-[13px] text-on-surface-variant">

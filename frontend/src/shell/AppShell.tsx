@@ -3,9 +3,10 @@ import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useHealth } from "../api/hooks";
-import { navForRoles } from "../nav";
+import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
+import { PALETTES, currentPalette, setPalette } from "../theme";
 
 /** Eight-petal flower — the brand mark. It twirls when you say hello. */
 export function FlowerMark({ size = 34 }: { size?: number }) {
@@ -103,6 +104,66 @@ function BottomNav({ items }: { items: NavItem[] }) {
   );
 }
 
+/** Palette picker — presentation-only (data-palette + localStorage). */
+function ThemeMenu() {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(currentPalette);
+  const pick = (id: string) => {
+    setPalette(id);
+    setActive(id);
+    setOpen(false);
+  };
+  return (
+    <div className="relative">
+      <button
+        aria-label="Choose theme"
+        title="Choose theme"
+        onClick={() => setOpen((v) => !v)}
+        className="state-layer grid h-10 w-10 place-items-center rounded-full text-on-surface-variant"
+      >
+        {Icons.palette}
+      </button>
+      {open && (
+        <>
+          <button
+            aria-label="Close theme menu"
+            className="fixed inset-0 z-30 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="animate-pop-in absolute right-0 z-40 mt-1 w-52 rounded-(--radius-lg)
+              bg-surface-container-high p-1.5 shadow-(--shadow-e2)"
+          >
+            {PALETTES.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => pick(p.id)}
+                className={`state-layer flex w-full items-center gap-2.5 rounded-full px-3 py-2
+                  text-left text-sm
+                  ${
+                    active === p.id
+                      ? "bg-secondary-container font-semibold text-on-secondary-container"
+                      : "font-medium text-on-surface-variant"
+                  }`}
+              >
+                <span
+                  className="h-3.5 w-3.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: p.dot }}
+                  aria-hidden
+                />
+                {p.label}
+              </button>
+            ))}
+            <div className="px-3 pt-1.5 pb-1 text-[11px] text-on-surface-variant">
+              Dark mode follows your system.
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function HealthChip() {
   const { data } = useHealth();
   if (!data) return null;
@@ -147,6 +208,8 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       <div className="sticky top-0 z-30 flex items-center justify-between bg-surface-container-low
         px-4 py-3 md:hidden">
         <Brand />
+        <div className="flex items-center gap-1">
+        <ThemeMenu />
         {bottomBar ? (
           <button
             aria-label="Sign out"
@@ -178,6 +241,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
             </svg>
           </button>
         )}
+        </div>
       </div>
       {menuOpen && !bottomBar && (
         <div className="bg-surface-container-low px-4 pb-4 shadow-(--shadow-e1) md:hidden">
@@ -199,6 +263,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           <div className="title-l text-on-surface">{title}</div>
           <div className="flex items-center gap-4">
             <HealthChip />
+            <ThemeMenu />
             <div className="flex items-center gap-2.5">
               <span className="grid h-8 w-8 place-items-center rounded-full bg-tertiary-container
                 text-[12.5px] font-bold text-on-tertiary-container">

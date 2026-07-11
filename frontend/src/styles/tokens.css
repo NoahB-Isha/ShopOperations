@@ -20,15 +20,17 @@
   --color-on-primary-container: #360f00;
   --color-inverse-primary: #ffb68c;
 
-  --color-secondary: #4a55b8; /* rich indigo — grounds the orange */
+  /* Default palette: SUNSET STUDIO (switch via data-palette on <html>;
+     the other palettes override these below) */
+  --color-secondary: #b42d66; /* raspberry */
   --color-on-secondary: #ffffff;
-  --color-secondary-container: #dfe0ff;
-  --color-on-secondary-container: #0b1866;
+  --color-secondary-container: #ffd9e4;
+  --color-on-secondary-container: #3f0022;
 
-  --color-tertiary: #00777c; /* deep teal; its container goes electric */
+  --color-tertiary: #815600; /* marigold */
   --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #7ef4f0;
-  --color-on-tertiary-container: #002021;
+  --color-tertiary-container: #ffdf7a;
+  --color-on-tertiary-container: #291800;
 
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
@@ -46,21 +48,29 @@
   --color-warn-container: #ffdf9b;
   --color-on-warn-container: #271900;
 
-  /* neutral / surface ladder — warm almond-cream, never flat grey */
-  --color-surface-dim: #e8d7c6;
-  --color-surface: #fdf2e7;
+  /* neutral / surface ladder — peach-sand (sunset), never flat grey */
+  --color-surface-dim: #ecd5bd;
+  --color-surface: #fdf1e5;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f9ecdd;
-  --color-surface-container: #f4e4d1;
-  --color-surface-container-high: #eedcc6;
-  --color-surface-container-highest: #e8d4bb;
-  --color-on-surface: #231a10;
-  --color-on-surface-variant: #54463a;
-  --color-outline: #877562;
-  --color-outline-variant: #dcc6ad;
+  --color-surface-container-low: #f9e7d2;
+  --color-surface-container: #f4ddc0;
+  --color-surface-container-high: #efd3ae;
+  --color-surface-container-highest: #e9c99c;
+  --color-on-surface: #241910;
+  --color-on-surface-variant: #57453a;
+  --color-outline: #8a7361;
+  --color-outline-variant: #e0c5a7;
   --color-inverse-surface: #3a2e21;
   --color-inverse-on-surface: #ffeddd;
   --color-scrim: #000000;
+
+  /* Text fields get their own ground — noticeably lighter than the container
+     ladder so forms stay readable on every palette (derives per-palette). */
+  --color-field: color-mix(
+    in srgb,
+    var(--color-surface-container-lowest) 55%,
+    var(--color-surface-container-highest)
+  );
 
   /* ---- legacy aliases (pre-M3 class names still in use) ---- */
   --color-canvas: var(--color-surface);
@@ -156,11 +166,81 @@
   }
 }
 
-/* ---- DARK scheme: deep slate-indigo, orange glows on it ------
-   Pure CSS re-theme: utilities read var(--color-*), so overriding
-   the custom properties flips the whole app. No state, no toggle. */
+/* ============================================================
+   Switchable LIGHT palettes. `data-palette` on <html> (set from
+   localStorage before first paint) picks one; Sunset is the
+   default above. Primary, error, success, and warn never change.
+   ============================================================ */
+:root[data-palette="indigo"] {
+  --color-secondary: #4450b5;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #dee0ff;
+  --color-on-secondary-container: #0a1566;
+  --color-tertiary: #7a4dbe;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #ecdcff;
+  --color-on-tertiary-container: #2b0053;
+  --color-surface-dim: #e4d7c6;
+  --color-surface: #faf4ee;
+  --color-surface-container-low: #f4ece2;
+  --color-surface-container: #eee3d6;
+  --color-surface-container-high: #e7dac9;
+  --color-surface-container-highest: #e0d1bd;
+  --color-on-surface: #211b13;
+  --color-on-surface-variant: #52453a;
+  --color-outline: #857463;
+  --color-outline-variant: #d9c7b1;
+}
+
+:root[data-palette="forest"] {
+  --color-secondary: #3f6b4a;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #c0ecc6;
+  --color-on-secondary-container: #00210c;
+  --color-tertiary: #21656a;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #b7e9ec;
+  --color-on-tertiary-container: #001f22;
+  --color-surface-dim: #ded7c4;
+  --color-surface: #f9f3e8;
+  --color-surface-container-low: #f2ecdc;
+  --color-surface-container: #ebe4d0;
+  --color-surface-container-high: #e4dcc2;
+  --color-surface-container-highest: #ddd4b6;
+  --color-on-surface: #201c11;
+  --color-on-surface-variant: #4f4b39;
+  --color-outline: #7f7a64;
+  --color-outline-variant: #d4cdb0;
+}
+
+:root[data-palette="pop"] {
+  --color-secondary: #b90d6e;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #ffd8e6;
+  --color-on-secondary-container: #3d0026;
+  --color-tertiary: #006d84;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #b5eaff;
+  --color-on-tertiary-container: #001f28;
+  --color-surface-dim: #dcd9e2;
+  --color-surface: #fbfafd;
+  --color-surface-container-low: #f4f1f7;
+  --color-surface-container: #edeaf1;
+  --color-surface-container-high: #e5e2ea;
+  --color-surface-container-highest: #dedae4;
+  --color-on-surface: #1b1721;
+  --color-on-surface-variant: #494455;
+  --color-outline: #767081;
+  --color-outline-variant: #d2cdda;
+}
+
+/* ---- DARK scheme: ONE global scheme (deep slate-indigo, orange
+   glows on it) shared by every palette — the palette choice shapes
+   light mode only. The `, :root[data-palette]` keeps this winning
+   over the attribute blocks above (same specificity, later source). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root,
+  :root[data-palette] {
     --color-primary: #ffb283;
     --color-on-primary: #4a1a00;
     --color-primary-container: #9c4207;
@@ -211,6 +291,9 @@
     --shadow-e1: 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 3px 1px rgb(0 0 0 / 0.3);
     --shadow-e2: 0 1px 2px rgb(0 0 0 / 0.5), 0 2px 6px 2px rgb(0 0 0 / 0.3);
     --shadow-e3: 0 4px 8px 3px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.5);
+
+    /* in dark, fields lift slightly ABOVE the container ladder instead */
+    --color-field: color-mix(in srgb, #ffffff 8%, var(--color-surface-container-highest));
   }
 }
 
@@ -360,7 +443,7 @@ body {
     height: 2.75rem;
     width: 100%;
     border-radius: var(--control-radius, var(--radius-sm));
-    background-color: var(--color-surface-container-highest);
+    background-color: var(--color-field);
     border: none;
     border-bottom: 2px solid var(--color-outline);
     padding-inline: 0.875rem;
@@ -372,13 +455,13 @@ body {
     color: var(--color-outline);
   }
   .m3-control:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--color-on-surface) 4%, var(--color-surface-container-highest));
+    background-color: color-mix(in srgb, var(--color-on-surface) 4%, var(--color-field));
   }
   .m3-control:focus,
   .m3-control:focus-visible {
     outline: none;
     border-bottom-color: var(--color-primary);
-    background-color: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-container-highest));
+    background-color: color-mix(in srgb, var(--color-primary) 6%, var(--color-field));
   }
   .m3-control:disabled {
     background-color: color-mix(in srgb, var(--color-on-surface) 6%, transparent);

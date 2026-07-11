@@ -63,6 +63,16 @@ it painful.
 
 ## Build decisions
 
+**2026-07-11 — Four switchable light palettes; one global dark** *(Phase 1.5)*
+Noah liked all four palette-lab candidates, so instead of picking one they became themes:
+Sunset Studio (default), Indigo Violet, Forest & Clay, Charcoal Pop — all sharing the locked
+#f36f21 primary and the semantic error/success/warn roles. Selection is presentation-only:
+`data-palette` on `<html>` + localStorage (applied pre-paint in index.html), picker in the top
+bar and on the "Themes" page. Dark mode stays ONE global slate-indigo scheme for every palette
+(Noah's call — no per-palette dark schemes). Text fields moved to a derived `--color-field`
+token, lighter than the container ladder, after feedback that form backgrounds were hard to
+read on the sand palette.
+
 **2026-07-10 — Palette v2: dynamic color around brand orange #f36f21** *(Phase 1.5)*
 Noah's follow-up to the M3 pivot: primary is now brand orange #f36f21 (deep-umber on-primary
 for real contrast), grounded by rich indigo secondary and electric teal tertiary; almond-cream

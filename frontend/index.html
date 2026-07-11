@@ -11,6 +11,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- apply the saved palette before the bundle loads so there's no color flash -->
+    <script>
+      try {
+        document.documentElement.dataset.palette =
+          localStorage.getItem("ilops_palette") || "sunset";
+      } catch (e) {
+        document.documentElement.dataset.palette = "sunset";
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
