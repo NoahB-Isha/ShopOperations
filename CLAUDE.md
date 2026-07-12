@@ -95,6 +95,11 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   are domestic. Odoo variants can share a `default_code` — first one wins in the catalog.
 - Incoming stock: `stock.move` where `state in (assigned, confirmed, waiting,
   partially_available)` and `picking_code = "incoming"`.
+- **`stock.move` has NO `name` field on this v19 instance** (Odoo 17+ removed it). The move
+  description field is now `description_picking` (optional). Move create-vals use
+  `description_picking`, never `name` — writing `name` fails with "Invalid field 'name' on model
+  'stock.move'" (verified live 2026-07-12, `create_internal_transfer` canary). Recorded fixtures
+  had drifted and masked this; the contract check now asserts `description_picking`.
 - App locations by `complete_name`: `III/Stock/BWHSE`, `III/Stock/III-FLOOR`, and
   `III/Stock/III-FLOOR-STAGING` — **hyphenated** (verified live 2026-07-10; the space spelling
   survives only in old fixtures; `ODOO_LOCATION_NAMES` accepts both). BWHSE stores stock in

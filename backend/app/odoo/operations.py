@@ -55,7 +55,9 @@ def build_internal_transfer_payload(
                 0,
                 0,
                 {
-                    "name": line.description,
+                    # Odoo 19 removed stock.move.name; the move description
+                    # field is now description_picking (verified live 2026-07-12).
+                    "description_picking": line.description,
                     "product_id": line.product_odoo_id,
                     "product_uom_qty": line.qty,
                     "location_id": source_location_id,

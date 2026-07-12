@@ -44,7 +44,7 @@ def test_payload_is_exact():
                 0,
                 0,
                 {
-                    "name": "CA0023000009 Copper Bottle",
+                    "description_picking": "CA0023000009 Copper Bottle",
                     "product_id": 201,
                     "product_uom_qty": 5,
                     "location_id": 12,
