@@ -112,3 +112,14 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   operations to `OPERATION_FLAGS` + a typed method), `app/odoo/simulator.py` (extend RELATIONS /
   ONE2MANY registries for new query shapes), `app/sync/runner.py` (new sync domains register in
   `SYNCERS`), `app/centers/importer.py` (roster re-import is idempotent).
+- Phase 2 modules (same rule): `app/transfers/flow.py` (transfer-request state machine — new
+  transitions/legs go in TRANSITIONS/ODOO_LEGS, never inline), `app/orders/service.py`
+  (order-list approval → draft transfer, idempotent per-list reference), `app/restock/engine.py`
+  (ILscripts accumulator port; thresholds in Settings `restock_*`). Centers map to Odoo
+  `III/CityCenter/<City>` locations by leaf-name match, REBUILT every stock sync
+  (`centers.odoo_location_id`; null = unmapped → approval refuses with a clear 422). Sales sync
+  also fills `sales_daily` (UTC days, retention-pruned); restock folds it lazily on read, each
+  calendar day exactly once (`restock_fold_state`).
+- Dev-auth mode skips the 60s resend throttle (nothing is delivered; e2e re-logs demo users
+  within seconds) — real delivery modes keep it. E2E runs with `workers: 1` and REQUIRES the
+  `write_create_internal_transfer` flag OFF so order-list approvals stay simulated.

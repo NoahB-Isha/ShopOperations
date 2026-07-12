@@ -89,7 +89,10 @@ def issue_code(db: Session, user: User, settings: Settings) -> str:
         .order_by(LoginCode.created_at.desc())
         .limit(1)
     )
-    if latest is not None and latest.created_at is not None:
+    # The 60s guard protects real email/SMS budgets. Dev mode sends nothing
+    # (the code is shown on screen), so hammering is harmless — and e2e suites
+    # legitimately re-log the same demo users within seconds.
+    if settings.auth_mode != "dev" and latest is not None and latest.created_at is not None:
         created = latest.created_at
         if created.tzinfo is None:
             created = created.replace(tzinfo=now.tzinfo)

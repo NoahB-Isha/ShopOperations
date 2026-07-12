@@ -36,6 +36,9 @@ export const Icons = {
   scroll: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M4 2.5h8.5v9a2 2 0 0 1-2 2H4a1.5 1.5 0 0 1-1.5-1.5v-1H10" /><path {...stroke} d="M6 5.5h4M6 8h3" /></svg>
   ),
+  scale: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2.5v11M4.5 13.5h7M3.5 4.5h9M3.5 4.5 1.8 9a2 2 0 0 0 3.4 0L3.5 4.5ZM12.5 4.5 10.8 9a2 2 0 0 0 3.4 0l-1.7-4.5Z" /></svg>
+  ),
 };
 
 export interface NavItem {
@@ -51,13 +54,14 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
     { path: "/users", label: "Users", icon: Icons.users },
     { path: "/audit", label: "Audit log", icon: Icons.scroll },
-    { path: "/orders", label: "Orders", icon: Icons.clipboard },
+    { path: "/orders", label: "Order lists", icon: Icons.clipboard },
     { path: "/styleguide", label: "Styleguide", icon: Icons.palette },
     { path: "/palette-lab", label: "Themes", icon: Icons.palette },
   ],
   warehouse: [
     { path: "/incoming", label: "Incoming", icon: Icons.truck },
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
+    { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
     { path: "/catalog", label: "Catalog", icon: Icons.box },
   ],
   shoppe_floor: [

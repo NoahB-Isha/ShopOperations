@@ -95,6 +95,8 @@ export interface CenterOut {
   shared_product_group: string | null;
   notes: string;
   contacts: ContactOut[];
+  odoo_location_id: number | null;
+  odoo_location_name: string;
 }
 
 export interface DomainSync {
@@ -190,4 +192,195 @@ export interface ImportReportOut {
   warnings: string[];
   applied: boolean;
   followup_count: number;
+}
+
+// ---------------------------------------------------------------- phase 2
+export type WriteStatus = "none" | "created" | "simulated" | "failed";
+
+export interface OrderLineOut {
+  id: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  qty: number;
+  bwhse_qty: number;
+}
+
+export interface OrderListOut {
+  id: number;
+  name: string;
+  notes: string;
+  status: "draft" | "pending_approval" | "approved" | "returned";
+  zone_id: number | null;
+  zone_name: string;
+  center_id: number | null;
+  center_name: string;
+  center_mapped: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  assigned_at: string | null;
+  approved_by: string;
+  approved_at: string | null;
+  returned_note: string;
+  cloned_from_id: number | null;
+  write_status: WriteStatus;
+  write_reference: string;
+  write_dry_run_reason: string;
+  write_error: string;
+  odoo_picking_id: number | null;
+  odoo_picking_name: string;
+  odoo_url: string;
+  lines: OrderLineOut[];
+  total_qty: number;
+}
+
+export interface OrderListSummaryOut {
+  id: number;
+  name: string;
+  status: OrderListOut["status"];
+  zone_name: string;
+  center_name: string;
+  center_mapped: boolean;
+  line_count: number;
+  total_qty: number;
+  write_status: WriteStatus;
+  updated_at: string;
+}
+
+export type TransferStatus =
+  | "requested"
+  | "picked"
+  | "in_staging"
+  | "counted"
+  | "on_floor"
+  | "cancelled";
+
+export interface TransferLineOut {
+  id: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  qty_requested: number;
+  qty_sent: number | null;
+  qty_counted: number | null;
+  delta: number | null;
+  floor_qty: number;
+  bwhse_qty: number;
+}
+
+export interface TransferEventOut {
+  id: number;
+  kind: "status" | "note" | "lines_edited" | "odoo_draft" | "discrepancy";
+  status: string;
+  note: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface OdooDraftOut {
+  id: number;
+  leg: "bwhse_staging" | "staging_floor";
+  label: string;
+  status: "created" | "simulated" | "failed";
+  reference: string;
+  dry_run_reason: string;
+  error: string;
+  odoo_picking_id: number | null;
+  odoo_picking_name: string;
+  odoo_url: string;
+  created_at: string;
+}
+
+export interface TransferActionsOut {
+  can_edit_lines: boolean;
+  can_fulfill: boolean;
+  can_stage: boolean;
+  can_count: boolean;
+  can_complete: boolean;
+  can_cancel: boolean;
+  odoo_legs: string[];
+}
+
+export interface TransferRequestOut {
+  id: number;
+  status: TransferStatus;
+  notes: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  lines: TransferLineOut[];
+  events: TransferEventOut[];
+  odoo_drafts: OdooDraftOut[];
+  actions: TransferActionsOut;
+}
+
+export interface TransferSummaryOut {
+  id: number;
+  status: TransferStatus;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  line_count: number;
+  total_requested: number;
+  open_adjustments: number;
+}
+
+export interface AdjustmentOut {
+  id: number;
+  request_id: number | null;
+  product_id: number;
+  sku: string;
+  name: string;
+  qty_expected: number;
+  qty_counted: number;
+  delta: number;
+  status: "open" | "resolved" | "dismissed";
+  note: string;
+  resolution_note: string;
+  resolved_by: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface RestockFloorItem {
+  line_id: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  qty: number;
+  flagged_on: string;
+  floor_qty: number;
+  bwhse_qty: number;
+  checked: boolean;
+}
+
+export interface RestockBackItem {
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  floor_qty: number;
+  bwhse_qty: number;
+  avg_daily: number;
+  days_of_cover: number | null;
+  suggested_qty: number;
+  checked: boolean;
+}
+
+export interface RestockOut {
+  floor: RestockFloorItem[];
+  back: RestockBackItem[];
+  meta: {
+    today: string;
+    folded_through: string | null;
+    sales_synced_at: string | null;
+    floor_threshold: number;
+    low_cover_days: number;
+    target_cover_days: number;
+    avg_window_days: number;
+  };
 }

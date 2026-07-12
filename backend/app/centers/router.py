@@ -45,6 +45,10 @@ class CenterOut(BaseModel):
     shared_product_group: str | None
     notes: str
     contacts: list[ContactOut]
+    # Odoo III/CityCenter/… location (mapped by the stock sync); null means
+    # order-list approval for this center can't write live yet
+    odoo_location_id: int | None = None
+    odoo_location_name: str = ""
 
 
 @router.get("/zones", response_model=list[ZoneOut])
@@ -106,6 +110,8 @@ def list_centers(
                 )
                 for ct in c.contacts
             ],
+            odoo_location_id=c.odoo_location_id,
+            odoo_location_name=c.odoo_location_name,
         )
         for c in centers
     ]

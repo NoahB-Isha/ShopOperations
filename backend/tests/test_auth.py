@@ -69,11 +69,26 @@ def test_expired_code_rejected(client, db):
     assert r.status_code == 401
 
 
-def test_request_throttle(client, db):
+def test_request_throttle_skipped_in_dev_but_kept_for_delivery_modes(client, db):
+    # dev mode delivers nothing (the code renders on screen), so rapid
+    # re-requests are fine — e2e suites re-log demo users within seconds
     mk_user(db, "eager@test.local", (Role.ADMIN, None, None))
     assert client.post("/api/v1/auth/request-code", json={"identifier": "eager@test.local"}).status_code == 200
     r = client.post("/api/v1/auth/request-code", json={"identifier": "eager@test.local"})
-    assert r.status_code == 429
+    assert r.status_code == 200
+
+    # …but any mode that actually sends email/SMS keeps the 60s guard
+    import pytest
+    from app.auth.service import AuthError, issue_code
+    from app.config import get_settings
+    from app.models import User
+    from sqlalchemy import select
+
+    user = db.scalar(select(User).where(User.email == "eager@test.local"))
+    settings = get_settings().model_copy(update={"auth_mode": "supabase"})
+    with pytest.raises(AuthError) as exc:
+        issue_code(db, user, settings)
+    assert exc.value.status_code == 429
 
 
 def test_inactive_user_cannot_login(client, db):

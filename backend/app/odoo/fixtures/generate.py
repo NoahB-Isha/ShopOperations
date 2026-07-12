@@ -26,6 +26,21 @@ LOCATIONS = [
     # warehouse bins — production stores most BWHSE stock in bins like these
     {"id": 17, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
     {"id": 18, "complete_name": "III/Stock/BWHSE/B/2/1/1", "usage": "internal"},
+    {"id": 30, "complete_name": "III/CityCenter", "usage": "view"},
+]
+
+# Per-center internal locations, named like production (III/CityCenter/<City>).
+# Leaf names match active roster cities so the stock sync's center mapping
+# resolves order-list destinations in fixture mode.
+CITY_CENTERS = [
+    "New York", "New Jersey", "Maryland", "Boston",  # zone 1
+    "San Antonio", "Houston", "Dallas", "Austin", "Atlanta",  # zone 2
+    "Washington D.C.", "Nashville",  # zone 3
+    "SF East Bay (San Ramon)", "Seattle", "Orange County",  # zone 4
+]
+LOCATIONS += [
+    {"id": 31 + i, "complete_name": f"III/CityCenter/{city}", "usage": "internal"}
+    for i, city in enumerate(CITY_CENTERS)
 ]
 
 PICKING_TYPES = [
@@ -175,7 +190,9 @@ def generate_fixtures(
     pos_orders, pos_lines, sale_orders, sale_lines = [], [], [], []
     sellers = [p for p in products if rng.random() < 0.62 and p["active"]]
     line_id = 1
-    for m_back in range(months):
+    # months 1..N-1 as one synthetic order each; the CURRENT month comes from
+    # the daily orders below so restock math sees realistic per-day quantities
+    for m_back in range(1, months):
         total = now.year * 12 + (now.month - 1) - m_back
         y, mo = total // 12, total % 12 + 1
         stamp = f"{y}-{mo:02d}-15 12:00:00"
@@ -193,6 +210,27 @@ def generate_fixtures(
             if online_qty > 0:
                 line_id += 1
                 sale_lines.append({"id": line_id, "order_id": [sale_oid, f"S{y}{mo:02d}"], "product_id": ref, "product_uom_qty": online_qty})
+
+    # ---- recent DAILY pos orders (restock lists live off yesterday's sales)
+    floor_sellers = [p for p in sellers if rng.random() < 0.25][:120]
+    for days_back in range(12, 0, -1):
+        day = now - timedelta(days=days_back)
+        oid = 7000 + days_back
+        stamp = day.strftime("%Y-%m-%d 15:00:00")
+        pos_orders.append(
+            {"id": oid, "name": f"III/POS/D{days_back:02d}", "date_order": stamp, "state": "done"}
+        )
+        for p in floor_sellers:
+            if rng.random() < 0.45:  # not everything sells every day
+                line_id += 1
+                pos_lines.append(
+                    {
+                        "id": line_id,
+                        "order_id": [oid, f"III/POS/D{days_back:02d}"],
+                        "product_id": [p["id"], p["display_name"]],
+                        "qty": rng.choice([1, 1, 1, 2, 2, 3, 4, 5, 6]),
+                    }
+                )
 
     # ------------------------------------------------------------- incoming
     incoming: list[dict] = []

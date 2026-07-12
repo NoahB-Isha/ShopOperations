@@ -8,6 +8,7 @@ test("each role sees its own nav", () => {
   expect(navForRoles(new Set(["warehouse"])).map((i) => i.label)).toEqual([
     "Incoming",
     "Transfers",
+    "Adjustments",
     "Catalog",
   ]);
   expect(navForRoles(new Set(["admin"])).map((i) => i.path)).toContain("/styleguide");

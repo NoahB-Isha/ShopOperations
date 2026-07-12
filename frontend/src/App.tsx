@@ -15,6 +15,14 @@ import { AuditPage } from "./pages/admin/AuditPage";
 import { CentersPage } from "./pages/admin/CentersPage";
 import { StatusPage } from "./pages/admin/StatusPage";
 import { UsersPage } from "./pages/admin/UsersPage";
+import { OrderListEditorPage } from "./pages/orders/OrderListEditorPage";
+import { OrderListsPage } from "./pages/orders/OrderListsPage";
+import { PendingOrdersPage } from "./pages/orders/PendingOrdersPage";
+import { RestockPage } from "./pages/restock/RestockPage";
+import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
+import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
+import { TransferRequestsPage } from "./pages/transfers/TransferRequestsPage";
+import { AdjustmentsPage } from "./pages/warehouse/AdjustmentsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -91,9 +99,10 @@ export default function App() {
                 <Protected title="Audit log" roles={["admin"]}><AuditPage /></Protected>
               } />
               <Route path="/orders" element={
-                <Protected title="Orders" roles={["admin"]}>
-                  <ComingSoon what="Order management" phase="Phase 2" />
-                </Protected>
+                <Protected title="Order lists" roles={["admin"]}><OrderListsPage /></Protected>
+              } />
+              <Route path="/orders/:id" element={
+                <Protected title="Order list" roles={["admin"]}><OrderListEditorPage /></Protected>
               } />
 
               {/* coordinator / liaison */}
@@ -104,7 +113,7 @@ export default function App() {
               } />
               <Route path="/pending-orders" element={
                 <Protected title="Pending orders" roles={["zone_coordinator", "dept_liaison"]}>
-                  <ComingSoon what="Order approval" phase="Phase 3" />
+                  <PendingOrdersPage />
                 </Protected>
               } />
 
@@ -126,24 +135,39 @@ export default function App() {
               {/* warehouse */}
               <Route path="/incoming" element={
                 <Protected title="Incoming" roles={["warehouse"]}>
-                  <ComingSoon what="Incoming shipments" phase="Phase 2" />
+                  <ComingSoon what="Incoming shipments" phase="Phase 2b" />
                 </Protected>
               } />
               <Route path="/transfers" element={
                 <Protected title="Transfers" roles={["warehouse"]}>
-                  <ComingSoon what="Transfer fulfillment" phase="Phase 2" />
+                  <TransferRequestsPage />
+                </Protected>
+              } />
+              <Route path="/adjustments" element={
+                <Protected title="Adjustments" roles={["warehouse"]}>
+                  <AdjustmentsPage />
                 </Protected>
               } />
 
-              {/* shoppe floor */}
+              {/* shoppe floor + warehouse shared flow */}
               <Route path="/restock" element={
-                <Protected title="Restock" roles={["shoppe_floor"]}>
-                  <ComingSoon what="Restock lists" phase="Phase 2" />
+                <Protected title="Restock" roles={["shoppe_floor", "warehouse"]}>
+                  <RestockPage />
                 </Protected>
               } />
               <Route path="/transfer-requests" element={
-                <Protected title="Transfer requests" roles={["shoppe_floor"]}>
-                  <ComingSoon what="Floor transfer requests" phase="Phase 2" />
+                <Protected title="Transfer requests" roles={["shoppe_floor", "warehouse"]}>
+                  <TransferRequestsPage />
+                </Protected>
+              } />
+              <Route path="/transfer-requests/new" element={
+                <Protected title="Request stock" roles={["shoppe_floor"]}>
+                  <NewTransferRequestPage />
+                </Protected>
+              } />
+              <Route path="/transfer-requests/:id" element={
+                <Protected title="Transfer request" roles={["shoppe_floor", "warehouse"]}>
+                  <TransferRequestDetailPage />
                 </Protected>
               } />
 
