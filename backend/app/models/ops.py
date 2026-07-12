@@ -1,6 +1,15 @@
-"""Phase-2 internal-flow models: order lists, BWHSE→Floor transfer requests
-with staging reconciliation, the warehouse adjustments queue, and restock
-state (daily sales buckets + the accumulator ported from ILscripts).
+"""Phase-2 internal-flow models.
+
+Order lists are CATALOGS, not orders: curated sets of currently-active
+products people order FROM. Admin curates and grants lists to zones; each
+zone's coordinator decides which of those lists each of their centers can
+order from. Quantities and approvals belong to actual orders (phase 3).
+
+Transfer requests mirror Odoo: placing one immediately renders a DRAFT
+BWHSE→STAGING picking (the request adopts the picking's name), warehouse
+acknowledges ("working on it") and finishes ("sent"), then the app prepares
+the STAGING→FLOOR count transfer for Odoo's barcode app and listens for its
+validation. Sent-vs-counted mismatches land in the adjustments queue.
 """
 from __future__ import annotations
 
@@ -8,6 +17,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -24,62 +34,28 @@ from .catalog import Product
 
 
 # --------------------------------------------------------------- order lists
-class OrderListStatus(str, enum.Enum):
-    DRAFT = "draft"  # admin is editing
-    PENDING_APPROVAL = "pending_approval"  # assigned, waiting on the coordinator
-    APPROVED = "approved"  # approval ran (write outcome recorded separately)
-    RETURNED = "returned"  # coordinator sent it back with a note
-
-
-class OrderListWriteStatus(str, enum.Enum):
-    """The honest write outcome shown in the UI. `simulated` covers every
-    dry-run reason (kill switch, feature flag, fixture mode)."""
-
-    NONE = "none"
-    CREATED = "created"
-    SIMULATED = "simulated"
-    FAILED = "failed"
-
-
 class OrderList(Base, TimestampMixin):
-    """An admin-curated list of items destined for one center, approved by
-    that center's zone coordinator. Approval creates a DRAFT internal
-    transfer in Odoo (BWHSE → the center's location) via the OdooWriter."""
+    """A curated, orderable product set (no quantities — it's a menu)."""
 
     __tablename__ = "order_lists"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(160))
     notes: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(
-        String(20), default=OrderListStatus.DRAFT.value, index=True
-    )
-
-    zone_id: Mapped[int | None] = mapped_column(ForeignKey("zones.id"), index=True)
-    center_id: Mapped[int | None] = mapped_column(ForeignKey("centers.id"), index=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("order_lists.id"))
-
-    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    returned_note: Mapped[str] = mapped_column(Text, default="")
-
-    # ---- Odoo write outcome (full history lives in odoo_write_audit) ----
-    write_status: Mapped[str] = mapped_column(
-        String(12), default=OrderListWriteStatus.NONE.value
-    )
-    write_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-OL-…
-    write_dry_run_reason: Mapped[str] = mapped_column(String(30), default="")
-    write_error: Mapped[str] = mapped_column(Text, default="")
-    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
-    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
-    odoo_url: Mapped[str] = mapped_column(String(500), default="")
 
     lines: Mapped[list[OrderListLine]] = relationship(
         back_populates="order_list",
         cascade="all, delete-orphan",
         order_by="OrderListLine.position",
+    )
+    zone_grants: Mapped[list[OrderListZone]] = relationship(
+        back_populates="order_list", cascade="all, delete-orphan"
+    )
+    center_grants: Mapped[list[OrderListCenter]] = relationship(
+        back_populates="order_list", cascade="all, delete-orphan"
     )
 
 
@@ -92,27 +68,71 @@ class OrderListLine(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_list_id: Mapped[int] = mapped_column(ForeignKey("order_lists.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    qty: Mapped[float] = mapped_column(Float)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
     order_list: Mapped[OrderList] = relationship(back_populates="lines")
     product: Mapped[Product] = relationship()
 
 
+class OrderListZone(Base):
+    """Admin grant: this zone's coordinator may use (and re-grant) the list."""
+
+    __tablename__ = "order_list_zones"
+    __table_args__ = (
+        UniqueConstraint("order_list_id", "zone_id", name="uq_orderlist_zone"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_list_id: Mapped[int] = mapped_column(ForeignKey("order_lists.id"), index=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id"), index=True)
+    granted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    order_list: Mapped[OrderList] = relationship(back_populates="zone_grants")
+
+
+class OrderListCenter(Base):
+    """Coordinator grant: this center's orderers may order from the list
+    (drives the phase-3 order form's catalog)."""
+
+    __tablename__ = "order_list_centers"
+    __table_args__ = (
+        UniqueConstraint("order_list_id", "center_id", name="uq_orderlist_center"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_list_id: Mapped[int] = mapped_column(ForeignKey("order_lists.id"), index=True)
+    center_id: Mapped[int] = mapped_column(ForeignKey("centers.id"), index=True)
+    granted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    order_list: Mapped[OrderList] = relationship(back_populates="center_grants")
+
+
 # ------------------------------------------------- BWHSE→Floor transfer flow
 class TransferRequestStatus(str, enum.Enum):
-    REQUESTED = "requested"  # floor built the list
-    PICKED = "picked"  # warehouse pulled stock (qty_sent fixed here)
-    IN_STAGING = "in_staging"  # physically delivered to III-FLOOR-STAGING
-    COUNTED = "counted"  # floor counted; discrepancies queued
-    ON_FLOOR = "on_floor"  # shelved — flow complete
+    REQUESTED = "requested"  # placed; Odoo draft rendered immediately
+    WORKING = "working_on_it"  # warehouse has eyes on it
+    SENT = "sent"  # warehouse done; stock physically at staging
+    COUNTING = "counting"  # count transfer prepared; floor scans in Odoo barcode
+    DONE = "done"  # count transfer validated in Odoo (or closed manually)
     CANCELLED = "cancelled"
 
 
+class OdooWriteOutcome(str, enum.Enum):
+    """Honest outcome of an app-rendered Odoo record."""
+
+    NONE = "none"
+    CREATED = "created"
+    SIMULATED = "simulated"  # kill switch / feature flag / fixture mode
+    FAILED = "failed"
+
+
 class TransferRequest(Base, TimestampMixin):
-    """A floor-initiated BWHSE→Floor stock request. One shared status
-    timeline for both sides; the staging count reconciles sent vs counted and
-    routes discrepancies into the warehouse adjustments queue."""
+    """A floor-initiated BWHSE→Floor stock request, tracked against its Odoo
+    pickings. The BWHSE→STAGING draft is rendered at placement and gives the
+    request its name; the STAGING→FLOOR count transfer is prepared at 'sent'
+    and validated by a human in Odoo's barcode app."""
 
     __tablename__ = "transfer_requests"
 
@@ -123,15 +143,40 @@ class TransferRequest(Base, TimestampMixin):
     notes: Mapped[str] = mapped_column(Text, default="")
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
+    # ---- leg 1: BWHSE → STAGING (rendered at placement) ----
+    picking_status: Mapped[str] = mapped_column(
+        String(12), default=OdooWriteOutcome.NONE.value
+    )
+    picking_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-TR-…
+    picking_error: Mapped[str] = mapped_column(Text, default="")
+    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
+    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
+    odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
+
+    # ---- leg 2: STAGING → FLOOR count transfer (prepared at 'sent') ----
+    count_status: Mapped[str] = mapped_column(
+        String(12), default=OdooWriteOutcome.NONE.value
+    )
+    count_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-CNT-…
+    count_error: Mapped[str] = mapped_column(Text, default="")
+    count_picking_id: Mapped[int | None] = mapped_column(Integer)
+    count_picking_name: Mapped[str] = mapped_column(String(80), default="")
+    count_picking_url: Mapped[str] = mapped_column(String(500), default="")
+    count_barcode_url: Mapped[str] = mapped_column(String(500), default="")
+    # last time the app checked Odoo for the count picking's validation
+    count_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     lines: Mapped[list[TransferRequestLine]] = relationship(
         back_populates="request", cascade="all, delete-orphan", order_by="TransferRequestLine.id"
     )
     events: Mapped[list[TransferEvent]] = relationship(
         back_populates="request", cascade="all, delete-orphan", order_by="TransferEvent.id"
     )
-    odoo_drafts: Mapped[list[TransferOdooDraft]] = relationship(
-        back_populates="request", cascade="all, delete-orphan", order_by="TransferOdooDraft.id"
-    )
+
+    @property
+    def display_name(self) -> str:
+        """The Odoo picking name IS the order's identity once it exists."""
+        return self.odoo_picking_name or f"#{self.id}"
 
 
 class TransferRequestLine(Base):
@@ -144,19 +189,19 @@ class TransferRequestLine(Base):
     request_id: Mapped[int] = mapped_column(ForeignKey("transfer_requests.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     qty_requested: Mapped[float] = mapped_column(Float)
-    qty_sent: Mapped[float | None] = mapped_column(Float)  # set at pick time
-    qty_counted: Mapped[float | None] = mapped_column(Float)  # set at staging count
+    qty_sent: Mapped[float | None] = mapped_column(Float)  # read back from Odoo at 'sent'
+    qty_counted: Mapped[float | None] = mapped_column(Float)  # from the validated count
 
     request: Mapped[TransferRequest] = relationship(back_populates="lines")
     product: Mapped[Product] = relationship()
 
 
 class TransferEventKind(str, enum.Enum):
-    STATUS = "status"  # status advanced (event.status = new status)
+    STATUS = "status"
     NOTE = "note"
     LINES_EDITED = "lines_edited"
-    ODOO_DRAFT = "odoo_draft"  # a draft transfer was rendered/created in Odoo
-    DISCREPANCY = "discrepancy"  # staging count mismatch summary
+    ODOO = "odoo"  # a picking was rendered / refreshed / validated
+    DISCREPANCY = "discrepancy"
 
 
 class TransferEvent(Base):
@@ -173,29 +218,6 @@ class TransferEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     request: Mapped[TransferRequest] = relationship(back_populates="events")
-
-
-class TransferOdooDraft(Base):
-    """Outcome of one attempt to render/create a draft Odoo picking for a
-    leg of the flow (BWHSE→STAGING at pick, STAGING→FLOOR after count).
-    Attempts append; the newest row per leg is the current outcome."""
-
-    __tablename__ = "transfer_odoo_drafts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    request_id: Mapped[int] = mapped_column(ForeignKey("transfer_requests.id"), index=True)
-    leg: Mapped[str] = mapped_column(String(20))  # bwhse_staging | staging_floor
-    status: Mapped[str] = mapped_column(String(12))  # created | simulated | failed
-    reference: Mapped[str] = mapped_column(String(40), default="")
-    dry_run_reason: Mapped[str] = mapped_column(String(30), default="")
-    error: Mapped[str] = mapped_column(Text, default="")
-    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
-    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
-    odoo_url: Mapped[str] = mapped_column(String(500), default="")
-    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-    request: Mapped[TransferRequest] = relationship(back_populates="odoo_drafts")
 
 
 # --------------------------------------------------------- adjustments queue
@@ -218,7 +240,7 @@ class Adjustment(Base):
     line_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_request_lines.id"))
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     qty_expected: Mapped[float] = mapped_column(Float)  # what warehouse sent
-    qty_counted: Mapped[float] = mapped_column(Float)  # what staging counted
+    qty_counted: Mapped[float] = mapped_column(Float)  # what the count validated
     delta: Mapped[float] = mapped_column(Float)  # counted - expected
     status: Mapped[str] = mapped_column(
         String(12), default=AdjustmentStatus.OPEN.value, index=True

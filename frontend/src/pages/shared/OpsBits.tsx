@@ -4,7 +4,7 @@
    system — these know API shapes. */
 import { useState } from "react";
 import { useProducts } from "../../api/hooks";
-import type { ProductOut, TransferStatus, WriteStatus } from "../../api/types";
+import type { ProductOut, TransferStatus } from "../../api/types";
 import { Badge, Button, Input, Spinner, toneForLabel } from "../../design";
 import type { BadgeTone } from "../../design";
 
@@ -36,13 +36,15 @@ export function WriteStatusChip({
   status,
   dryRunReason = "",
   error = "",
+  createdLabel = "in Odoo",
 }: {
-  status: WriteStatus | "created" | "simulated" | "failed";
+  status: "none" | "created" | "simulated" | "failed";
   dryRunReason?: string;
   error?: string;
+  createdLabel?: string;
 }) {
   if (status === "none") return null;
-  if (status === "created") return <Badge tone="forest">draft created in Odoo</Badge>;
+  if (status === "created") return <Badge tone="forest">{createdLabel}</Badge>;
   if (status === "failed") return <Badge tone="danger" title={error}>write failed</Badge>;
   return (
     <Badge tone="gold" title={DRY_RUN_EXPLANATIONS[dryRunReason] ?? "Dry run — nothing written."}>
@@ -69,18 +71,18 @@ export function OdooLink({ url, name }: { url: string; name?: string }) {
 /* -------------------------------------------------------- transfer status */
 export const TRANSFER_STEPS: TransferStatus[] = [
   "requested",
-  "picked",
-  "in_staging",
-  "counted",
-  "on_floor",
+  "working_on_it",
+  "sent",
+  "counting",
+  "done",
 ];
 
 export const TRANSFER_LABELS: Record<TransferStatus, string> = {
   requested: "Requested",
-  picked: "Picked",
-  in_staging: "In staging",
-  counted: "Counted",
-  on_floor: "On floor",
+  working_on_it: "Working on it",
+  sent: "Sent",
+  counting: "Counting",
+  done: "Done",
   cancelled: "Cancelled",
 };
 
@@ -88,12 +90,13 @@ export function transferTone(status: TransferStatus): BadgeTone {
   switch (status) {
     case "requested":
       return "secondary";
-    case "picked":
-    case "in_staging":
+    case "working_on_it":
       return "gold";
-    case "counted":
+    case "sent":
       return "tertiary";
-    case "on_floor":
+    case "counting":
+      return "copper";
+    case "done":
       return "forest";
     case "cancelled":
       return "neutral";

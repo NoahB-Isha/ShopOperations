@@ -181,10 +181,14 @@ export function useImportCoordinators() {
 }
 
 // -------------------------------------------------------------- order lists
-export function useOrderLists(status = "") {
+
+export function useOrderLists(includeArchived = false) {
   return useQuery({
-    queryKey: ["order-lists", status],
-    queryFn: () => api<OrderListSummaryOut[]>("/order-lists", { params: { status } }),
+    queryKey: ["order-lists", includeArchived],
+    queryFn: () =>
+      api<OrderListSummaryOut[]>("/order-lists", {
+        params: { include_archived: includeArchived },
+      }),
   });
 }
 
@@ -214,15 +218,15 @@ export function useCreateOrderList() {
 }
 
 export function usePatchOrderList() {
-  return useOrderListMutation(({ id, ...body }: { id: number; name?: string; notes?: string }) =>
-    api<OrderListOut>(`/order-lists/${id}`, { method: "PATCH", body }),
+  return useOrderListMutation(
+    ({ id, ...body }: { id: number; name?: string; notes?: string; is_archived?: boolean }) =>
+      api<OrderListOut>(`/order-lists/${id}`, { method: "PATCH", body }),
   );
 }
 
 export function usePutOrderListLines() {
-  return useOrderListMutation(
-    ({ id, lines }: { id: number; lines: { product_id: number; qty: number }[] }) =>
-      api<OrderListOut>(`/order-lists/${id}/lines`, { method: "PUT", body: { lines } }),
+  return useOrderListMutation(({ id, product_ids }: { id: number; product_ids: number[] }) =>
+    api<OrderListOut>(`/order-lists/${id}/lines`, { method: "PUT", body: { product_ids } }),
   );
 }
 
@@ -238,33 +242,27 @@ export function useDeleteOrderList() {
   );
 }
 
-export function useAssignOrderList() {
-  return useOrderListMutation(
-    ({ id, zone_id, center_id }: { id: number; zone_id: number; center_id: number }) =>
-      api<OrderListOut>(`/order-lists/${id}/assign`, {
-        method: "POST",
-        body: { zone_id, center_id },
-      }),
+export function useSetOrderListZones() {
+  return useOrderListMutation(({ id, zone_ids }: { id: number; zone_ids: number[] }) =>
+    api<OrderListOut>(`/order-lists/${id}/zones`, { method: "PUT", body: { zone_ids } }),
   );
 }
 
-export function useReturnOrderList() {
-  return useOrderListMutation(({ id, note }: { id: number; note: string }) =>
-    api<OrderListOut>(`/order-lists/${id}/return`, { method: "POST", body: { note } }),
-  );
-}
-
-export function useApproveOrderList() {
-  return useOrderListMutation(({ id, dry_run = false }: { id: number; dry_run?: boolean }) =>
-    api<OrderListOut>(`/order-lists/${id}/approve`, { method: "POST", body: { dry_run } }),
+export function useSetOrderListCenters() {
+  return useOrderListMutation(({ id, center_ids }: { id: number; center_ids: number[] }) =>
+    api<OrderListOut>(`/order-lists/${id}/centers`, { method: "PUT", body: { center_ids } }),
   );
 }
 
 // ---------------------------------------------------------------- transfers
+// the board polls like a food-POS screen: state changes appear on their own
+const BOARD_POLL_MS = 4000;
+
 export function useTransferRequests(status = "") {
   return useQuery({
     queryKey: ["transfer-requests", status],
     queryFn: () => api<TransferSummaryOut[]>("/transfer-requests", { params: { status } }),
+    refetchInterval: BOARD_POLL_MS,
   });
 }
 
@@ -273,6 +271,7 @@ export function useTransferRequest(id: number | null) {
     queryKey: ["transfer-request", id],
     queryFn: () => api<TransferRequestOut>(`/transfer-requests/${id}`),
     enabled: id !== null,
+    refetchInterval: BOARD_POLL_MS,
   });
 }
 
@@ -305,17 +304,9 @@ export function useReplaceTransferLines() {
   );
 }
 
-export function useFulfillTransfer() {
-  return useTransferMutation(
-    ({ id, lines, note }: { id: number; lines: { line_id: number; qty_sent: number }[]; note?: string }) =>
-      api<TransferRequestOut>(`/transfer-requests/${id}/fulfill`, {
-        method: "POST",
-        body: { lines, note },
-      }),
-  );
-}
-
-export function useTransferAction(action: "stage" | "complete" | "cancel" | "note") {
+export function useTransferAction(
+  action: "ack" | "sent" | "prepare-count" | "mark-done" | "cancel" | "note",
+) {
   return useTransferMutation(({ id, note }: { id: number; note?: string }) =>
     api<TransferRequestOut>(`/transfer-requests/${id}/${action}`, {
       method: "POST",
@@ -324,29 +315,11 @@ export function useTransferAction(action: "stage" | "complete" | "cancel" | "not
   );
 }
 
-export function useCountTransfer() {
-  return useTransferMutation(
-    ({ id, lines, note }: { id: number; lines: { line_id: number; qty_counted: number }[]; note?: string }) =>
-      api<TransferRequestOut>(`/transfer-requests/${id}/count`, {
-        method: "POST",
-        body: { lines, note },
-      }),
-  );
-}
-
-export function useOdooDraft() {
-  return useTransferMutation(({ id, leg }: { id: number; leg: string }) =>
-    api<TransferRequestOut>(`/transfer-requests/${id}/odoo-draft`, {
-      method: "POST",
-      body: { leg },
-    }),
-  );
-}
-
 export function useAdjustments(status = "open") {
   return useQuery({
     queryKey: ["adjustments", status],
     queryFn: () => api<AdjustmentOut[]>("/adjustments", { params: { status } }),
+    refetchInterval: 15_000,
   });
 }
 

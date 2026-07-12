@@ -1,10 +1,14 @@
 """BWHSE→Floor transfer requests + the warehouse adjustments queue.
 
-Replaces the WhatsApp "floor transfers" group: floor builds the request,
-warehouse picks and stages, floor counts, and every sent-vs-counted mismatch
-lands in the adjustments queue instead of a chat scrollback. Optionally, each
-physical leg can be rendered as a DRAFT internal transfer in Odoo through the
-OdooWriter (same feature flag + kill switch as every write).
+Odoo-native flow: placing a request immediately renders the BWHSE→STAGING
+draft (the request adopts the picking's name). Warehouse taps "working on
+it" then "sent" — their part ends there. The app prepares the STAGING→FLOOR
+count transfer (duplicate → mark To Do → check availability), the floor
+scans it in Odoo's barcode app, and the app listens for the validation to
+close the request and reconcile sent-vs-counted into the adjustments queue.
+
+The UI polls these endpoints (POS-board style); reads are cheap and the
+Odoo validation check is throttled per request.
 """
 from __future__ import annotations
 
@@ -21,31 +25,23 @@ from ..db import get_db
 from ..models import (
     Adjustment,
     AdjustmentStatus,
+    OdooWriteOutcome,
     Product,
     Role,
     StockLevel,
     TransferEvent,
     TransferEventKind,
-    TransferOdooDraft,
     TransferRequest,
     TransferRequestLine,
     TransferRequestStatus,
     User,
     utcnow,
 )
-from ..odoo.errors import OdooWriteError
-from ..odoo.operations import new_reference
-from ..odoo.writer import OdooWriter
-from .flow import (
-    ODOO_LEGS,
-    InvalidTransition,
-    NotAllowedError,
-    check_leg,
-    check_transition,
-    reconcile,
-)
+from . import service
+from .flow import InvalidTransition, NotAllowedError, check_transition
 
 PARTICIPANTS = (Role.SHOPPE_FLOOR, Role.WAREHOUSE)
+S = TransferRequestStatus
 
 router = APIRouter(
     prefix="/transfer-requests",
@@ -80,7 +76,7 @@ class LineOut(BaseModel):
     qty_requested: float
     qty_sent: float | None
     qty_counted: float | None
-    delta: float | None  # counted - sent, once counted
+    delta: float | None  # counted - sent, once done
     floor_qty: float
     bwhse_qty: float
 
@@ -94,32 +90,30 @@ class EventOut(BaseModel):
     created_at: datetime
 
 
-class OdooDraftOut(BaseModel):
-    id: int
-    leg: str
-    label: str
-    status: str  # created | simulated | failed
-    reference: str
-    dry_run_reason: str
-    error: str
-    odoo_picking_id: int | None
-    odoo_picking_name: str
-    odoo_url: str
-    created_at: datetime
-
-
 class ActionsOut(BaseModel):
     can_edit_lines: bool = False
-    can_fulfill: bool = False
-    can_stage: bool = False
-    can_count: bool = False
-    can_complete: bool = False
+    can_ack: bool = False
+    can_mark_sent: bool = False
+    can_prepare_count: bool = False
+    can_mark_done: bool = False
     can_cancel: bool = False
-    odoo_legs: list[str] = []
+
+
+class OdooRefOut(BaseModel):
+    """One picking's honest linkage: outcome + name + links."""
+
+    status: str  # none | created | simulated | failed
+    reference: str
+    error: str
+    picking_id: int | None
+    picking_name: str
+    url: str
+    barcode_url: str = ""
 
 
 class RequestSummaryOut(BaseModel):
     id: int
+    display_name: str
     status: str
     created_by: str
     created_at: datetime
@@ -127,41 +121,26 @@ class RequestSummaryOut(BaseModel):
     line_count: int
     total_requested: float
     open_adjustments: int
+    picking_status: str
+    count_status: str
 
 
 class RequestOut(BaseModel):
     id: int
+    display_name: str
     status: str
     notes: str
     created_by: str
     created_at: datetime
     updated_at: datetime
+    placement: OdooRefOut
+    count: OdooRefOut
     lines: list[LineOut]
     events: list[EventOut]
-    odoo_drafts: list[OdooDraftOut]
     actions: ActionsOut
 
 
 # ------------------------------------------------------------------ helpers
-def _event(
-    db: Session,
-    request: TransferRequest,
-    kind: TransferEventKind,
-    actor: AuthedUser | None,
-    status: str = "",
-    note: str = "",
-) -> None:
-    db.add(
-        TransferEvent(
-            request_id=request.id,
-            kind=kind.value,
-            status=status,
-            note=note,
-            actor_user_id=actor.id if actor else None,
-        )
-    )
-
-
 def _get_request(db: Session, request_id: int) -> TransferRequest:
     # populate_existing: the session keeps objects across commits
     # (expire_on_commit=False), so re-reads must overwrite stale collections
@@ -170,7 +149,6 @@ def _get_request(db: Session, request_id: int) -> TransferRequest:
         .options(
             selectinload(TransferRequest.lines).selectinload(TransferRequestLine.product),
             selectinload(TransferRequest.events),
-            selectinload(TransferRequest.odoo_drafts),
         )
         .where(TransferRequest.id == request_id)
         .execution_options(populate_existing=True)
@@ -202,43 +180,43 @@ def _user_names(db: Session, ids: set[int | None]) -> dict[int, str]:
     }
 
 
+def _may(current: str, to: str, authed: AuthedUser) -> bool:
+    try:
+        check_transition(current, to, authed.role_names)
+        return True
+    except (InvalidTransition, NotAllowedError):
+        return False
+
+
 def _actions(req: TransferRequest, authed: AuthedUser) -> ActionsOut:
-    roles = authed.role_names
-    s = req.status
-    S = TransferRequestStatus
-
-    def may(to: str) -> bool:
-        try:
-            check_transition(s, to, roles)
-            return True
-        except (InvalidTransition, NotAllowedError):
-            return False
-
-    legs = []
-    for leg in ODOO_LEGS:
-        try:
-            check_leg(leg, s, roles)
-            legs.append(leg)
-        except (InvalidTransition, NotAllowedError):
-            continue
-    is_floor = Role.SHOPPE_FLOOR.value in roles or Role.ADMIN.value in roles
+    is_floor = authed.has_role(Role.SHOPPE_FLOOR, Role.ADMIN)
+    count_live = req.count_status == OdooWriteOutcome.CREATED.value
     return ActionsOut(
-        can_edit_lines=s == S.REQUESTED.value and is_floor,
-        can_fulfill=may(S.PICKED.value),
-        can_stage=may(S.IN_STAGING.value),
-        can_count=may(S.COUNTED.value),
-        can_complete=may(S.ON_FLOOR.value),
-        can_cancel=may(S.CANCELLED.value),
-        odoo_legs=legs,
+        can_edit_lines=(
+            req.status == S.REQUESTED.value
+            and req.picking_status != OdooWriteOutcome.CREATED.value
+            and is_floor
+        ),
+        can_ack=_may(req.status, S.WORKING.value, authed),
+        can_mark_sent=_may(req.status, S.SENT.value, authed),
+        can_prepare_count=(
+            (
+                req.status == S.SENT.value
+                or (req.status == S.COUNTING.value and req.count_status == "failed")
+            )
+            and authed.has_role(Role.WAREHOUSE, Role.SHOPPE_FLOOR, Role.ADMIN)
+        ),
+        can_mark_done=(
+            req.status in (S.SENT.value, S.COUNTING.value) and not count_live and is_floor
+        ),
+        can_cancel=_may(req.status, S.CANCELLED.value, authed),
     )
 
 
-def _request_out(db: Session, req: TransferRequest, authed: AuthedUser) -> RequestOut:
+def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: AuthedUser) -> RequestOut:
     pids = {line.product_id for line in req.lines}
     stock = _stock_map(db, pids)
-    names = _user_names(
-        db, {req.created_by_id} | {e.actor_user_id for e in req.events}
-    )
+    names = _user_names(db, {req.created_by_id} | {e.actor_user_id for e in req.events})
     lines = []
     for line in req.lines:
         p = line.product
@@ -272,32 +250,33 @@ def _request_out(db: Session, req: TransferRequest, authed: AuthedUser) -> Reque
         )
         for e in req.events
     ]
-    drafts = [
-        OdooDraftOut(
-            id=d.id,
-            leg=d.leg,
-            label=ODOO_LEGS[d.leg]["label"] if d.leg in ODOO_LEGS else d.leg,
-            status=d.status,
-            reference=d.reference,
-            dry_run_reason=d.dry_run_reason,
-            error=d.error,
-            odoo_picking_id=d.odoo_picking_id,
-            odoo_picking_name=d.odoo_picking_name,
-            odoo_url=d.odoo_url,
-            created_at=d.created_at,
-        )
-        for d in req.odoo_drafts
-    ]
     return RequestOut(
         id=req.id,
+        display_name=req.display_name,
         status=req.status,
         notes=req.notes,
         created_by=names.get(req.created_by_id or 0, "unknown"),
         created_at=req.created_at,
         updated_at=req.updated_at,
+        placement=OdooRefOut(
+            status=req.picking_status,
+            reference=req.picking_reference,
+            error=req.picking_error,
+            picking_id=req.odoo_picking_id,
+            picking_name=req.odoo_picking_name,
+            url=req.odoo_picking_url,
+        ),
+        count=OdooRefOut(
+            status=req.count_status,
+            reference=req.count_reference,
+            error=req.count_error,
+            picking_id=req.count_picking_id,
+            picking_name=req.count_picking_name,
+            url=req.count_picking_url,
+            barcode_url=req.count_barcode_url,
+        ),
         lines=lines,
         events=events,
-        odoo_drafts=drafts,
         actions=_actions(req, authed),
     )
 
@@ -314,12 +293,40 @@ def _validate_lines(db: Session, lines: list[LineIn]) -> list[tuple[Product, flo
         product = db.get(Product, line.product_id)
         if product is None or not product.is_active:
             raise HTTPException(422, f"Product {line.product_id} not found or inactive.")
-        if not product.is_stock_tracked:
+        if not product.is_stock_tracked or not product.odoo_product_id:
             raise HTTPException(
-                422, f"'{product.name}' isn't stock-tracked — it can't go on a transfer."
+                422, f"'{product.name}' isn't tracked in Odoo — it can't go on a transfer."
             )
         out.append((product, float(line.qty)))
     return out
+
+
+def _event(
+    db: Session,
+    req: TransferRequest,
+    kind: TransferEventKind,
+    actor: AuthedUser | None,
+    status: str = "",
+    note: str = "",
+) -> None:
+    db.add(
+        TransferEvent(
+            request_id=req.id,
+            kind=kind.value,
+            status=status,
+            note=note,
+            actor_user_id=actor.id if actor else None,
+        )
+    )
+
+
+def _check(current: str, to: str, authed: AuthedUser) -> None:
+    try:
+        check_transition(current, to, authed.role_names)
+    except InvalidTransition as e:
+        raise HTTPException(409, str(e)) from e
+    except NotAllowedError as e:
+        raise HTTPException(403, str(e)) from e
 
 
 # ---------------------------------------------------------------- endpoints
@@ -327,8 +334,11 @@ def _validate_lines(db: Session, lines: list[LineIn]) -> list[tuple[Product, flo
 def create_request(
     body: CreateRequestIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
 ) -> RequestOut:
+    """Place the request AND render its Odoo draft in one go — the draft is
+    the order; the app page is its live tracker."""
     validated = _validate_lines(db, body.lines)
     req = TransferRequest(notes=body.notes.strip(), created_by_id=authed.id)
     db.add(req)
@@ -338,32 +348,40 @@ def create_request(
             TransferRequestLine(request_id=req.id, product_id=product.id, qty_requested=qty)
         )
     _event(
-        db,
-        req,
-        TransferEventKind.STATUS,
-        authed,
-        status=TransferRequestStatus.REQUESTED.value,
-        note=f"{len(validated)} item(s) requested",
+        db, req, TransferEventKind.STATUS, authed,
+        status=S.REQUESTED.value, note=f"{len(validated)} item(s) requested",
     )
+    db.flush()
+    db.refresh(req)
+    service.render_placement_draft(db, settings, req, authed.id)
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
 @router.get("", response_model=list[RequestSummaryOut])
 def list_requests(
     status: str = "",
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     _: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> list[RequestSummaryOut]:
     q = (
         select(TransferRequest)
         .options(selectinload(TransferRequest.lines))
         .order_by(TransferRequest.id.desc())
+        .execution_options(populate_existing=True)
     )
     if status:
         wanted = {s.strip() for s in status.split(",") if s.strip()}
         q = q.where(TransferRequest.status.in_(wanted))
     requests = db.scalars(q).all()
+
+    # the board is the listener: check a few counting requests per refresh
+    polled = 0
+    for req in requests:
+        if req.status == S.COUNTING.value and polled < 5:
+            polled += 1
+            service.poll_count_validation(db, settings, req)
 
     names = _user_names(db, {r.created_by_id for r in requests})
     open_by_request: dict[int, int] = {}
@@ -380,6 +398,7 @@ def list_requests(
     return [
         RequestSummaryOut(
             id=r.id,
+            display_name=r.display_name,
             status=r.status,
             created_by=names.get(r.created_by_id or 0, "unknown"),
             created_at=r.created_at,
@@ -387,6 +406,8 @@ def list_requests(
             line_count=len(r.lines),
             total_requested=sum(line.qty_requested for line in r.lines),
             open_adjustments=open_by_request.get(r.id, 0),
+            picking_status=r.picking_status,
+            count_status=r.count_status,
         )
         for r in requests
     ]
@@ -396,9 +417,13 @@ def list_requests(
 def get_request(
     request_id: int,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
-    return _request_out(db, _get_request(db, request_id), authed)
+    req = _get_request(db, request_id)
+    if service.poll_count_validation(db, settings, req):
+        req = _get_request(db, request_id)
+    return _request_out(db, settings, req, authed)
 
 
 class LinesIn(BaseModel):
@@ -411,12 +436,17 @@ def replace_lines(
     request_id: int,
     body: LinesIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    if req.status != TransferRequestStatus.REQUESTED.value:
+    if req.status != S.REQUESTED.value:
+        raise HTTPException(409, "Lines can only change while the request is still 'requested'.")
+    if req.picking_status == OdooWriteOutcome.CREATED.value:
         raise HTTPException(
-            409, "Lines can only change while the request is still 'requested'."
+            409,
+            f"This request lives in Odoo as {req.odoo_picking_name} — edit the draft there; "
+            "sent quantities are read back from it.",
         )
     validated = _validate_lines(db, body.lines)
     for line in list(req.lines):
@@ -427,172 +457,129 @@ def replace_lines(
             TransferRequestLine(request_id=req.id, product_id=product.id, qty_requested=qty)
         )
     _event(
-        db,
-        req,
-        TransferEventKind.LINES_EDITED,
-        authed,
+        db, req, TransferEventKind.LINES_EDITED, authed,
         note=body.note or f"list edited — now {len(validated)} item(s)",
     )
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
-
-
-class FulfillLineIn(BaseModel):
-    line_id: int
-    qty_sent: float = Field(ge=0, le=100000)
-
-
-class FulfillIn(BaseModel):
-    lines: list[FulfillLineIn] = []
-    note: str = ""
-
-
-@router.post("/{request_id}/fulfill", response_model=RequestOut)
-def fulfill(
-    request_id: int,
-    body: FulfillIn,
-    db: Session = Depends(get_db),
-    authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
-) -> RequestOut:
-    """Warehouse picks the stock: records what's actually being sent
-    (defaults to the requested quantity) and advances to 'picked'."""
-    req = _get_request(db, request_id)
-    _check(req.status, TransferRequestStatus.PICKED.value, authed)
-    sent_by_line = {entry.line_id: entry.qty_sent for entry in body.lines}
-    unknown = set(sent_by_line) - {line.id for line in req.lines}
-    if unknown:
-        raise HTTPException(422, f"Line ids {sorted(unknown)} aren't on this request.")
-    total_sent = 0.0
-    for line in req.lines:
-        line.qty_sent = float(sent_by_line.get(line.id, line.qty_requested))
-        total_sent += line.qty_sent
-    req.status = TransferRequestStatus.PICKED.value
-    short = [
-        line for line in req.lines if float(line.qty_sent or 0) < float(line.qty_requested)
-    ]
-    note = body.note or (
-        f"picked {total_sent:g} unit(s)"
-        + (f" — {len(short)} line(s) short of the request" if short else "")
-    )
-    _event(db, req, TransferEventKind.STATUS, authed, status=req.status, note=note)
-    db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
 class NoteIn(BaseModel):
     note: str = ""
 
 
-@router.post("/{request_id}/stage", response_model=RequestOut)
-def stage(
+@router.post("/{request_id}/ack", response_model=RequestOut)
+def acknowledge(
     request_id: int,
     body: NoteIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
-    """The picked stock physically arrived at III-FLOOR-STAGING."""
+    """Warehouse has laid eyes on it — 'working on it'."""
     req = _get_request(db, request_id)
-    _check(req.status, TransferRequestStatus.IN_STAGING.value, authed)
-    req.status = TransferRequestStatus.IN_STAGING.value
+    _check(req.status, S.WORKING.value, authed)
+    req.status = S.WORKING.value
     _event(
         db, req, TransferEventKind.STATUS, authed,
-        status=req.status, note=body.note or "delivered to floor staging",
+        status=req.status, note=body.note or "warehouse is working on it",
     )
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
-class CountLineIn(BaseModel):
-    line_id: int
-    qty_counted: float = Field(ge=0, le=100000)
-
-
-class CountIn(BaseModel):
-    lines: list[CountLineIn] = Field(min_length=1)
-    note: str = ""
-
-
-@router.post("/{request_id}/count", response_model=RequestOut)
-def count(
+@router.post("/{request_id}/sent", response_model=RequestOut)
+def mark_sent(
     request_id: int,
-    body: CountIn,
+    body: NoteIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
-    """Floor counts the staged stock. Every line that was sent must be
-    counted; sent-vs-counted mismatches become open adjustments for the
-    warehouse queue."""
+    """Warehouse is done: stock is at staging. Sent quantities are read back
+    from the Odoo picking, and the count transfer is prepared for the
+    barcode app in the same motion."""
     req = _get_request(db, request_id)
-    _check(req.status, TransferRequestStatus.COUNTED.value, authed)
-
-    counted_by_line = {entry.line_id: entry.qty_counted for entry in body.lines}
-    unknown = set(counted_by_line) - {line.id for line in req.lines}
-    if unknown:
-        raise HTTPException(422, f"Line ids {sorted(unknown)} aren't on this request.")
-    missing = [
-        line.id
-        for line in req.lines
-        if float(line.qty_sent or 0) > 0 and line.id not in counted_by_line
-    ]
-    if missing:
-        raise HTTPException(
-            422,
-            "Every line that was sent needs a counted quantity "
-            f"(missing line ids {missing}). Count zero if nothing arrived.",
-        )
-    for line in req.lines:
-        if line.id in counted_by_line:
-            line.qty_counted = float(counted_by_line[line.id])
-        elif float(line.qty_sent or 0) == 0:
-            line.qty_counted = 0.0
-
-    discrepancies = reconcile(req.lines)
-    for d in discrepancies:
-        db.add(
-            Adjustment(
-                request_id=req.id,
-                line_id=d.line_id,
-                product_id=d.product_id,
-                qty_expected=d.qty_expected,
-                qty_counted=d.qty_counted,
-                delta=d.delta,
-                note=f"Staging count on request #{req.id}",
-            )
-        )
-    req.status = TransferRequestStatus.COUNTED.value
+    _check(req.status, S.SENT.value, authed)
+    readback_note = service.refresh_sent_quantities(db, settings, req)
+    req.status = S.SENT.value
     _event(
         db, req, TransferEventKind.STATUS, authed,
-        status=req.status, note=body.note or "staging count recorded",
+        status=req.status, note=body.note or "sent to floor staging",
     )
-    if discrepancies:
-        detail = "; ".join(
-            f"line {d.line_id}: sent {d.qty_expected:g}, counted {d.qty_counted:g} ({d.delta:+g})"
-            for d in discrepancies
-        )
+    _event(db, req, TransferEventKind.ODOO, authed, note=readback_note)
+
+    service.prepare_count_transfer(db, settings, req, authed.id)
+    if req.count_status in (
+        OdooWriteOutcome.CREATED.value,
+        OdooWriteOutcome.SIMULATED.value,
+    ):
+        req.status = S.COUNTING.value
         _event(
-            db, req, TransferEventKind.DISCREPANCY, authed,
-            note=f"{len(discrepancies)} discrepancy(ies) → adjustments queue: {detail}",
+            db, req, TransferEventKind.STATUS, authed,
+            status=req.status, note="ready to count",
         )
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
-@router.post("/{request_id}/complete", response_model=RequestOut)
-def complete(
+@router.post("/{request_id}/prepare-count", response_model=RequestOut)
+def retry_prepare_count(
     request_id: int,
-    body: NoteIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    _check(req.status, TransferRequestStatus.ON_FLOOR.value, authed)
-    req.status = TransferRequestStatus.ON_FLOOR.value
-    _event(
-        db, req, TransferEventKind.STATUS, authed,
-        status=req.status, note=body.note or "shelved on the floor",
+    if req.status not in (S.SENT.value, S.COUNTING.value):
+        raise HTTPException(409, "The count transfer applies once the request is sent.")
+    if req.count_status == OdooWriteOutcome.CREATED.value:
+        raise HTTPException(409, f"{req.count_picking_name} already exists — scan it in Odoo.")
+    service.prepare_count_transfer(db, settings, req, authed.id)
+    if req.status == S.SENT.value and req.count_status in (
+        OdooWriteOutcome.CREATED.value,
+        OdooWriteOutcome.SIMULATED.value,
+    ):
+        req.status = S.COUNTING.value
+        _event(
+            db, req, TransferEventKind.STATUS, authed,
+            status=req.status, note="ready to count",
+        )
+    db.commit()
+    return _request_out(db, settings, _get_request(db, req.id), authed)
+
+
+@router.post("/{request_id}/mark-done", response_model=RequestOut)
+def mark_done(
+    request_id: int,
+    body: NoteIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
+) -> RequestOut:
+    """Manual close for when there's no live count picking (writes gated,
+    fixture mode, or the count failed): counted is taken as sent, so no
+    discrepancies are invented."""
+    req = _get_request(db, request_id)
+    _check(req.status, S.DONE.value, authed)
+    if req.count_status == OdooWriteOutcome.CREATED.value:
+        raise HTTPException(
+            409,
+            f"{req.count_picking_name} is live in Odoo — validate it in the barcode app and "
+            "the request will close itself.",
+        )
+    counted = {
+        line.product.odoo_product_id: float(line.qty_sent or 0)
+        for line in req.lines
+        if line.product.odoo_product_id
+    }
+    service.finish_from_count(
+        db, req, counted,
+        source=body.note or "closed manually (no live count transfer)",
+        actor_user_id=authed.id,
     )
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
 @router.post("/{request_id}/cancel", response_model=RequestOut)
@@ -600,17 +587,19 @@ def cancel(
     request_id: int,
     body: NoteIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    _check(req.status, TransferRequestStatus.CANCELLED.value, authed)
-    req.status = TransferRequestStatus.CANCELLED.value
+    _check(req.status, S.CANCELLED.value, authed)
+    req.status = S.CANCELLED.value
     _event(
         db, req, TransferEventKind.STATUS, authed,
         status=req.status, note=body.note or "cancelled",
     )
+    service.cancel_placement_draft(db, settings, req, authed.id)
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
 @router.post("/{request_id}/note", response_model=RequestOut)
@@ -618,6 +607,7 @@ def add_note(
     request_id: int,
     body: NoteIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     if not body.note.strip():
@@ -625,89 +615,7 @@ def add_note(
     req = _get_request(db, request_id)
     _event(db, req, TransferEventKind.NOTE, authed, note=body.note.strip())
     db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
-
-
-class OdooDraftIn(BaseModel):
-    leg: str
-
-
-@router.post("/{request_id}/odoo-draft", response_model=RequestOut)
-def create_odoo_draft(
-    request_id: int,
-    body: OdooDraftIn,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
-) -> RequestOut:
-    """Render this leg of the flow as a DRAFT internal transfer in Odoo (or a
-    dry-run when writes are gated). The outcome — created, simulated, or
-    failed — is recorded on the request either way."""
-    req = _get_request(db, request_id)
-    try:
-        spec = check_leg(body.leg, req.status, authed.role_names)
-    except InvalidTransition as e:
-        raise HTTPException(409, str(e)) from e
-    except NotAllowedError as e:
-        raise HTTPException(403, str(e)) from e
-
-    qty_field = spec["qty_field"]
-    lines = [
-        {"product_id": line.product_id, "qty": float(getattr(line, qty_field) or 0)}
-        for line in req.lines
-        if float(getattr(line, qty_field) or 0) > 0
-    ]
-    if not lines:
-        raise HTTPException(422, f"No lines with a positive {qty_field} to transfer.")
-
-    # reuse the leg's reference across retries so Odoo never gets duplicates
-    previous = next((d for d in reversed(req.odoo_drafts) if d.leg == body.leg), None)
-    reference = previous.reference if previous and previous.reference else new_reference("TR")
-
-    writer = OdooWriter(db, settings, actor_user_id=authed.id)
-    try:
-        result = writer.create_internal_transfer(
-            source_key=spec["source_key"],
-            dest_key=spec["dest_key"],
-            lines=lines,
-            note=f"Floor transfer request #{req.id} — {spec['label']}",
-            reference=reference,
-        )
-        draft = TransferOdooDraft(
-            request_id=req.id,
-            leg=body.leg,
-            status="simulated" if result.dry_run else "created",
-            reference=result.reference,
-            dry_run_reason=result.dry_run_reason,
-            odoo_picking_id=result.record_ids[0] if result.record_ids else None,
-            odoo_picking_name="",
-            odoo_url=result.deep_link,
-            created_by_id=authed.id,
-        )
-        note = result.message
-    except OdooWriteError as e:
-        draft = TransferOdooDraft(
-            request_id=req.id,
-            leg=body.leg,
-            status="failed",
-            reference=reference,
-            error=str(e),
-            created_by_id=authed.id,
-        )
-        note = f"{spec['label']} draft FAILED: {e}"
-    db.add(draft)
-    _event(db, req, TransferEventKind.ODOO_DRAFT, authed, note=note)
-    db.commit()
-    return _request_out(db, _get_request(db, req.id), authed)
-
-
-def _check(current: str, to: str, authed: AuthedUser) -> None:
-    try:
-        check_transition(current, to, authed.role_names)
-    except InvalidTransition as e:
-        raise HTTPException(409, str(e)) from e
-    except NotAllowedError as e:
-        raise HTTPException(403, str(e)) from e
+    return _request_out(db, settings, _get_request(db, req.id), authed)
 
 
 # ------------------------------------------------------------- adjustments

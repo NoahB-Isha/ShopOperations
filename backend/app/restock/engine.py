@@ -72,7 +72,12 @@ def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
     eligible = {
         pid
         for (pid,) in db.execute(
-            select(Product.id).where(Product.is_active.is_(True), Product.is_stock_tracked.is_(True))
+            select(Product.id).where(
+                Product.is_active.is_(True),
+                Product.is_stock_tracked.is_(True),
+                # non-retail POS items (campus meals, prasadam…) never restock
+                Product.restock_exclude.is_(False),
+            )
         )
     }
     accums = {a.product_id: a for a in db.scalars(select(RestockAccum))}
@@ -147,12 +152,14 @@ class BackItem:
 
 def floor_list(db: Session, today: date) -> list[FloorItem]:
     """Open lines plus lines checked off today (shown struck-through until
-    the day rolls over)."""
+    the day rolls over). Products excluded AFTER being flagged disappear
+    immediately — the filter applies at read time too."""
     start_of_today = today  # checked_off_at is a datetime; compare on date
     items: list[FloorItem] = []
     for line in db.scalars(
         select(RestockLine)
-        .where(RestockLine.list_type == FLOOR_LIST)
+        .join(Product, Product.id == RestockLine.product_id)
+        .where(RestockLine.list_type == FLOOR_LIST, Product.restock_exclude.is_(False))
         .order_by(RestockLine.flagged_on.desc(), RestockLine.id)
     ):
         checked_at = line.checked_off_at
@@ -199,6 +206,7 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
                 Product.id.in_(sold),
                 Product.is_active.is_(True),
                 Product.is_stock_tracked.is_(True),
+                Product.restock_exclude.is_(False),
             )
         )
     }

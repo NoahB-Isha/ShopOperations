@@ -228,3 +228,45 @@ def test_restock_api_roundtrip_and_checkoffs(client, db, settings_env):
     mk_user(db, "orderer@test.io", (Role.CENTER_ORDERER, None, None))
     other = login(client, "orderer@test.io")
     assert client.get("/api/v1/restock", headers=other).status_code == 403
+
+
+def test_restock_exclude_flag_removes_items_everywhere(client, db, settings_env):
+    """Non-retail POS items (campus meals, prasadam) sell through the same
+    registers but never belong on the restock lists — excluded from the
+    accumulator, from already-flagged lines, and from the back list."""
+    from app.config import get_settings
+
+    a, b, *_ = _fixture_products(db)
+    meals = mk_product(db, "ODOO-46478", "Adult Meals (Dinner)", odoo_id=908)
+    meals.restock_exclude = True
+    _sale(db, meals.id, T - timedelta(days=1), 50)  # would flag loudly
+    _sale(db, a.id, T - timedelta(days=1), 5)
+    # back-list candidates: both sell, both low on floor, both in the warehouse
+    for pid in (a.id, meals.id):
+        _stock(db, pid, "floor", 1)
+        _stock(db, pid, "bwhse", 40)
+    db.commit()
+
+    settings = get_settings()
+    fold_floor_restock(db, settings, T)
+    assert [i.product_id for i in floor_list(db, T)] == [a.id]
+    assert [i.product_id for i in back_list(db, settings, T)] == [a.id]
+
+    # excluding AFTER a line was flagged hides it immediately
+    b_line_sale = _sale(db, b.id, T, 9)  # noqa: F841 — folded next day
+    db.commit()
+    fold_floor_restock(db, settings, T + timedelta(days=1))
+    assert {i.product_id for i in floor_list(db, T + timedelta(days=1))} == {a.id, b.id}
+    b.restock_exclude = True
+    db.commit()
+    assert {i.product_id for i in floor_list(db, T + timedelta(days=1))} == {a.id}
+
+
+def test_admin_toggles_restock_exclude_via_catalog(client, db, settings_env):
+    a, *_ = _fixture_products(db)
+    mk_user(db, "admin@test.io", (Role.ADMIN, None, None))
+    admin = login(client, "admin@test.io")
+    r = client.patch(
+        f"/api/v1/products/{a.id}", json={"restock_exclude": True}, headers=admin
+    )
+    assert r.status_code == 200 and r.json()["restock_exclude"] is True

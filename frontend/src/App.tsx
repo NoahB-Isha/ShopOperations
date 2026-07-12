@@ -15,9 +15,9 @@ import { AuditPage } from "./pages/admin/AuditPage";
 import { CentersPage } from "./pages/admin/CentersPage";
 import { StatusPage } from "./pages/admin/StatusPage";
 import { UsersPage } from "./pages/admin/UsersPage";
+import { CoordinatorListsPage } from "./pages/orders/CoordinatorListsPage";
 import { OrderListEditorPage } from "./pages/orders/OrderListEditorPage";
 import { OrderListsPage } from "./pages/orders/OrderListsPage";
-import { PendingOrdersPage } from "./pages/orders/PendingOrdersPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
@@ -113,7 +113,12 @@ export default function App() {
               } />
               <Route path="/pending-orders" element={
                 <Protected title="Pending orders" roles={["zone_coordinator", "dept_liaison"]}>
-                  <PendingOrdersPage />
+                  <ComingSoon what="Order approval" phase="Phase 3" />
+                </Protected>
+              } />
+              <Route path="/my-order-lists" element={
+                <Protected title="Order lists" roles={["zone_coordinator", "dept_liaison"]}>
+                  <CoordinatorListsPage />
                 </Protected>
               } />
 

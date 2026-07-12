@@ -33,6 +33,33 @@ class TransferLine:
     qty: float
 
 
+def build_count_transfer_payload(
+    *,
+    source_picking_odoo_id: int,
+    staging_location_id: int,
+    floor_location_id: int,
+    reference: str,
+) -> dict:
+    """Descriptive payload for the count-transfer preparation — audited and
+    rendered on dry-runs. The operation is: duplicate the (validated)
+    BWHSE→STAGING picking, point it STAGING→FLOOR, mark To Do, check
+    availability. A human validates it in the barcode app; the app never
+    validates anything."""
+    return {
+        "copy_of_picking": source_picking_odoo_id,
+        "copy_defaults": {
+            "origin": reference,
+            "location_id": staging_location_id,
+            "location_dest_id": floor_location_id,
+        },
+        "then_update_moves": {
+            "location_id": staging_location_id,
+            "location_dest_id": floor_location_id,
+        },
+        "then_call": ["action_confirm", "action_assign"],
+    }
+
+
 def build_internal_transfer_payload(
     *,
     picking_type_id: int | None,

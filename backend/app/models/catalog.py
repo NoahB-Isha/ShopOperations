@@ -55,6 +55,9 @@ class Product(Base, TimestampMixin):
     # --- app-managed (never touched by sync) ---
     case_size: Mapped[int] = mapped_column(Integer, default=1)
     dept_orderable: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Non-retail POS items (campus meals, prasadam…) sell through the same
+    # registers but never belong on the Shoppe restock lists.
+    restock_exclude: Mapped[bool] = mapped_column(Boolean, default=False)
 
     tags: Mapped[list[ProductTag]] = relationship(
         back_populates="product", cascade="all, delete-orphan"

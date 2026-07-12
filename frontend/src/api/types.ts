@@ -46,6 +46,7 @@ export interface ProductOut {
   is_active: boolean;
   case_size: number;
   dept_orderable: boolean;
+  restock_exclude: boolean;
   tags: TagOut[];
   stock: Record<string, number>;
   odoo_url: string | null;
@@ -195,15 +196,17 @@ export interface ImportReportOut {
 }
 
 // ---------------------------------------------------------------- phase 2
-export type WriteStatus = "none" | "created" | "simulated" | "failed";
+export type OdooOutcome = "none" | "created" | "simulated" | "failed";
 
+// order lists are CATALOGS people order from — no quantities
 export interface OrderLineOut {
   id: number;
   product_id: number;
   sku: string;
   name: string;
   category: string;
-  qty: number;
+  is_active: boolean;
+  retail_price: number;
   bwhse_qty: number;
 }
 
@@ -211,50 +214,34 @@ export interface OrderListOut {
   id: number;
   name: string;
   notes: string;
-  status: "draft" | "pending_approval" | "approved" | "returned";
-  zone_id: number | null;
-  zone_name: string;
-  center_id: number | null;
-  center_name: string;
-  center_mapped: boolean;
+  is_archived: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
-  assigned_at: string | null;
-  approved_by: string;
-  approved_at: string | null;
-  returned_note: string;
   cloned_from_id: number | null;
-  write_status: WriteStatus;
-  write_reference: string;
-  write_dry_run_reason: string;
-  write_error: string;
-  odoo_picking_id: number | null;
-  odoo_picking_name: string;
-  odoo_url: string;
   lines: OrderLineOut[];
-  total_qty: number;
+  zones: { zone_id: number; zone_name: string }[];
+  centers: { center_id: number; center_name: string; zone_id: number | null }[];
+  stale_line_count: number;
 }
 
 export interface OrderListSummaryOut {
   id: number;
   name: string;
-  status: OrderListOut["status"];
-  zone_name: string;
-  center_name: string;
-  center_mapped: boolean;
+  is_archived: boolean;
   line_count: number;
-  total_qty: number;
-  write_status: WriteStatus;
+  stale_line_count: number;
+  zone_names: string[];
+  center_count: number;
   updated_at: string;
 }
 
 export type TransferStatus =
   | "requested"
-  | "picked"
-  | "in_staging"
-  | "counted"
-  | "on_floor"
+  | "working_on_it"
+  | "sent"
+  | "counting"
+  | "done"
   | "cancelled";
 
 export interface TransferLineOut {
@@ -273,52 +260,50 @@ export interface TransferLineOut {
 
 export interface TransferEventOut {
   id: number;
-  kind: "status" | "note" | "lines_edited" | "odoo_draft" | "discrepancy";
+  kind: "status" | "note" | "lines_edited" | "odoo" | "discrepancy";
   status: string;
   note: string;
   actor: string;
   created_at: string;
 }
 
-export interface OdooDraftOut {
-  id: number;
-  leg: "bwhse_staging" | "staging_floor";
-  label: string;
-  status: "created" | "simulated" | "failed";
+export interface OdooRefOut {
+  status: OdooOutcome;
   reference: string;
-  dry_run_reason: string;
   error: string;
-  odoo_picking_id: number | null;
-  odoo_picking_name: string;
-  odoo_url: string;
-  created_at: string;
+  picking_id: number | null;
+  picking_name: string;
+  url: string;
+  barcode_url: string;
 }
 
 export interface TransferActionsOut {
   can_edit_lines: boolean;
-  can_fulfill: boolean;
-  can_stage: boolean;
-  can_count: boolean;
-  can_complete: boolean;
+  can_ack: boolean;
+  can_mark_sent: boolean;
+  can_prepare_count: boolean;
+  can_mark_done: boolean;
   can_cancel: boolean;
-  odoo_legs: string[];
 }
 
 export interface TransferRequestOut {
   id: number;
+  display_name: string;
   status: TransferStatus;
   notes: string;
   created_by: string;
   created_at: string;
   updated_at: string;
+  placement: OdooRefOut;
+  count: OdooRefOut;
   lines: TransferLineOut[];
   events: TransferEventOut[];
-  odoo_drafts: OdooDraftOut[];
   actions: TransferActionsOut;
 }
 
 export interface TransferSummaryOut {
   id: number;
+  display_name: string;
   status: TransferStatus;
   created_by: string;
   created_at: string;
@@ -326,6 +311,8 @@ export interface TransferSummaryOut {
   line_count: number;
   total_requested: number;
   open_adjustments: number;
+  picking_status: OdooOutcome;
+  count_status: OdooOutcome;
 }
 
 export interface AdjustmentOut {

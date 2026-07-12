@@ -39,6 +39,7 @@ export function ProductDrawer({
   const [tags, setTags] = useState<Record<string, string | true>>({});
   const [caseSize, setCaseSize] = useState("1");
   const [deptOrderable, setDeptOrderable] = useState(false);
+  const [restockExclude, setRestockExclude] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export function ProductDrawer({
     setTags(t);
     setCaseSize(String(product.case_size));
     setDeptOrderable(product.dept_orderable);
+    setRestockExclude(product.restock_exclude);
     setDirty(false);
   }, [product]);
 
@@ -86,6 +88,7 @@ export function ProductDrawer({
         id: product.id,
         case_size: Number(caseSize) || 1,
         dept_orderable: deptOrderable,
+        restock_exclude: restockExclude,
       });
       toast.success("Saved.");
       setDirty(false);
@@ -202,7 +205,7 @@ export function ProductDrawer({
                   }}
                 />
               </Field>
-              <div className="pb-1">
+              <div className="flex flex-col gap-2.5 pb-1">
                 <Toggle
                   checked={deptOrderable}
                   onChange={(v) => {
@@ -210,6 +213,14 @@ export function ProductDrawer({
                     setDeptOrderable(v);
                   }}
                   label="Dept-orderable"
+                />
+                <Toggle
+                  checked={restockExclude}
+                  onChange={(v) => {
+                    setDirty(true);
+                    setRestockExclude(v);
+                  }}
+                  label="Exclude from restock lists"
                 />
               </div>
             </div>

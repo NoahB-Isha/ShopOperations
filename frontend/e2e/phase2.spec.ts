@@ -1,16 +1,17 @@
 /**
  * Phase-2 acceptance flows, end to end through the real UI:
  *
- *   1. floor requests 10 → warehouse fulfills 9 → staging count finds 8
- *      → the discrepancy appears in the warehouse adjustments queue
- *   2. admin builds an order list → assigns it to Zone 1 → the coordinator
- *      approves → the write outcome is shown honestly with its reference
+ *   1. floor places a request (the Odoo draft renders immediately — honestly
+ *      simulated while writes are gated) → warehouse taps Working on it →
+ *      Sent → the count stage appears → floor closes it (manual fallback,
+ *      since no live count picking exists with the flag off)
+ *   2. admin curates a catalog (no quantities), grants it to Zone 1 → the
+ *      coordinator opens it to one of their centers
  *   3. the restock checklists render for the floor role
  *
- * Requires the stack up and seeded (make dev && make seed). The
- * write_create_internal_transfer feature flag must be OFF (its shipped
- * state): approval then renders a clearly-labeled SIMULATED outcome — these
- * tests never create real Odoo records.
+ * Requires the stack up and seeded (make dev && make seed). The write
+ * feature flags must be OFF (their shipped state) — these tests never
+ * create real Odoo records; they assert the honest "simulated" labels.
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -29,70 +30,87 @@ async function signOut(page: Page) {
   await expect(page).toHaveURL(/login/);
 }
 
-test("floor requests 10, warehouse sends 9, count finds 8, adjustment queued", async ({
-  page,
-}) => {
+test("transfer flow: place → working on it → sent → counting → done", async ({ page }) => {
   test.setTimeout(90_000);
 
-  // ---- floor: build the request
+  // ---- floor: place the request
   await login(page, "floor@demo.ishalife.test");
   await page.goto("/transfer-requests/new");
   await page.getByLabel("Search products").fill("co");
   const firstResult = page.locator("ul li button").first();
   await expect(firstResult).toBeVisible();
-  const productName = (await firstResult.locator(".truncate").first().textContent()) ?? "";
   await firstResult.click();
-
-  const qty = page.getByLabel(/^Quantity for/);
-  await qty.fill("10");
+  await page.getByLabel(/^Quantity for/).fill("10");
   await page.getByRole("button", { name: /Send request/ }).click();
   await expect(page).toHaveURL(/transfer-requests\/\d+/);
-  const url = page.url();
-  const requestId = url.split("/").pop()!;
+  const requestId = page.url().split("/").pop()!;
+
+  // the Odoo linkage is front and center — honestly simulated with flags off
   await expect(page.getByLabel("Status: Requested")).toBeVisible();
+  await expect(page.getByText(/simulated/).first()).toBeVisible();
   await signOut(page);
 
-  // ---- warehouse: fulfill 9 of 10
+  // ---- warehouse: working on it → sent (count stage prepared in the same motion)
   await login(page, "warehouse@demo.ishalife.test");
   await page.goto(`/transfer-requests/${requestId}`);
-  await page.getByLabel(/^Sent quantity for/).fill("9");
-  await page.getByRole("button", { name: "Mark as picked" }).click();
-  await expect(page.getByRole("button", { name: "It's in staging" })).toBeVisible();
-  await page.getByRole("button", { name: "It's in staging" }).click();
-  await expect(page.getByText("delivered to floor staging")).toBeVisible();
+  await page.getByRole("button", { name: "Working on it" }).click();
+  await expect(page.getByLabel("Status: Working on it")).toBeVisible();
+  await page.getByRole("button", { name: "Sent to staging" }).click();
+  await expect(page.getByLabel("Status: Counting")).toBeVisible();
   await signOut(page);
 
-  // ---- floor: count 8
+  // ---- floor: no live count picking (writes gated) -> manual close
   await login(page, "floor@demo.ishalife.test");
   await page.goto(`/transfer-requests/${requestId}`);
-  await page.getByLabel(/^Counted quantity for/).fill("8");
-  await page.getByRole("button", { name: "Submit count" }).click();
-  await expect(page.getByText("Count didn't match")).toBeVisible();
-  await expect(page.getByText("adjustments queue", { exact: false }).first()).toBeVisible();
-  await signOut(page);
-
-  // ---- warehouse: the discrepancy is in the queue; resolve it
-  await login(page, "warehouse@demo.ishalife.test");
-  await page.goto("/adjustments");
-  const row = page.locator("tbody tr", { hasText: `request #${requestId}` });
-  await expect(row).toContainText("9 → 8");
-  await expect(row).toContainText("-1");
-  await row.click();
-  await page.getByLabel(/Note/).fill("Found it under the cart — e2e");
-  await page.getByRole("dialog").getByRole("button", { name: "Resolved", exact: true }).click();
-  await expect(page.locator("tbody tr", { hasText: `request #${requestId}` })).toHaveCount(0);
-
-  // productName was on the request all along
-  expect(productName.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Mark done" }).click();
+  await expect(page.getByLabel("Status: Done")).toBeVisible();
+  // counted taken as sent -> no invented discrepancies
+  await expect(page.getByRole("columnheader", { name: "Counted" })).toBeVisible();
 });
 
-test("order list: create → assign to Zone 1 → coordinator approves (honest outcome)", async ({
+test("live board updates without a refresh", async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  // warehouse watches the board…
+  await login(page, "warehouse@demo.ishalife.test");
+  await page.goto("/transfer-requests");
+  await expect(page.getByText("live")).toBeVisible();
+
+  // …while the floor places a request in another session
+  const floorCtx = await browser.newContext();
+  const floorPage = await floorCtx.newPage();
+  await login(floorPage, "floor@demo.ishalife.test");
+  await floorPage.goto("/transfer-requests/new");
+  await floorPage.getByLabel("Search products").fill("in");
+  const firstResult = floorPage.locator("ul li button").first();
+  await expect(firstResult).toBeVisible();
+  await firstResult.click();
+  await floorPage.getByRole("button", { name: /Send request/ }).click();
+  await expect(floorPage).toHaveURL(/transfer-requests\/\d+/);
+  const requestId = floorPage.url().split("/").pop()!;
+  await floorCtx.close();
+
+  // the warehouse board picks it up on its own (poll interval is 4s)
+  await expect(
+    page.locator("tbody tr", { hasText: `#${requestId}` }).first(),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // tidy up: cancel it so the demo board stays clean
+  await page.goto(`/transfer-requests/${requestId}`);
+  await page.getByRole("button", { name: "Cancel request" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel request" })
+    .click();
+  await expect(page.getByText("Cancelled").first()).toBeVisible();
+});
+
+test("catalog: admin grants a list to Zone 1, coordinator opens it to a center", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  const listName = `E2E list ${Date.now()}`;
+  const listName = `E2E catalog ${Date.now()}`;
 
-  // ---- admin: create, add an item, assign
+  // ---- admin: create the catalog (products only — no quantities anywhere)
   await login(page, "admin@demo.ishalife.test");
   await page.goto("/orders");
   await page.getByRole("button", { name: "New list" }).first().click();
@@ -104,51 +122,44 @@ test("order list: create → assign to Zone 1 → coordinator approves (honest o
   const firstResult = page.locator("ul li button").first();
   await expect(firstResult).toBeVisible();
   await firstResult.click();
-  await page.getByRole("button", { name: "Save lines" }).click();
-  await expect(page.getByRole("button", { name: "Save lines" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Save products" }).click();
+  await expect(page.getByRole("button", { name: "Save products" })).toHaveCount(0);
+  await expect(page.getByLabel(/^Quantity for/)).toHaveCount(0); // it's a menu
 
-  await page.getByRole("button", { name: "Assign…" }).click();
-  const zoneSelect = page.getByLabel("Zone");
-  const zone1 = await zoneSelect
-    .locator("option", { hasText: "Zone 1" })
-    .first()
-    .getAttribute("value");
-  const centersLoaded = page.waitForResponse(
-    (r) => r.url().includes("/centers") && r.url().includes("zone_id"),
+  // grant to Zone 1 via the pill toggle
+  const zonePill = page.getByRole("button", { name: /Zone 1/ });
+  const granted = page.waitForResponse(
+    (r) => r.url().includes("/zones") && r.request().method() === "PUT",
   );
-  await zoneSelect.selectOption(zone1!);
-  await centersLoaded;
-  const centerSelect = page.getByLabel("Destination center");
-  // the option list re-renders after the zone pick — retry until a real
-  // center sticks (the placeholder has an empty value)
-  await expect(async () => {
-    await centerSelect.selectOption({ index: 1 });
-    expect(await centerSelect.inputValue()).not.toBe("");
-  }).toPass();
-  const assigned = page.waitForResponse(
-    (r) => r.url().includes("/assign") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Assign", exact: true }).click();
-  expect((await assigned).ok()).toBeTruthy();
-  await expect(page.getByText("Pending approval")).toBeVisible();
+  await zonePill.click();
+  expect((await granted).ok()).toBeTruthy();
+  await expect(page.getByRole("button", { name: /✓ Zone 1/ })).toBeVisible();
   await signOut(page);
 
-  // ---- coordinator: review + approve; the outcome is labeled honestly
+  // ---- coordinator: the list is there; open it to a center
   await login(page, "coordinator@demo.ishalife.test");
-  await page.goto("/pending-orders");
-  const card = page.locator("div", { hasText: listName }).getByRole("button", { name: "Review" }).first();
+  await page.goto("/my-order-lists");
+  const card = page
+    .locator("div", { hasText: listName })
+    .getByRole("button", { name: "Choose centers" })
+    .first();
   await card.click();
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  // flag ships OFF -> simulated; the chip + reference prove the write path ran
-  await expect(page.getByText(/simulated/).first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/ILAPP-OL-/).first()).toBeVisible();
+  const dialog = page.getByRole("dialog");
+  const centerPill = dialog.locator('button[aria-pressed="false"]').first();
+  await expect(centerPill).toBeVisible();
+  const centerName = (await centerPill.textContent())?.trim() ?? "";
+  const saved = page.waitForResponse(
+    (r) => r.url().includes("/centers") && r.request().method() === "PUT",
+  );
+  await centerPill.click();
+  expect((await saved).ok()).toBeTruthy();
+  await expect(dialog.getByRole("button", { name: `✓ ${centerName}` })).toBeVisible();
 });
 
 test("restock checklists render for the floor role", async ({ page }) => {
   await login(page, "floor@demo.ishalife.test");
   await page.goto("/restock");
   await expect(page.getByRole("button", { name: /From warehouse/ })).toBeVisible();
-  // either items flagged by the accumulator or an honest empty state
   const anyRow = page.locator('[role="checkbox"]').first();
   const empty = page.getByText("Shelves are happy");
   await expect(anyRow.or(empty).first()).toBeVisible();

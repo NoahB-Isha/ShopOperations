@@ -1,5 +1,5 @@
-/* Admin: manage order lists — create, clone, assign, and watch write
-   outcomes. Row click opens the editor. */
+/* Admin: curated catalogs people order FROM (no quantities). Grant them to
+   zones here; coordinators decide which centers see them. */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateOrderList, useOrderLists } from "../../api/hooks";
@@ -14,30 +14,15 @@ import {
   Input,
   PageHeader,
   Textarea,
+  Toggle,
   useToast,
 } from "../../design";
 import type { Column } from "../../design";
-import { WriteStatusChip, fmtQty, fmtWhen } from "../shared/OpsBits";
-
-const STATUS_TONE = {
-  draft: "neutral",
-  pending_approval: "gold",
-  approved: "forest",
-  returned: "danger",
-} as const;
-
-const STATUS_LABEL = {
-  draft: "Draft",
-  pending_approval: "Pending approval",
-  approved: "Approved",
-  returned: "Returned",
-} as const;
-
-const FILTERS = ["all", "draft", "pending_approval", "returned", "approved"] as const;
+import { fmtWhen } from "../shared/OpsBits";
 
 export function OrderListsPage() {
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
-  const { data, isLoading } = useOrderLists(filter === "all" ? "" : filter);
+  const [showArchived, setShowArchived] = useState(false);
+  const { data, isLoading } = useOrderLists(showArchived);
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
@@ -48,43 +33,50 @@ export function OrderListsPage() {
       sortable: true,
       render: (r) => (
         <div className="min-w-0">
-          <div className="truncate font-medium">{r.name}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{r.name}</span>
+            {r.is_archived && <Badge tone="neutral">archived</Badge>}
+          </div>
           <div className="text-[12px] text-on-surface-variant">
-            {r.line_count} item{r.line_count === 1 ? "" : "s"} · {fmtQty(r.total_qty)} units
+            {r.line_count} product{r.line_count === 1 ? "" : "s"}
+            {r.stale_line_count > 0 && (
+              <span className="ml-1.5 text-warn">
+                · {r.stale_line_count} inactive — prune
+              </span>
+            )}
           </div>
         </div>
       ),
     },
     {
-      key: "center_name",
-      header: "Destination",
-      sortable: true,
+      key: "zone_names",
+      header: "Granted to zones",
       hideBelow: "sm",
+      value: (r) => r.zone_names.join(", "),
       render: (r) =>
-        r.center_name ? (
-          <span className="inline-flex items-center gap-1.5">
-            {r.center_name}
-            {!r.center_mapped && (
-              <Badge tone="gold" title="No Odoo location matched this center yet — approval can't write live.">
-                unmapped
+        r.zone_names.length ? (
+          <span className="flex flex-wrap gap-1">
+            {r.zone_names.map((z) => (
+              <Badge key={z} tone="secondary">
+                {z}
               </Badge>
-            )}
+            ))}
           </span>
         ) : (
-          <span className="text-on-surface-variant">—</span>
+          <span className="text-on-surface-variant">not granted yet</span>
         ),
     },
-    { key: "zone_name", header: "Zone", sortable: true, hideBelow: "md" },
     {
-      key: "status",
-      header: "Status",
+      key: "center_count",
+      header: "Centers",
+      align: "right",
+      hideBelow: "md",
       sortable: true,
-      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>,
-    },
-    {
-      key: "write_status",
-      header: "Odoo",
-      render: (r) => <WriteStatusChip status={r.write_status} />,
+      render: (r) => (
+        <span className="tabular-nums text-on-surface-variant">
+          {r.center_count || "—"}
+        </span>
+      ),
     },
     {
       key: "updated_at",
@@ -101,25 +93,18 @@ export function OrderListsPage() {
     <>
       <PageHeader
         title="Order lists"
-        subtitle="Curate replenishment lists, hand them to a zone coordinator, and the approval becomes a draft transfer in Odoo."
-        actions={<Button onClick={() => setCreating(true)}>New list</Button>}
+        subtitle="Safe catalogs of currently-active products. Zones get lists from you; coordinators open them to their centers; centers order from them (phase 3)."
+        actions={
+          <>
+            <Toggle
+              checked={showArchived}
+              onChange={setShowArchived}
+              label="Archived"
+            />
+            <Button onClick={() => setCreating(true)}>New list</Button>
+          </>
+        }
       />
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`state-layer rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${
-              filter === f
-                ? "bg-secondary-container text-on-secondary-container"
-                : "border border-outline-variant text-on-surface-variant"
-            }`}
-          >
-            {f === "all" ? "All" : STATUS_LABEL[f]}
-          </button>
-        ))}
-      </div>
 
       <DataTable
         columns={columns}
@@ -130,7 +115,7 @@ export function OrderListsPage() {
         empty={
           <EmptyState
             title="No order lists yet"
-            hint="Start one and hand it to a coordinator — no more WhatsApp order threads."
+            hint="Start with a “Center starter kit” — the safe default catalog for any pop-up."
             action={<Button onClick={() => setCreating(true)}>New list</Button>}
           />
         }
@@ -153,7 +138,7 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
       { name: name.trim(), notes: notes.trim() },
       {
         onSuccess: (ol) => {
-          toast.success("List created — add items.");
+          toast.success("List created — add products.");
           onClose();
           navigate(`/orders/${(ol as { id: number }).id}`);
         },
@@ -178,7 +163,7 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Name" help="e.g. “Austin summer refill” — coordinators see this.">
+        <Field label="Name" help="e.g. “Center starter kit” — coordinators and centers see this.">
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="Notes (optional)">

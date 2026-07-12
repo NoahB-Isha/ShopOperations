@@ -72,6 +72,7 @@ const byRole: Record<string, NavItem[]> = {
   zone_coordinator: [
     { path: "/my-centers", label: "My centers", icon: Icons.mapPin },
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
+    { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
   center_orderer: [
@@ -81,6 +82,7 @@ const byRole: Record<string, NavItem[]> = {
   dept_liaison: [
     { path: "/my-centers", label: "My departments", icon: Icons.mapPin },
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
+    { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
   dept_orderer: [

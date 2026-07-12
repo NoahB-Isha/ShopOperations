@@ -20,6 +20,7 @@ test("multi-role users get a deduped union", () => {
   expect(paths).toEqual([
     "/my-centers",
     "/pending-orders",
+    "/my-order-lists",
     "/order-history",
     "/place-order",
   ]);

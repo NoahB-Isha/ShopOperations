@@ -167,6 +167,55 @@ class OdooSimulator:
                 r.update(vals)
         return True
 
+    def _copy(self, model: str, ids: list[int] | int, default: dict | None = None) -> list[int]:
+        """Duplicate records like Odoo's copy(): fresh ids, defaults applied,
+        pickings reset to draft with their moves duplicated along."""
+        ids = ids if isinstance(ids, list) else [ids]
+        new_ids: list[int] = []
+        for rid in ids:
+            src = next((r for r in self._rows(model) if r.get("id") == rid), None)
+            if src is None:
+                raise OdooError(f"{model} #{rid} not found (copy).")
+            rec = dict(src)
+            rec["id"] = self._next_id(model)
+            rec.update(default or {})
+            if model == "stock.picking":
+                rec["name"] = f"III/INT/{rec['id']:05d}"
+                rec["state"] = "draft"
+            self._rows(model).append(rec)
+            new_ids.append(int(rec["id"]))
+            for (parent, _field), (child, backref) in ONE2MANY.items():
+                if parent != model:
+                    continue
+                for child_row in [
+                    c for c in self._rows(child) if self._m2o_id(c.get(backref)) == rid
+                ]:
+                    dup = dict(child_row)
+                    dup["id"] = self._next_id(child)
+                    dup[backref] = [rec["id"], rec.get("name", str(rec["id"]))]
+                    if child == "stock.move":
+                        dup["state"] = "draft"
+                    self._rows(child).append(dup)
+        return new_ids
+
+    def _action_confirm(self, model: str, ids: list[int]) -> bool:
+        """Mark To Do — like Odoo, draft pickings become confirmed."""
+        if model != "stock.picking":
+            raise OdooError(f"Simulator only confirms stock.picking, not {model}.")
+        for r in self._rows(model):
+            if r.get("id") in ids and r.get("state") in (None, False, "draft"):
+                r["state"] = "confirmed"
+        return True
+
+    def _action_assign(self, model: str, ids: list[int]) -> bool:
+        """Check availability — confirmed pickings become assigned (ready)."""
+        if model != "stock.picking":
+            raise OdooError(f"Simulator only assigns stock.picking, not {model}.")
+        for r in self._rows(model):
+            if r.get("id") in ids and r.get("state") in ("draft", "confirmed", "waiting"):
+                r["state"] = "assigned"
+        return True
+
     def _unlink(self, model: str, ids: list[int]) -> bool:
         ids = ids if isinstance(ids, list) else [ids]
         self.tables[model] = [r for r in self._rows(model) if r.get("id") not in ids]

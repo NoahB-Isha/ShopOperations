@@ -32,7 +32,7 @@ export function NewTransferRequestPage() {
       },
       {
         onSuccess: (req) => {
-          toast.success("Request sent to the warehouse.");
+          toast.success("Request placed — the warehouse board has it.");
           navigate(`/transfer-requests/${(req as TransferRequestOut).id}`);
         },
         onError: (e) => toast.error(e.message),
@@ -43,7 +43,7 @@ export function NewTransferRequestPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Request stock"
-        subtitle="From the Blue Warehouse to the Shoppe floor."
+        subtitle="From the Blue Warehouse to the Shoppe floor — sending it renders the draft transfer in Odoo immediately."
         actions={
           <Button variant="ghost" onClick={() => navigate("/transfer-requests")}>
             Back

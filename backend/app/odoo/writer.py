@@ -28,6 +28,7 @@ from .connection import get_connection
 from .errors import OdooError, OdooWriteError
 from .operations import (
     TransferLine,
+    build_count_transfer_payload,
     build_internal_transfer_payload,
     is_app_reference,
     new_reference,
@@ -38,6 +39,7 @@ from .urls import odoo_record_url
 # operation name -> feature flag key (new operations get added HERE, nowhere else)
 OPERATION_FLAGS = {
     "create_internal_transfer": "write_create_internal_transfer",
+    "prepare_count_transfer": "write_prepare_count_transfer",
 }
 
 
@@ -355,6 +357,167 @@ class OdooWriter:
             deep_link=deep_link,
             payload=payload,
             message=f"Draft transfer {rec.get('name', picking_id)} created — review it in Odoo.",
+            audit_id=audit_id,
+        )
+
+    def prepare_count_transfer(
+        self,
+        *,
+        source_picking_odoo_id: int,
+        reference: str | None = None,
+        dry_run: bool = False,
+        ignore_feature_flag: bool = False,
+    ) -> WriteResult:
+        """Duplicate an app-created BWHSE→STAGING picking as the STAGING→FLOOR
+        count transfer: copy, retarget the locations, mark To Do
+        (action_confirm), check availability (action_assign). The result is a
+        ready-to-scan transfer for Odoo's barcode app — a human validates it
+        there; the app only watches for that validation."""
+        started = time.monotonic()
+        operation = "prepare_count_transfer"
+
+        if source_picking_odoo_id <= 0:
+            raise WriterValidationError("No source picking to duplicate.")
+        staging = self._resolve_location("staging")
+        floor = self._resolve_location("floor")
+
+        reference = reference or new_reference("CNT")
+        reason = self._forced_dry_run_reason(operation, dry_run, ignore_feature_flag)
+        payload = build_count_transfer_payload(
+            source_picking_odoo_id=source_picking_odoo_id,
+            staging_location_id=staging.odoo_id,
+            floor_location_id=floor.odoo_id,
+            reference=reference,
+        )
+
+        if reason:
+            audit_id = self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                record_ids=[],
+                payload=payload,
+                response={},
+                error="",
+                started=started,
+            )
+            return WriteResult(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                payload=payload,
+                message=_dry_run_message(reason),
+                audit_id=audit_id,
+            )
+
+        # ---- live path
+        try:
+            src = self.conn.call_kw(
+                "stock.picking", "read", [[source_picking_odoo_id], ["origin", "name", "state"]]
+            )
+            if not src:
+                raise WriterValidationError(
+                    f"Picking #{source_picking_odoo_id} not found in Odoo."
+                )
+            if not is_app_reference(str(src[0].get("origin") or "")):
+                raise WriterValidationError(
+                    f"Refusing to duplicate {src[0].get('name')}: its reference isn't "
+                    "app-prefixed, so the app didn't create it."
+                )
+
+            # idempotent: an earlier attempt may have made the copy already
+            existing = self.conn.search_read(
+                "stock.picking", [["origin", "=", reference]], ["id", "name", "state"]
+            )
+            if existing:
+                new_id = existing[0]["id"]
+                steps = ["found existing copy (idempotent retry)"]
+            else:
+                copied = self.conn.call_kw(
+                    "stock.picking",
+                    "copy",
+                    [[source_picking_odoo_id]],
+                    {"default": dict(payload["copy_defaults"])},
+                )
+                new_id = copied[0] if isinstance(copied, list) else int(copied)
+                steps = ["copied"]
+
+            # the copied moves keep their old endpoints — retarget them
+            move_ids = [
+                m["id"]
+                for m in self.conn.search_read(
+                    "stock.move", [["picking_id", "=", new_id]], ["id"]
+                )
+            ]
+            if move_ids:
+                self.conn.call_kw(
+                    "stock.move", "write", [move_ids, dict(payload["then_update_moves"])]
+                )
+                steps.append(f"retargeted {len(move_ids)} move(s)")
+
+            state = str(
+                (self.conn.call_kw("stock.picking", "read", [[new_id], ["state"]]) or [{}])[0].get(
+                    "state", ""
+                )
+            )
+            if state == "draft":
+                self.conn.call_kw("stock.picking", "action_confirm", [[new_id]])
+                steps.append("marked To Do")
+            self.conn.call_kw("stock.picking", "action_assign", [[new_id]])
+            steps.append("availability checked")
+
+            readback = self.conn.call_kw(
+                "stock.picking", "read", [[new_id], ["name", "state", "origin"]]
+            )
+            rec = readback[0] if readback else {}
+        except OdooError as e:
+            audit_id = self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=False,
+                dry_run_reason="",
+                success=False,
+                odoo_model="stock.picking",
+                record_ids=[],
+                payload=payload,
+                response={},
+                error=str(e),
+                started=started,
+            )
+            raise OdooWriteError(f"Odoo rejected the count transfer: {e}") from e
+
+        audit_id = self._audit(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[new_id],
+            payload=payload,
+            response={"record": rec, "steps": steps},
+            error="",
+            started=started,
+        )
+        return WriteResult(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[new_id],
+            record_name=str(rec.get("name") or ""),
+            deep_link=odoo_record_url(self.settings, "stock.picking", new_id),
+            payload=payload,
+            message=f"Count transfer {rec.get('name', new_id)} ready to scan "
+            f"({rec.get('state', '?')}).",
             audit_id=audit_id,
         )
 

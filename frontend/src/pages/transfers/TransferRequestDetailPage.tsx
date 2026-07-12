@@ -1,18 +1,11 @@
-/* One transfer request: lines with requested/sent/counted quantities, the
-   shared timeline, role-appropriate actions for each stage, and optional
-   draft Odoo transfers for each physical leg. */
-import { useEffect, useState } from "react";
+/* One transfer request, live: named after its Odoo picking, one-tap stage
+   buttons for the warehouse, the barcode-count handoff for the floor, and
+   the shared timeline. Counting happens in Odoo — this page just knows. */
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTransferAction, useTransferRequest } from "../../api/hooks";
+import type { OdooRefOut, TransferEventOut, TransferRequestOut } from "../../api/types";
 import {
-  useCountTransfer,
-  useFulfillTransfer,
-  useOdooDraft,
-  useTransferAction,
-  useTransferRequest,
-} from "../../api/hooks";
-import type { TransferEventOut, TransferRequestOut } from "../../api/types";
-import {
-  Badge,
   Button,
   Card,
   Dialog,
@@ -48,39 +41,24 @@ function Detail({ req }: { req: TransferRequestOut }) {
   const navigate = useNavigate();
   const toast = useToast();
 
-  const fulfill = useFulfillTransfer();
-  const count = useCountTransfer();
-  const stage = useTransferAction("stage");
-  const complete = useTransferAction("complete");
+  const ack = useTransferAction("ack");
+  const sent = useTransferAction("sent");
+  const prepareCount = useTransferAction("prepare-count");
+  const markDone = useTransferAction("mark-done");
   const cancel = useTransferAction("cancel");
   const addNote = useTransferAction("note");
-  const odooDraft = useOdooDraft();
 
-  const [sent, setSent] = useState<Record<number, number>>({});
-  const [counted, setCounted] = useState<Record<number, number>>({});
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [note, setNote] = useState("");
 
-  // re-seed editable quantities whenever the stage changes
-  useEffect(() => {
-    setSent(Object.fromEntries(req.lines.map((l) => [l.id, l.qty_sent ?? l.qty_requested])));
-    setCounted(Object.fromEntries(req.lines.map((l) => [l.id, l.qty_counted ?? l.qty_sent ?? 0])));
-  }, [req.id, req.status, req.lines]);
-
   const a = req.actions;
-  const editingSent = a.can_fulfill;
-  const editingCounted = a.can_count;
-  // warehouse edits Sent while the request is still 'requested'
-  const showSent = req.status !== "requested" || editingSent;
-  const showCounted = ["counted", "on_floor"].includes(req.status) || editingCounted;
-  const discrepancies = req.lines.filter((l) => (l.delta ?? 0) !== 0);
-
   const onError = (e: Error) => toast.error(e.message);
+  const showCounted = req.status === "done";
 
   return (
     <>
       <PageHeader
-        title={`Request #${req.id}`}
+        title={req.display_name}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>
@@ -107,21 +85,74 @@ function Detail({ req }: { req: TransferRequestOut }) {
         <TransferStepper status={req.status} />
       </div>
 
-      {req.status === "counted" && discrepancies.length > 0 && (
-        <Card tone="secondary" className="mb-5">
-          <div className="text-xs font-bold tracking-wide uppercase opacity-75">
-            Count didn't match
-          </div>
-          <p className="mt-1 text-sm">
-            {discrepancies.length} line{discrepancies.length === 1 ? "" : "s"} differ from what the
-            warehouse sent — each is now in the warehouse's{" "}
-            <b>adjustments queue</b> instead of vanishing into chat.
-          </p>
-        </Card>
-      )}
-
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-5">
+          {/* ---- the one action that matters right now ---- */}
+          {a.can_ack && (
+            <ActionCard
+              title="New request"
+              hint="Tell the floor you've laid eyes on it and you're pulling stock."
+              button="Working on it"
+              loading={ack.isPending}
+              onClick={() => ack.mutate({ id: req.id }, { onError })}
+            />
+          )}
+          {a.can_mark_sent && (
+            <ActionCard
+              title={req.status === "requested" ? "Grab and go" : "Finishing up?"}
+              hint={
+                req.placement.status === "created"
+                  ? `Adjust quantities in ${req.placement.picking_name} as you pick — they're read back when you tap Sent, and the count transfer is prepared automatically.`
+                  : "Tap Sent when the cart is at staging — quantities are taken from the request."
+              }
+              button="Sent to staging"
+              loading={sent.isPending}
+              onClick={() => sent.mutate({ id: req.id }, { onError })}
+            />
+          )}
+          {req.status === "counting" && req.count.status === "created" && (
+            <Card tone="primary">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[16px] font-semibold">Count it in Odoo</div>
+                  <p className="mt-1 text-sm opacity-90">
+                    {req.count.picking_name} is marked To Do with availability checked. Scan it
+                    in the barcode app — this page closes itself when the transfer is validated.
+                  </p>
+                </div>
+                <Button
+                  variant="elevated"
+                  onClick={() => window.open(req.count.barcode_url || req.count.url, "_blank")}
+                >
+                  Open barcode count ↗
+                </Button>
+              </div>
+            </Card>
+          )}
+          {a.can_prepare_count && (
+            <ActionCard
+              title={req.count.status === "failed" ? "Count transfer failed" : "Prepare the count"}
+              hint={
+                req.count.status === "failed"
+                  ? `${req.count.error} — retry when Odoo is happy again.`
+                  : "Duplicate the picking STAGING→FLOOR, mark it To Do, and check availability."
+              }
+              button={req.count.status === "failed" ? "Retry" : "Prepare count transfer"}
+              loading={prepareCount.isPending}
+              onClick={() => prepareCount.mutate({ id: req.id }, { onError })}
+            />
+          )}
+          {a.can_mark_done && (
+            <ActionCard
+              title="Close it out"
+              hint="No live count transfer exists (writes gated or it failed), so confirm by hand — counted is taken as sent."
+              button="Mark done"
+              loading={markDone.isPending}
+              onClick={() => markDone.mutate({ id: req.id }, { onError })}
+            />
+          )}
+
+          {/* ---- lines ---- */}
           <Card pad={false}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -129,11 +160,9 @@ function Detail({ req }: { req: TransferRequestOut }) {
                   <tr className="bg-surface-container text-left">
                     <th className="label-m px-4 py-3">Item</th>
                     <th className="label-m px-3 py-3 text-right">Requested</th>
-                    {showSent && <th className="label-m px-3 py-3 text-right">Sent</th>}
+                    <th className="label-m px-3 py-3 text-right">Sent</th>
                     {showCounted && <th className="label-m px-3 py-3 text-right">Counted</th>}
-                    {showCounted && !editingCounted && (
-                      <th className="label-m px-3 py-3 text-right">Δ</th>
-                    )}
+                    {showCounted && <th className="label-m px-3 py-3 text-right">Δ</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -151,33 +180,15 @@ function Detail({ req }: { req: TransferRequestOut }) {
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {fmtQty(line.qty_requested)}
                       </td>
-                      {showSent && (
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtQty(line.qty_sent)}
+                      </td>
+                      {showCounted && (
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          {editingSent ? (
-                            <QtyCell
-                              value={sent[line.id] ?? 0}
-                              onChange={(v) => setSent({ ...sent, [line.id]: v })}
-                              label={`Sent quantity for ${line.name}`}
-                            />
-                          ) : (
-                            fmtQty(line.qty_sent)
-                          )}
+                          {fmtQty(line.qty_counted)}
                         </td>
                       )}
                       {showCounted && (
-                        <td className="px-3 py-2.5 text-right tabular-nums">
-                          {editingCounted ? (
-                            <QtyCell
-                              value={counted[line.id] ?? 0}
-                              onChange={(v) => setCounted({ ...counted, [line.id]: v })}
-                              label={`Counted quantity for ${line.name}`}
-                            />
-                          ) : (
-                            fmtQty(line.qty_counted)
-                          )}
-                        </td>
-                      )}
-                      {showCounted && !editingCounted && (
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                           {line.delta === null || line.delta === 0 ? (
                             <span className="text-on-surface-variant">—</span>
@@ -194,78 +205,18 @@ function Detail({ req }: { req: TransferRequestOut }) {
                 </tbody>
               </table>
             </div>
+            {a.can_edit_lines && (
+              <div className="border-t border-outline-variant/60 px-4 py-2.5 text-[13px] text-on-surface-variant">
+                No live Odoo draft exists for this request — lines are still editable from the
+                request form if needed.
+              </div>
+            )}
           </Card>
 
-          {/* stage actions */}
-          {(a.can_fulfill || a.can_stage || a.can_count || a.can_complete) && (
-            <Card>
-              {a.can_fulfill && (
-                <ActionRow
-                  title="Pick the stock"
-                  hint="Adjust “Sent” to what's actually going on the cart, then mark it picked."
-                  button="Mark as picked"
-                  loading={fulfill.isPending}
-                  onClick={() =>
-                    fulfill.mutate(
-                      {
-                        id: req.id,
-                        lines: req.lines.map((l) => ({
-                          line_id: l.id,
-                          qty_sent: sent[l.id] ?? l.qty_requested,
-                        })),
-                      },
-                      { onError },
-                    )
-                  }
-                />
-              )}
-              {a.can_stage && (
-                <ActionRow
-                  title="Deliver to staging"
-                  hint="The cart physically arrived at III-FLOOR-STAGING."
-                  button="It's in staging"
-                  loading={stage.isPending}
-                  onClick={() => stage.mutate({ id: req.id }, { onError })}
-                />
-              )}
-              {a.can_count && (
-                <ActionRow
-                  title="Count the staged stock"
-                  hint="Enter what actually arrived — mismatches go straight to the warehouse's adjustments queue."
-                  button="Submit count"
-                  loading={count.isPending}
-                  onClick={() =>
-                    count.mutate(
-                      {
-                        id: req.id,
-                        lines: req.lines
-                          .filter((l) => (l.qty_sent ?? 0) > 0)
-                          .map((l) => ({
-                            line_id: l.id,
-                            qty_counted: counted[l.id] ?? 0,
-                          })),
-                      },
-                      { onError },
-                    )
-                  }
-                />
-              )}
-              {a.can_complete && (
-                <ActionRow
-                  title="Shelve it"
-                  hint="Counted stock has been moved out to the floor."
-                  button="Everything's on the floor"
-                  loading={complete.isPending}
-                  onClick={() => complete.mutate({ id: req.id }, { onError })}
-                />
-              )}
-            </Card>
-          )}
-
-          <OdooDraftsCard req={req} onCreate={(leg) => odooDraft.mutate({ id: req.id, leg }, { onError })} creating={odooDraft.isPending} />
+          <OdooCard placement={req.placement} count={req.count} />
         </div>
 
-        {/* timeline */}
+        {/* ---- timeline ---- */}
         <Card pad={false} className="self-start">
           <div className="border-b border-outline-variant/60 px-5 py-3.5">
             <h3 className="headline text-[16px]">Timeline</h3>
@@ -319,10 +270,7 @@ function Detail({ req }: { req: TransferRequestOut }) {
               onClick={() =>
                 cancel.mutate(
                   { id: req.id },
-                  {
-                    onSuccess: () => setConfirmCancel(false),
-                    onError,
-                  },
+                  { onSuccess: () => setConfirmCancel(false), onError },
                 )
               }
             >
@@ -332,37 +280,16 @@ function Detail({ req }: { req: TransferRequestOut }) {
         }
       >
         <p className="text-sm leading-6 text-on-surface-variant">
-          The request stays in history as cancelled; nothing moves.
+          {req.placement.status === "created"
+            ? `The Odoo draft ${req.placement.picking_name} is removed too (drafts move no stock).`
+            : "The request stays in history as cancelled; nothing moves."}
         </p>
       </Dialog>
     </>
   );
 }
 
-function QtyCell({
-  value,
-  onChange,
-  label,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  label: string;
-}) {
-  return (
-    <Input
-      inputMode="numeric"
-      aria-label={label}
-      className="!h-9 w-20 text-right tabular-nums"
-      value={String(value)}
-      onChange={(e) => {
-        const n = Number(e.target.value.replace(/[^0-9.]/g, ""));
-        onChange(Number.isFinite(n) ? n : 0);
-      }}
-    />
-  );
-}
-
-function ActionRow({
+function ActionCard({
   title,
   hint,
   button,
@@ -376,14 +303,53 @@ function ActionRow({
   onClick: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 py-1.5">
-      <div>
-        <div className="text-[15px] font-semibold">{title}</div>
-        <div className="text-[13px] text-on-surface-variant">{hint}</div>
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold">{title}</div>
+          <div className="text-[13px] text-on-surface-variant">{hint}</div>
+        </div>
+        <Button loading={loading} onClick={onClick}>
+          {button}
+        </Button>
       </div>
-      <Button loading={loading} onClick={onClick}>
-        {button}
-      </Button>
+    </Card>
+  );
+}
+
+function OdooCard({ placement, count }: { placement: OdooRefOut; count: OdooRefOut }) {
+  if (placement.status === "none" && count.status === "none") return null;
+  return (
+    <Card>
+      <h3 className="headline mb-1 text-[16px]">In Odoo</h3>
+      <div className="flex flex-col gap-2.5">
+        <OdooRow label="Warehouse picking (BWHSE → Staging)" r={placement} />
+        {count.status !== "none" && (
+          <OdooRow label="Count transfer (Staging → Floor)" r={count} />
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function OdooRow({ label, r }: { label: string; r: OdooRefOut }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{label}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12.5px]">
+          <WriteStatusChip
+            status={r.status}
+            error={r.error}
+            createdLabel={r.picking_name || "created"}
+          />
+          {r.reference && (
+            <span className="font-mono text-on-surface-variant">{r.reference}</span>
+          )}
+          {r.status === "failed" && <span className="text-error">{r.error}</span>}
+        </div>
+      </div>
+      {r.url && r.status === "created" && <OdooLink url={r.url} name={r.picking_name} />}
     </div>
   );
 }
@@ -392,7 +358,7 @@ const EVENT_ICON: Record<TransferEventOut["kind"], string> = {
   status: "→",
   note: "✎",
   lines_edited: "✚",
-  odoo_draft: "⇄",
+  odoo: "⇄",
   discrepancy: "!",
 };
 
@@ -400,7 +366,7 @@ function TimelineItem({ event, last }: { event: TransferEventOut; last: boolean 
   const tone =
     event.kind === "discrepancy"
       ? "bg-error-container text-on-error-container"
-      : event.kind === "odoo_draft"
+      : event.kind === "odoo"
         ? "bg-tertiary-container text-on-tertiary-container"
         : "bg-secondary-container text-on-secondary-container";
   return (
@@ -425,75 +391,5 @@ function TimelineItem({ event, last }: { event: TransferEventOut; last: boolean 
         <div className="text-[11.5px] text-on-surface-variant/80">{fmtWhen(event.created_at)}</div>
       </div>
     </li>
-  );
-}
-
-const LEG_LABEL: Record<string, string> = {
-  bwhse_staging: "BWHSE → Staging (sent quantities)",
-  staging_floor: "Staging → Floor (counted quantities)",
-};
-
-function OdooDraftsCard({
-  req,
-  onCreate,
-  creating,
-}: {
-  req: TransferRequestOut;
-  onCreate: (leg: string) => void;
-  creating: boolean;
-}) {
-  const latestByLeg = new Map(req.odoo_drafts.map((d) => [d.leg, d]));
-  const anyAvailable = req.actions.odoo_legs.length > 0 || req.odoo_drafts.length > 0;
-  if (!anyAvailable) return null;
-
-  return (
-    <Card>
-      <h3 className="headline mb-1 text-[16px]">Odoo drafts</h3>
-      <p className="mb-3 text-[13px] text-on-surface-variant">
-        Each physical leg can be logged as a <b>draft</b> internal transfer — a human still
-        validates it in Odoo. Honest outcomes only: created, simulated, or failed.
-      </p>
-      <div className="flex flex-col gap-3">
-        {(["bwhse_staging", "staging_floor"] as const).map((leg) => {
-          const latest = latestByLeg.get(leg);
-          const allowed = req.actions.odoo_legs.includes(leg);
-          if (!latest && !allowed) return null;
-          return (
-            <div key={leg} className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{LEG_LABEL[leg]}</div>
-                {latest && (
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12.5px]">
-                    <WriteStatusChip
-                      status={latest.status}
-                      dryRunReason={latest.dry_run_reason}
-                      error={latest.error}
-                    />
-                    <span className="font-mono text-on-surface-variant">{latest.reference}</span>
-                    {latest.odoo_url && <OdooLink url={latest.odoo_url} name="draft" />}
-                    {latest.status === "failed" && (
-                      <span className="text-error">{latest.error}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              {allowed && (
-                <Button
-                  size="sm"
-                  variant={latest?.status === "created" ? "outlined" : "secondary"}
-                  loading={creating}
-                  onClick={() => onCreate(leg)}
-                >
-                  {latest ? (latest.status === "failed" ? "Retry draft" : "Re-render") : "Create draft"}
-                </Button>
-              )}
-            </div>
-          );
-        })}
-        {req.actions.odoo_legs.length === 0 && req.odoo_drafts.length === 0 && (
-          <Badge tone="outline">available once the request is picked</Badge>
-        )}
-      </div>
-    </Card>
   );
 }

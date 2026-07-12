@@ -44,7 +44,12 @@ class Settings(BaseSettings):
     odoo_throttle_seconds: float = 0.25
     odoo_timeout_seconds: float = 120
     odoo_record_url_template: str = "{base}/web#id={id}&model={model}&view_type=form"
+    # Odoo 17+ barcode app deep link (Enterprise stock_barcode); adjust if the
+    # instance routes differently.
+    odoo_barcode_url_template: str = "{base}/odoo/barcode/{id}"
     odoo_fixtures_dir: str = "backend/data/demo_fixtures"
+    # seconds between polls of a count picking's state (per request)
+    odoo_count_poll_seconds: int = 10
 
     # --- sync cadence (minutes) ---
     sync_products_minutes: int = 720

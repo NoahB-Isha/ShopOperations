@@ -1,5 +1,6 @@
-/* The shared BWHSE→Floor request list. Floor volunteers start requests;
-   warehouse works the queue. Both see the same rows and statuses. */
+/* The BWHSE→Floor board — live like a food-POS screen (the query layer polls
+   every few seconds, and the backend listens for Odoo barcode validations on
+   each refresh). Orders carry their Odoo picking names. */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -7,34 +8,42 @@ import { useTransferRequests } from "../../api/hooks";
 import type { TransferSummaryOut } from "../../api/types";
 import { Badge, Button, DataTable, EmptyState, Fab, PageHeader } from "../../design";
 import type { Column } from "../../design";
-import { TRANSFER_LABELS, TransferStatusChip, fmtQty, fmtWhen } from "../shared/OpsBits";
+import {
+  TRANSFER_LABELS,
+  TransferStatusChip,
+  WriteStatusChip,
+  fmtQty,
+  fmtWhen,
+} from "../shared/OpsBits";
 
 const FILTERS = [
   ["active", "Active"],
   ["requested", "Requested"],
-  ["picked,in_staging", "In motion"],
-  ["counted,on_floor", "Landed"],
-  ["cancelled", "Cancelled"],
+  ["working_on_it", "Working on it"],
+  ["counting", "Counting"],
+  ["done", "Done"],
   ["", "All"],
 ] as const;
 
-const ACTIVE = "requested,picked,in_staging,counted";
+const ACTIVE = "requested,working_on_it,sent,counting";
 
 export function TransferRequestsPage() {
   const { roles } = useAuth();
   const isFloor = roles.has("shoppe_floor") || roles.has("admin");
   const [filter, setFilter] = useState<string>("active");
-  const { data, isLoading } = useTransferRequests(filter === "active" ? ACTIVE : filter);
+  const { data, isLoading, dataUpdatedAt } = useTransferRequests(
+    filter === "active" ? ACTIVE : filter,
+  );
   const navigate = useNavigate();
 
   const columns: Column<TransferSummaryOut>[] = [
     {
-      key: "id",
-      header: "Request",
+      key: "display_name",
+      header: "Order",
       sortable: true,
       render: (r) => (
         <div>
-          <span className="font-semibold">#{r.id}</span>
+          <span className="font-mono text-[13px] font-semibold">{r.display_name}</span>
           <span className="ml-2 text-[12.5px] text-on-surface-variant">
             {r.line_count} item{r.line_count === 1 ? "" : "s"} · {fmtQty(r.total_requested)} units
           </span>
@@ -49,6 +58,9 @@ export function TransferRequestsPage() {
       render: (r) => (
         <span className="inline-flex items-center gap-1.5">
           <TransferStatusChip status={r.status} />
+          {r.picking_status !== "created" && r.picking_status !== "none" && (
+            <WriteStatusChip status={r.picking_status} />
+          )}
           {r.open_adjustments > 0 && (
             <Badge tone="danger" title="Open discrepancies in the adjustments queue">
               {r.open_adjustments} to review
@@ -73,7 +85,17 @@ export function TransferRequestsPage() {
     <>
       <PageHeader
         title="Transfer requests"
-        subtitle="Floor asks, warehouse picks, staging gets counted — one shared timeline instead of a WhatsApp thread."
+        subtitle={
+          <span className="flex items-center gap-2">
+            Floor asks, warehouse sends, the barcode count closes it — live board, no refreshing.
+            {dataUpdatedAt > 0 && (
+              <span className="inline-flex items-center gap-1 text-[12px] text-on-surface-variant">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                live
+              </span>
+            )}
+          </span>
+        }
         actions={
           isFloor ? (
             <Button onClick={() => navigate("/transfer-requests/new")}>New request</Button>
@@ -105,11 +127,11 @@ export function TransferRequestsPage() {
         onRowClick={(r) => navigate(`/transfer-requests/${r.id}`)}
         empty={
           <EmptyState
-            title="No requests here"
+            title="Board's clear"
             hint={
               isFloor
-                ? "Start one when the floor needs stock from the warehouse."
-                : "When the floor requests stock, it lands in this queue."
+                ? "Start a request when the floor needs stock from the warehouse."
+                : "When the floor requests stock, it lands here the moment they place it."
             }
             action={
               isFloor ? (

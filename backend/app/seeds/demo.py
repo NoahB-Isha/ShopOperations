@@ -23,9 +23,11 @@ from ..models import (
     Adjustment,
     Center,
     FeatureFlag,
+    OdooWriteOutcome,
     OrderList,
+    OrderListCenter,
     OrderListLine,
-    OrderListStatus,
+    OrderListZone,
     Product,
     ProductSource,
     Role,
@@ -119,6 +121,12 @@ def seed_flags(db: Session) -> None:
             "OdooWriter.create_internal_transfer may write live (draft transfers). "
             "Enable only after its canary passes.",
         ),
+        (
+            "write_prepare_count_transfer",
+            "OdooWriter.prepare_count_transfer may write live (duplicate the placement "
+            "picking as the STAGING→FLOOR count, mark To Do, check availability). "
+            "Enable only after create_internal_transfer is proven.",
+        ),
     ]
     for key, description in flags:
         if db.get(FeatureFlag, key) is None:
@@ -142,108 +150,142 @@ def _top_stocked_products(db: Session, n: int) -> list[Product]:
 
 
 def seed_phase2_flows(db: Session) -> None:
-    """Demo order lists, a transfer request mid-flow, and one reconciled
-    request with an open adjustment — so every phase-2 screen has life in it.
-    Idempotent: markers are checked before anything is created."""
-    products = _top_stocked_products(db, 8)
-    if len(products) < 4:
+    """Demo catalogs (order lists) with zone/center grants, plus transfer
+    requests across the new flow states — so every phase-2 screen has life.
+    Idempotent: skips whenever any row already exists."""
+    products = _top_stocked_products(db, 10)
+    if len(products) < 6:
         print("  phase 2: not enough stocked products for demo flows — skipped")
         return
     floor = db.scalar(select(User).where(User.email == f"floor@{DEMO_DOMAIN}"))
     wh = db.scalar(select(User).where(User.email == f"warehouse@{DEMO_DOMAIN}"))
     admin = db.scalar(select(User).where(User.email == f"admin@{DEMO_DOMAIN}"))
 
-    # --- order lists -> the Zone 1 coordinator's pending queue
+    # --- order lists = orderable catalogs, granted to zones then centers
     zone1 = db.scalar(select(Zone).where(Zone.name.ilike("Zone 1%")))
+    zone2 = db.scalar(select(Zone).where(Zone.name.ilike("Zone 2%")))
     if zone1 and db.scalar(select(OrderList)) is None:
-        centers = db.scalars(
-            select(Center).where(Center.zone_id == zone1.id, Center.is_active.is_(True))
-        ).all()
-        # prefer a center whose Odoo location mapped (live write possible)
-        dest = next((c for c in centers if c.odoo_location_id), centers[0] if centers else None)
-        if dest is not None:
-            pending = OrderList(
-                name=f"{dest.name} monthly staples",
-                notes="Seeded demo list — approve it to see the (gated) Odoo write path.",
-                status=OrderListStatus.PENDING_APPROVAL.value,
-                zone_id=zone1.id,
-                center_id=dest.id,
-                created_by_id=admin.id if admin else None,
-                assigned_at=utcnow(),
-            )
-            db.add(pending)
-            db.flush()
-            for pos, (p, qty) in enumerate(zip(products[:4], [12, 24, 6, 10], strict=False)):
+        starter = OrderList(
+            name="Center starter kit",
+            notes="The safe default catalog for any pop-up shop.",
+            created_by_id=admin.id if admin else None,
+        )
+        specials = OrderList(
+            name="Festival specials",
+            notes="Seasonal additions — grant per center as needed.",
+            created_by_id=admin.id if admin else None,
+        )
+        db.add_all([starter, specials])
+        db.flush()
+        for pos, p in enumerate(products[:8]):
+            db.add(OrderListLine(order_list_id=starter.id, product_id=p.id, position=pos))
+        for pos, p in enumerate(products[6:10]):
+            db.add(OrderListLine(order_list_id=specials.id, product_id=p.id, position=pos))
+        for zone in (zone1, zone2):
+            if zone is not None:
                 db.add(
-                    OrderListLine(
-                        order_list_id=pending.id, product_id=p.id, qty=qty, position=pos
+                    OrderListZone(
+                        order_list_id=starter.id, zone_id=zone.id,
+                        granted_by_id=admin.id if admin else None,
                     )
                 )
-            draft = OrderList(
-                name="Standard center starter kit",
-                notes="Clone this for new pop-ups.",
-                created_by_id=admin.id if admin else None,
+        db.add(
+            OrderListZone(
+                order_list_id=specials.id, zone_id=zone1.id,
+                granted_by_id=admin.id if admin else None,
             )
-            db.add(draft)
-            db.flush()
-            for pos, p in enumerate(products[:6]):
-                db.add(
-                    OrderListLine(order_list_id=draft.id, product_id=p.id, qty=6, position=pos)
-                )
-            print(f"  phase 2: order lists seeded (pending → {dest.name}, plus a draft)")
-
-    # --- transfer requests: one waiting on a staging count, one reconciled
-    if floor and wh and db.scalar(select(TransferRequest)) is None:
-        mid = TransferRequest(
-            status=TransferRequestStatus.IN_STAGING.value,
-            notes="Demo: morning cart from the warehouse",
-            created_by_id=floor.id,
         )
-        db.add(mid)
-        db.flush()
-        for p, req_qty, sent in zip(products[:3], [6, 4, 10], [6, 3, 10], strict=False):
+        # the Zone 1 coordinator has already opened the starter kit to two centers
+        z1_centers = db.scalars(
+            select(Center)
+            .where(Center.zone_id == zone1.id, Center.is_active.is_(True))
+            .order_by(Center.name)
+            .limit(2)
+        ).all()
+        coord = db.scalar(select(User).where(User.email == f"coordinator@{DEMO_DOMAIN}"))
+        for c in z1_centers:
             db.add(
-                TransferRequestLine(
-                    request_id=mid.id, product_id=p.id, qty_requested=req_qty, qty_sent=sent
+                OrderListCenter(
+                    order_list_id=starter.id, center_id=c.id,
+                    granted_by_id=coord.id if coord else None,
                 )
             )
-        for status, actor, note in [
-            (TransferRequestStatus.REQUESTED.value, floor.id, "3 item(s) requested"),
-            (TransferRequestStatus.PICKED.value, wh.id, "picked 19 unit(s) — 1 line short"),
-            (TransferRequestStatus.IN_STAGING.value, wh.id, "delivered to floor staging"),
-        ]:
+        print(
+            f"  phase 2: catalogs seeded (starter kit → zones 1+2, "
+            f"{len(z1_centers)} center grant(s))"
+        )
+
+    # --- transfer requests across the flow: requested / working / done
+    if floor and wh and db.scalar(select(TransferRequest)) is None:
+        def mk_request(status: str, note: str, items: list, sent=None, counted=None):
+            req = TransferRequest(
+                status=status,
+                notes=note,
+                created_by_id=floor.id,
+                picking_status=OdooWriteOutcome.SIMULATED.value,
+                picking_reference="",
+            )
+            db.add(req)
+            db.flush()
+            lines = []
+            for i, (p, qty) in enumerate(items):
+                line = TransferRequestLine(
+                    request_id=req.id,
+                    product_id=p.id,
+                    qty_requested=qty,
+                    qty_sent=sent[i] if sent else None,
+                    qty_counted=counted[i] if counted else None,
+                )
+                db.add(line)
+                lines.append(line)
+            db.flush()
             db.add(
                 TransferEvent(
-                    request_id=mid.id, kind=TransferEventKind.STATUS.value,
-                    status=status, actor_user_id=actor, note=note,
+                    request_id=req.id, kind=TransferEventKind.STATUS.value,
+                    status=TransferRequestStatus.REQUESTED.value,
+                    actor_user_id=floor.id, note=f"{len(items)} item(s) requested",
                 )
             )
+            db.add(
+                TransferEvent(
+                    request_id=req.id, kind=TransferEventKind.ODOO.value,
+                    actor_user_id=floor.id,
+                    note="Odoo draft simulated (feature flag) — nothing was written",
+                )
+            )
+            return req, lines
 
-        done = TransferRequest(
-            status=TransferRequestStatus.COUNTED.value,
-            notes="Demo: yesterday's request — count found one bottle missing",
-            created_by_id=floor.id,
+        mk_request(
+            TransferRequestStatus.REQUESTED.value,
+            "Demo: fresh request waiting for the warehouse",
+            [(products[0], 6), (products[1], 4)],
         )
-        db.add(done)
-        db.flush()
-        p = products[3]
-        line = TransferRequestLine(
-            request_id=done.id, product_id=p.id, qty_requested=10, qty_sent=9, qty_counted=8
+
+        working, _ = mk_request(
+            TransferRequestStatus.WORKING.value,
+            "Demo: warehouse is working on it",
+            [(products[2], 10), (products[3], 12)],
         )
-        db.add(line)
-        db.flush()
         db.add(
-            Adjustment(
-                request_id=done.id, line_id=line.id, product_id=p.id,
-                qty_expected=9, qty_counted=8, delta=-1,
-                note=f"Staging count on request #{done.id}",
+            TransferEvent(
+                request_id=working.id, kind=TransferEventKind.STATUS.value,
+                status=TransferRequestStatus.WORKING.value,
+                actor_user_id=wh.id, note="warehouse is working on it",
             )
         )
+
+        done, done_lines = mk_request(
+            TransferRequestStatus.DONE.value,
+            "Demo: yesterday's cart — count found one missing",
+            [(products[4], 10)],
+            sent=[9.0],
+            counted=[8.0],
+        )
         for status, actor, note in [
-            (TransferRequestStatus.REQUESTED.value, floor.id, "1 item requested"),
-            (TransferRequestStatus.PICKED.value, wh.id, "picked 9 unit(s) — 1 line short"),
-            (TransferRequestStatus.IN_STAGING.value, wh.id, "delivered to floor staging"),
-            (TransferRequestStatus.COUNTED.value, floor.id, "staging count recorded"),
+            (TransferRequestStatus.WORKING.value, wh.id, "warehouse is working on it"),
+            (TransferRequestStatus.SENT.value, wh.id, "sent to floor staging"),
+            (TransferRequestStatus.COUNTING.value, wh.id, "ready to count"),
+            (TransferRequestStatus.DONE.value, floor.id, "closed manually (no live count transfer)"),
         ]:
             db.add(
                 TransferEvent(
@@ -252,13 +294,20 @@ def seed_phase2_flows(db: Session) -> None:
                 )
             )
         db.add(
+            Adjustment(
+                request_id=done.id, line_id=done_lines[0].id, product_id=products[4].id,
+                qty_expected=9, qty_counted=8, delta=-1,
+                note=f"Count on #{done.id}",
+            )
+        )
+        db.add(
             TransferEvent(
                 request_id=done.id, kind=TransferEventKind.DISCREPANCY.value,
                 actor_user_id=floor.id,
-                note=f"1 discrepancy(ies) → adjustments queue: line {line.id}: sent 9, counted 8 (-1)",
+                note="1 discrepancy(ies) → adjustments queue: sent 9, counted 8 (-1)",
             )
         )
-        print("  phase 2: transfer requests seeded (one in staging, one with an open adjustment)")
+        print("  phase 2: transfer requests seeded (requested / working on it / done+adjustment)")
 
     db.commit()
 

@@ -11,7 +11,10 @@ from typing import Any, Protocol
 
 READ_METHODS = {"search_read", "read", "read_group", "search", "search_count", "fields_get"}
 # The only write methods the app may EVER use, and only via OdooWriter.
-WRITE_METHODS = {"create", "write", "unlink"}
+# copy/action_confirm/action_assign exist for ONE operation: preparing the
+# STAGING→FLOOR count transfer (duplicate, mark To Do, check availability).
+# They reserve stock but move none — validation stays human, always.
+WRITE_METHODS = {"create", "write", "unlink", "copy", "action_confirm", "action_assign"}
 
 
 class OdooConnection(Protocol):
