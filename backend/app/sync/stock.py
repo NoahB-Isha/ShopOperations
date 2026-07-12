@@ -14,8 +14,21 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..models import ODOO_LOCATION_NAMES, OdooLocation, Product, StockLevel, SyncState, utcnow
+from ..models import (
+    ODOO_LOCATION_NAMES,
+    Center,
+    OdooLocation,
+    Product,
+    StockLevel,
+    SyncState,
+    utcnow,
+)
 from ..odoo.protocol import OdooConnection
+
+# Per-center internal locations live under this Odoo path; the leaf segment
+# is matched (case-insensitively) against Center.name to map order-list
+# destinations. Verified live 2026-07-10.
+CITY_CENTER_PREFIX = "III/CityCenter/"
 
 
 def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: SyncState) -> int:
@@ -87,15 +100,46 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
         if product_id is None:
             unknown += 1  # product not in catalog (not sale_ok) — fine to skip
             continue
-        key = classify(q.get("location_id"))
-        if key is None:
+        loc_key = classify(q.get("location_id"))
+        if loc_key is None:
             continue
-        totals[(product_id, key)] = totals.get((product_id, key), 0.0) + (q.get("quantity") or 0.0)
+        totals[(product_id, loc_key)] = (
+            totals.get((product_id, loc_key), 0.0) + (q.get("quantity") or 0.0)
+        )
 
     db.execute(delete(StockLevel))
     now = utcnow()
     for (product_id, key), qty in totals.items():
         db.add(StockLevel(product_id=product_id, location_key=key, qty=qty, captured_at=now))
 
-    state.extra = {**(state.extra or {}), "unknown_product_quants": unknown}
+    center_stats = _map_center_locations(db, conn)
+    state.extra = {**(state.extra or {}), "unknown_product_quants": unknown, **center_stats}
     return len(totals)
+
+
+def _map_center_locations(db: Session, conn: OdooConnection) -> dict:
+    """Match III/CityCenter/<City> locations to centers by leaf name. The
+    mapping is rebuilt every sync so renames in Odoo surface as 'unmapped'
+    rather than as stale ids that would misroute a draft transfer."""
+    locations = conn.search_read(
+        "stock.location", [["complete_name", "like", CITY_CENTER_PREFIX]], ["complete_name"]
+    )
+    centers = db.scalars(select(Center)).all()
+    if not centers:
+        return {"center_locations_seen": len(locations), "center_locations_matched": 0}
+    by_name = {c.name.strip().lower(): c for c in centers}
+    for center in centers:
+        center.odoo_location_id = None
+        center.odoo_location_name = ""
+    matched = 0
+    for loc in locations:
+        name = str(loc.get("complete_name") or "")
+        if CITY_CENTER_PREFIX not in name:
+            continue  # 'like' is a substring match; keep only true subtree hits
+        leaf = name.rsplit("/", 1)[-1].strip().lower()
+        match = by_name.get(leaf)
+        if match is not None and match.odoo_location_id is None:
+            match.odoo_location_id = loc["id"]
+            match.odoo_location_name = name
+            matched += 1
+    return {"center_locations_seen": len(locations), "center_locations_matched": matched}

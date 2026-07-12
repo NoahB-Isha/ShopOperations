@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     sync_incoming_minutes: int = 240
     sync_stale_factor: float = 2.0
     sales_backfill_months: int = 24
+    sales_daily_retention_days: int = 60  # sales_daily keeps only this window
+
+    # --- restock lists (ILscripts port; see app/restock/engine.py) ---
+    restock_floor_threshold: float = 4  # POS units accumulated before an item is flagged
+    restock_low_cover_days: float = 7  # floor cover below this → on the back-stock list
+    restock_target_cover_days: float = 14  # back-stock suggestion refills to this cover
+    restock_avg_window_days: int = 28  # trailing window for avg daily POS units
 
     # --- seeds ---
     seed_coordinator_xlsx: str = "docs/reference/IL City Coordinators.xlsx"

@@ -50,6 +50,7 @@ class WriteResult:
     success: bool
     odoo_model: str
     record_ids: list[int] = field(default_factory=list)
+    record_name: str = ""  # Odoo display name (e.g. III/INT/00042) when read back
     deep_link: str = ""
     payload: dict = field(default_factory=dict)
     message: str = ""
@@ -173,25 +174,44 @@ class OdooWriter:
         self,
         *,
         source_key: str,
-        dest_key: str,
+        dest_key: str = "",
         lines: list[dict],
         note: str = "",
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,  # canary protocol only
+        dest_odoo_location_id: int | None = None,  # center destinations
+        dest_label: str = "",
     ) -> WriteResult:
-        """Create a DRAFT internal transfer (stock.picking) between two of the
-        app's known locations. `lines` = [{"product_id": <app id>, "qty": n}]."""
+        """Create a DRAFT internal transfer (stock.picking) from one of the
+        app's known locations to either another known location (`dest_key`)
+        or an explicit Odoo location id (`dest_odoo_location_id`, e.g. a
+        center's III/CityCenter/… location discovered by the stock sync).
+        `lines` = [{"product_id": <app id>, "qty": n}]."""
         started = time.monotonic()
         operation = "create_internal_transfer"
 
         # ---- validate inputs (before any gate, so dry-runs are honest)
         if not lines:
             raise WriterValidationError("A transfer needs at least one line.")
-        if source_key == dest_key:
-            raise WriterValidationError("Source and destination are the same location.")
+        if bool(dest_key) == (dest_odoo_location_id is not None):
+            raise WriterValidationError(
+                "Give exactly one destination: a location key or an Odoo location id."
+            )
         source = self._resolve_location(source_key)
-        dest = self._resolve_location(dest_key)
+        if dest_key:
+            if source_key == dest_key:
+                raise WriterValidationError("Source and destination are the same location.")
+            dest_id = self._resolve_location(dest_key).odoo_id
+        else:
+            dest_id = int(dest_odoo_location_id or 0)
+            if dest_id <= 0:
+                raise WriterValidationError(
+                    f"'{dest_label or 'destination'}' has no Odoo location mapped yet — "
+                    "run a stock sync, or fix the center's location name in Odoo."
+                )
+        if dest_id == source.odoo_id:
+            raise WriterValidationError("Source and destination are the same location.")
         transfer_lines: list[TransferLine] = []
         for line in lines:
             qty = float(line.get("qty", 0))
@@ -218,7 +238,7 @@ class OdooWriter:
         payload = build_internal_transfer_payload(
             picking_type_id=picking_type_id,
             source_location_id=source.odoo_id,
-            dest_location_id=dest.odoo_id,
+            dest_location_id=dest_id,
             reference=reference,
             lines=transfer_lines,
             move_field=move_field,
@@ -279,6 +299,7 @@ class OdooWriter:
                     success=True,
                     odoo_model="stock.picking",
                     record_ids=[rec["id"]],
+                    record_name=str(rec.get("name") or ""),
                     deep_link=odoo_record_url(self.settings, "stock.picking", rec["id"]),
                     payload=payload,
                     message=f"Transfer already exists as {rec.get('name')} (idempotent retry).",
@@ -330,6 +351,7 @@ class OdooWriter:
             success=True,
             odoo_model="stock.picking",
             record_ids=[picking_id],
+            record_name=str(rec.get("name") or ""),
             deep_link=deep_link,
             payload=payload,
             message=f"Draft transfer {rec.get('name', picking_id)} created — review it in Odoo.",

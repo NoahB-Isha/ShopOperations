@@ -80,6 +80,12 @@ class Center(Base, TimestampMixin):
     # Mountain View/San Ramon) carry the same group label.
     shared_product_group: Mapped[str | None] = mapped_column(String(80))
 
+    # Odoo internal location (III/CityCenter/<City>), rediscovered by every
+    # stock sync via name match. Null = unmapped — order-list approval for
+    # this center can only dry-run until an admin fixes the name mismatch.
+    odoo_location_id: Mapped[int | None] = mapped_column(Integer)
+    odoo_location_name: Mapped[str] = mapped_column(String(255), default="")
+
     needs_followup: Mapped[bool] = mapped_column(Boolean, default=False)
     followup_reasons: Mapped[list] = mapped_column(JSONVariant, default=list)
 

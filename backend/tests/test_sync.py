@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import IncomingMove, Product, SalesMonthly, StockLevel, SyncState
+from app.models import IncomingMove, Product, SalesDaily, SalesMonthly, StockLevel, SyncState
 from app.odoo.simulator import OdooSimulator
 from app.sync.runner import run_all, run_domain
 from sqlalchemy import select
@@ -91,6 +91,12 @@ def test_sales_sync_backfill_then_incremental(db, settings_env):
         for r in db.scalars(select(SalesMonthly))
     }
     assert got == settings_env._test_expectations["expected_sales"]
+
+    daily = {
+        (skus[r.product_id], r.day.isoformat(), r.channel): r.units
+        for r in db.scalars(select(SalesDaily))
+    }
+    assert daily == settings_env._test_expectations["expected_sales_daily"]
 
     state = db.get(SyncState, "sales")
     assert state.extra.get("backfill_done_at")

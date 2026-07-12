@@ -44,6 +44,10 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 14, "complete_name": "III/Stock/III-FLOOR", "usage": "internal"},
         # warehouse bin: quants here must roll up into bwhse (subtree matching)
         {"id": 15, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
+        # per-center locations: stock sync maps these to centers by leaf name
+        {"id": 21, "complete_name": "III/CityCenter", "usage": "view"},
+        {"id": 22, "complete_name": "III/CityCenter/Austin", "usage": "internal"},
+        {"id": 23, "complete_name": "III/CityCenter/Ghost Town", "usage": "internal"},
     ]
     picking_types = [
         {"id": 1, "name": "III: Receipts", "code": "incoming"},
@@ -145,8 +149,16 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
             ("CA0023000009", py, pm, "online"): 3.0,
             ("OC0000000042", py, pm, "online"): 9.0,
         },
+        "expected_sales_daily": {
+            ("CA0023000009", f"{py}-{pm:02d}-15", "pos"): 7.0,
+            ("CA0023000009", f"{cy}-{cm:02d}-05", "pos"): 5.0,
+            ("IN0000000777", f"{py}-{pm:02d}-15", "pos"): 12.0,
+            ("CA0023000009", f"{py}-{pm:02d}-15", "online"): 3.0,
+            ("OC0000000042", f"{py}-{pm:02d}-15", "online"): 9.0,
+        },
         "incoming_count": 2,
         "months": {"current": (cy, cm), "previous": (py, pm)},
+        "austin_location_id": 22,
     }
 
 

@@ -11,13 +11,13 @@ re-pulled once a day to catch late edits. Markers live in sync_state.extra.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..models import Product, SalesMonthly, SyncState, utcnow
+from ..models import Product, SalesDaily, SalesMonthly, SyncState, utcnow
 from ..odoo.protocol import OdooConnection
 
 # (line model, qty field, parent order model, confirmed states, app channel)
@@ -65,6 +65,11 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
 
     # bucket[(product_id, year, month, channel)] = units
     bucket: dict[tuple[int, int, int, str], float] = {}
+    # daily[(product_id, day, channel)] = units — recent window only (restock
+    # lists need yesterday; SalesMonthly keeps the long history). Days are the
+    # UTC date of date_order, consistent with the monthly buckets.
+    daily: dict[tuple[int, date, str], float] = {}
+    daily_floor = today - timedelta(days=settings.sales_daily_retention_days)
     any_source = False
     for line_model, qty_field, order_model, states, channel in SOURCES:
         if not _model_exists(conn, line_model):
@@ -105,6 +110,14 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
             qty = float(ln.get(qty_field) or 0.0)
             key = (product_id, year, month, channel)
             bucket[key] = bucket.get(key, 0.0) + qty
+            if len(d) >= 10 and d[8:10].isdigit():
+                try:
+                    day = date(year, month, int(d[8:10]))
+                except ValueError:
+                    continue
+                if day >= daily_floor:
+                    dkey = (product_id, day, channel)
+                    daily[dkey] = daily.get(dkey, 0.0) + qty
 
     if not any_source:
         raise RuntimeError(
@@ -126,6 +139,22 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
                 product_id=product_id,
                 year=year,
                 month=month,
+                channel=channel,
+                units=round(units, 3),
+                synced_at=now,
+            )
+        )
+
+    # Daily buckets: replace the synced window (clamped to retention) and
+    # prune rows that have aged out.
+    daily_since = max(since, daily_floor)
+    db.execute(delete(SalesDaily).where(SalesDaily.day >= daily_since))
+    db.execute(delete(SalesDaily).where(SalesDaily.day < daily_floor))
+    for (product_id, day, channel), units in daily.items():
+        db.add(
+            SalesDaily(
+                product_id=product_id,
+                day=day,
                 channel=channel,
                 units=round(units, 3),
                 synced_at=now,
