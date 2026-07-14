@@ -97,3 +97,40 @@ def build_internal_transfer_payload(
     if note:
         vals["note"] = note
     return vals
+
+
+def build_inventory_reduction_payload(
+    *,
+    picking_type_id: int | None,
+    source_location_id: int,
+    dest_location_id: int | None,
+    reference: str,
+    line: TransferLine,
+    note: str = "",
+) -> dict:
+    """`stock.picking` create-vals for a DRAFT inventory reduction — the
+    "USA-III: Inventory Adj Reduction" operation type, removing phantom floor
+    stock. The app never validates it; a human confirms the shelf is really
+    empty in Odoo."""
+    vals: dict = {
+        "picking_type_id": picking_type_id,
+        "location_id": source_location_id,
+        "location_dest_id": dest_location_id,
+        "origin": reference,
+        "move_ids": [
+            (
+                0,
+                0,
+                {
+                    "description_picking": line.description,
+                    "product_id": line.product_odoo_id,
+                    "product_uom_qty": line.qty,
+                    "location_id": source_location_id,
+                    "location_dest_id": dest_location_id,
+                },
+            )
+        ],
+    }
+    if note:
+        vals["note"] = note
+    return vals

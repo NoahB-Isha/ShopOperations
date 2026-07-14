@@ -473,6 +473,9 @@ export function PlaceOrderPage() {
         </ul>
       )}
 
+      {/* the floating cart bar must never hide the last rows' Add buttons */}
+      {cartCount > 0 && <div className="h-24" aria-hidden />}
+
       {/* sticky cart bar — floats above the bottom nav on phones */}
       {cartCount > 0 && (
         <div className="fixed inset-x-0 bottom-[4.7rem] z-20 px-4 md:bottom-6">

@@ -225,12 +225,16 @@ export function CatalogPage() {
       />
 
       {isAdmin && (
-        <Fab
-          label="New item"
-          onClick={() => setNewOpen(true)}
-          className="fixed right-6 bottom-6 z-30"
-          title="Add a non-Odoo item (water, cookies — dept-orderable, no stock tracking)"
-        />
+        <>
+          {/* room to scroll the pagination clear of the floating FAB */}
+          <div className="h-24" aria-hidden />
+          <Fab
+            label="New item"
+            onClick={() => setNewOpen(true)}
+            className="fixed right-6 bottom-6 z-30"
+            title="Add a non-Odoo item (water, cookies — dept-orderable, no stock tracking)"
+          />
+        </>
       )}
 
       <ProductDrawer product={selected} onClose={() => setSelected(null)} isAdmin={isAdmin} />

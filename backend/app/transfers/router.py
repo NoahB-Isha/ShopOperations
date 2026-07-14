@@ -38,7 +38,7 @@ from ..models import (
     utcnow,
 )
 from . import service
-from .flow import InvalidTransition, NotAllowedError, check_transition
+from .flow import ACTIVE_STATUSES, InvalidTransition, NotAllowedError, check_transition
 
 PARTICIPANTS = (Role.SHOPPE_FLOOR, Role.WAREHOUSE)
 S = TransferRequestStatus
@@ -411,6 +411,77 @@ def list_requests(
         )
         for r in requests
     ]
+
+
+class ComingSoonRequestRef(BaseModel):
+    id: int
+    display_name: str
+    status: str
+    qty: float
+
+
+class ComingSoonItemOut(BaseModel):
+    product_id: int
+    sku: str
+    name: str
+    category: str
+    qty_on_the_way: float  # sent qty where known, requested otherwise
+    floor_qty: float
+    bwhse_qty: float
+    requests: list[ComingSoonRequestRef]
+
+
+# NOTE: declared before /{request_id} — the int route would otherwise
+# swallow "coming-soon" and 422.
+@router.get("/coming-soon", response_model=list[ComingSoonItemOut])
+def coming_soon(
+    db: Session = Depends(get_db),
+    _: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
+) -> list[ComingSoonItemOut]:
+    """Every item on an ACTIVE transfer request, aggregated per product —
+    'already on its way to the floor', so nobody requests it twice."""
+    requests = db.scalars(
+        select(TransferRequest)
+        .options(selectinload(TransferRequest.lines).selectinload(TransferRequestLine.product))
+        .where(TransferRequest.status.in_(ACTIVE_STATUSES))
+        .order_by(TransferRequest.id)
+        .execution_options(populate_existing=True)
+    ).all()
+
+    by_product: dict[int, dict] = {}
+    for req in requests:
+        for line in req.lines:
+            qty = float(line.qty_sent) if line.qty_sent is not None else float(line.qty_requested)
+            if qty <= 0:
+                continue
+            p = line.product
+            entry = by_product.setdefault(
+                line.product_id,
+                {"product": p, "qty": 0.0, "requests": []},
+            )
+            entry["qty"] += qty
+            entry["requests"].append(
+                ComingSoonRequestRef(
+                    id=req.id, display_name=req.display_name, status=req.status, qty=qty
+                )
+            )
+
+    stock = _stock_map(db, set(by_product.keys()))
+    items = [
+        ComingSoonItemOut(
+            product_id=pid,
+            sku=e["product"].global_sku,
+            name=e["product"].name,
+            category=e["product"].category,
+            qty_on_the_way=round(e["qty"], 3),
+            floor_qty=stock.get(pid, {}).get("floor", 0.0),
+            bwhse_qty=stock.get(pid, {}).get("bwhse", 0.0),
+            requests=e["requests"],
+        )
+        for pid, e in by_product.items()
+    ]
+    items.sort(key=lambda i: (i.category or "~", i.name))
+    return items
 
 
 @router.get("/{request_id}", response_model=RequestOut)

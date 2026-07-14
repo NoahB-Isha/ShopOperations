@@ -14,11 +14,9 @@ import {
 } from "../../api/hooks";
 import type { CenterOrderOut } from "../../api/types";
 import {
-  Badge,
   Button,
   Card,
   Dialog,
-  PageHeader,
   Spinner,
   Textarea,
   useToast,
@@ -29,7 +27,6 @@ import {
   OrderStatusChip,
   ReasonBadgeChip,
   money,
-  reasonTone,
 } from "./orderBits";
 
 function EventIcon({ kind }: { kind: string }) {
@@ -170,24 +167,25 @@ export function OrderDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title={order.display_name}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            <OrderStatusChip status={order.status} />
-            <span>
-              {order.center.name}
-              {order.center.zone_name ? ` · ${order.center.zone_name}` : ""} · by{" "}
-              {order.created_by} · {fmtWhen(order.created_at)}
-            </span>
+      {/* status pinned top-right on every width — never wraps below */}
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="display-l text-on-surface">{order.display_name}</h1>
+          <div className="mt-1 text-[13px] text-on-surface-variant">
+            {order.center.name}
+            {order.center.zone_name ? ` · ${order.center.zone_name}` : ""} · by{" "}
+            {order.created_by} · {fmtWhen(order.created_at)}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pt-2">
+          <OrderStatusChip status={order.status} />
+          <span className="hidden md:block">
+            <Button variant="ghost" onClick={() => navigate(-1)}>
+              ← Back
+            </Button>
           </span>
-        }
-        actions={
-          <Button variant="ghost" onClick={() => navigate(-1)}>
-            ← Back
-          </Button>
-        }
-      />
+        </div>
+      </div>
 
       {order.notes && (
         <Card tone="tertiary" className="mb-4 text-[13.5px]">
@@ -197,14 +195,10 @@ export function OrderDetailPage() {
 
       {stored.summary && (order.reasonability_level === "warn" || order.reasonability_level === "info") && (
         <Card className="mb-4 flex flex-col gap-2">
-          <div data-testid="order-reasonability" className="flex items-center gap-2">
-            <Badge tone={reasonTone(order.reasonability_level)}>
-              {order.reasonability_level === "warn" ? "worth a look" : "notes"}
-            </Badge>
-            <span className="text-[11.5px] text-on-surface-variant">
-              {stored.source === "rules+llm" ? "order checker + assistant" : "order checker"} · advisory only
-            </span>
-          </div>
+          <h3 data-testid="order-reasonability" className="display text-[20px]">
+            Reasonability:{" "}
+            {order.reasonability_level === "warn" ? "Worth a look" : "Minor notes"}
+          </h3>
           <div className="text-[13.5px]">{stored.summary}</div>
           {(stored.order_badges ?? []).length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -213,81 +207,76 @@ export function OrderDetailPage() {
               ))}
             </div>
           )}
+          <div className="text-[11.5px] text-on-surface-variant">
+            Advisory only — you decide.
+          </div>
         </Card>
       )}
 
-      {/* lines */}
-      <Card pad={false} className="mb-4 overflow-x-auto">
-        <table className="w-full text-[13.5px]">
-          <thead>
-            <tr className="text-left text-[11.5px] uppercase tracking-wide text-on-surface-variant">
-              <th className="px-4 py-2.5 font-semibold">Item</th>
-              <th className="px-2 py-2.5 text-right font-semibold">Requested</th>
-              <th className="px-2 py-2.5 text-right font-semibold">
-                {editable ? "Approve qty" : "Approved"}
-              </th>
-              <th className="hidden px-2 py-2.5 text-right font-semibold sm:table-cell">Price</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Availability</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.lines.map((l) => (
-              <tr key={l.id} className="border-t border-outline-variant/40 align-top">
-                <td className="px-4 py-2.5">
-                  <div className="font-medium text-on-surface">{l.name}</div>
-                  <div className="text-[11.5px] text-on-surface-variant">
-                    <span className="font-mono">{l.sku}</span>
-                    {l.untracked && " · untracked"}
-                  </div>
-                  {l.badges.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {l.badges.map((b) => (
-                        <ReasonBadgeChip key={b.code} b={b} />
-                      ))}
+      {/* lines — stacked, phone-first: nothing ever scrolls sideways */}
+      <Card pad={false} className="mb-4">
+        <ul className="divide-y divide-outline-variant/40">
+          {order.lines.map((l) => {
+            const qty = qtys[l.product_id] ?? l.qty_final;
+            const adjusted =
+              l.qty_approved !== null && l.qty_approved !== l.qty_requested;
+            return (
+              <li key={l.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium text-on-surface">{l.name}</div>
+                    <div className="text-[11.5px] text-on-surface-variant">
+                      <span className="font-mono">{l.sku}</span>
+                      {l.untracked && " · untracked"} · {money(l.unit_price)}
                     </div>
-                  )}
-                </td>
-                <td className="px-2 py-2.5 text-right tabular-nums">{fmtQty(l.qty_requested)}</td>
-                <td className="px-2 py-2.5 text-right">
-                  {editable ? (
-                    <QtyInput
-                      value={qtys[l.product_id] ?? l.qty_final}
-                      onChange={(q) =>
-                        setQtys((prev) => ({ ...prev, [l.product_id]: q }))
-                      }
-                      ariaLabel={`Approved quantity for ${l.name}`}
-                    />
-                  ) : (
-                    <span className="tabular-nums">
-                      {l.qty_approved === null ? "—" : fmtQty(l.qty_approved)}
-                    </span>
-                  )}
-                </td>
-                <td className="hidden px-2 py-2.5 text-right tabular-nums sm:table-cell">
-                  {money(l.unit_price)}
-                </td>
-                <td className="px-4 py-2.5 text-right">
+                  </div>
                   <AvailabilityBadge a={l.availability} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-outline-variant/60 font-semibold">
-              <td className="px-4 py-2.5">Total</td>
-              <td className="px-2 py-2.5 text-right tabular-nums">
-                {fmtQty(order.lines.reduce((s, l) => s + l.qty_requested, 0))}
-              </td>
-              <td className="px-2 py-2.5 text-right tabular-nums">
-                {fmtQty(order.totals.units)}
-              </td>
-              <td className="hidden px-2 py-2.5 text-right tabular-nums sm:table-cell">
-                {money(order.totals.value)}
-              </td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                  <div className="flex min-w-0 flex-wrap gap-1">
+                    {l.badges.map((b) => (
+                      <ReasonBadgeChip key={b.code} b={b} />
+                    ))}
+                  </div>
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    {editable ? (
+                      <>
+                        <span className="text-[12px] text-on-surface-variant">
+                          asked {fmtQty(l.qty_requested)}
+                        </span>
+                        <QtyInput
+                          value={qty}
+                          onChange={(q) =>
+                            setQtys((prev) => ({ ...prev, [l.product_id]: q }))
+                          }
+                          ariaLabel={`Approved quantity for ${l.name}`}
+                        />
+                      </>
+                    ) : (
+                      <span className="text-[14px] tabular-nums">
+                        {adjusted && (
+                          <span className="mr-1.5 text-[12px] text-on-surface-variant line-through">
+                            {fmtQty(l.qty_requested)}
+                          </span>
+                        )}
+                        <span className="font-semibold">{fmtQty(l.qty_final)}</span>
+                        <span className="ml-1 text-[12px] text-on-surface-variant">
+                          {l.qty_final === 1 ? "unit" : "units"}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="flex items-center justify-between border-t border-outline-variant/60 px-4 py-3 text-[13.5px] font-semibold">
+          <span>Total</span>
+          <span className="tabular-nums">
+            {fmtQty(order.totals.units)} units · {money(order.totals.value)}
+          </span>
+        </div>
       </Card>
 
       {/* actions */}

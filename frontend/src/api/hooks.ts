@@ -452,3 +452,22 @@ export function useAdjustCenterOrderLines() {
       api<CenterOrderOut>(`/center-orders/${id}/lines`, { method: "PUT", body: lines }),
   );
 }
+
+export function useResetFloorRestock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<{ lines_cleared: number; accumulators_zeroed: number }>("/restock/floor/reset", {
+        method: "POST",
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["restock"] }),
+  });
+}
+
+export function useComingSoon() {
+  return useQuery({
+    queryKey: ["coming-soon"],
+    queryFn: () => api<import("./types").ComingSoonItem[]>("/transfer-requests/coming-soon"),
+    refetchInterval: BOARD_POLL_MS,
+  });
+}

@@ -26,9 +26,10 @@ from ..models import (
     Role,
     StockLevel,
     SyncState,
+    User,
     utcnow,
 )
-from .engine import BACK_LIST, FLOOR_LIST, back_list, floor_list, fold_floor_restock
+from .engine import BACK_LIST, FLOOR_LIST, back_list, floor_list, fold_floor_restock, reset_floor
 
 router = APIRouter(
     prefix="/restock",
@@ -71,6 +72,9 @@ class RestockMetaOut(BaseModel):
     low_cover_days: float
     target_cover_days: float
     avg_window_days: int
+    # last "floor fully stocked" reset — lets an empty list explain itself
+    last_reset_at: datetime | None = None
+    last_reset_by: str = ""
 
 
 class RestockOut(BaseModel):
@@ -159,15 +163,56 @@ def get_restock(
     return RestockOut(
         floor=floor_out,
         back=back_out,
-        meta=RestockMetaOut(
-            today=today,
-            folded_through=fold_state.folded_through if fold_state else None,
-            sales_synced_at=sales_state.last_success_at if sales_state else None,
-            floor_threshold=float(settings.restock_floor_threshold),
-            low_cover_days=float(settings.restock_low_cover_days),
-            target_cover_days=float(settings.restock_target_cover_days),
-            avg_window_days=int(settings.restock_avg_window_days),
-        ),
+        meta=_meta(db, settings, today, fold_state, sales_state),
+    )
+
+
+def _meta(
+    db: Session,
+    settings: Settings,
+    today: date,
+    fold_state: RestockFoldState | None,
+    sales_state: SyncState | None,
+) -> RestockMetaOut:
+    reset_by = ""
+    if fold_state and fold_state.last_reset_by_id:
+        u = db.get(User, fold_state.last_reset_by_id)
+        if u:
+            reset_by = u.display_name or u.email or f"user {u.id}"
+    return RestockMetaOut(
+        today=today,
+        folded_through=fold_state.folded_through if fold_state else None,
+        sales_synced_at=sales_state.last_success_at if sales_state else None,
+        floor_threshold=float(settings.restock_floor_threshold),
+        low_cover_days=float(settings.restock_low_cover_days),
+        target_cover_days=float(settings.restock_target_cover_days),
+        avg_window_days=int(settings.restock_avg_window_days),
+        last_reset_at=fold_state.last_reset_at if fold_state else None,
+        last_reset_by=reset_by,
+    )
+
+
+class ResetOut(BaseModel):
+    lines_cleared: int
+    accumulators_zeroed: int
+    meta: RestockMetaOut
+
+
+@router.post("/floor/reset", response_model=ResetOut)
+def reset_floor_list(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.WAREHOUSE)),
+) -> ResetOut:
+    """'The floor is fully stocked': wipe the checklist, zero the counters,
+    and give today amnesty — counting resumes with tomorrow's sales. For the
+    morning after a full physical restock."""
+    today = utcnow().date()
+    result = reset_floor(db, today, actor_user_id=authed.id)
+    return ResetOut(
+        lines_cleared=result["lines_cleared"],
+        accumulators_zeroed=result["accumulators_zeroed"],
+        meta=_meta(db, settings, today, db.get(RestockFoldState, 1), db.get(SyncState, "sales")),
     )
 
 

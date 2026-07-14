@@ -118,37 +118,44 @@ export function OrderHistoryPage() {
               className="cursor-pointer rounded-(--radius-lg) bg-surface-container-low p-5
                 transition-transform duration-200 ease-(--ease-spring) hover:-translate-y-0.5"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2.5">
+              {/* status lives top-right — thumb-scannable on a phone */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
                   <ReasonDot level={o.reasonability_level} />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-on-surface">{o.display_name}</span>
-                      {isCoordinator && (
-                        <span className="text-[13px] font-medium text-on-surface-variant">
-                          {o.center_name}
-                        </span>
-                      )}
-                      <OrderStatusChip status={o.status as CenterOrderStatus} />
-                      {o.odoo_picking_name && (
-                        <Badge tone="outline" title="The draft transfer in Odoo">
-                          {o.odoo_picking_name}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-0.5 text-[12.5px] text-on-surface-variant">
-                      {fmtWhen(o.created_at)} · {o.line_count} item(s) ·{" "}
-                      {fmtQty(o.total_units)} units · {money(o.total_value)}
-                      {isCoordinator ? ` · by ${o.created_by}` : ""}
-                    </div>
-                  </div>
-                </div>
-                {isOrderer && (
-                  <span onClick={(e) => e.stopPropagation()}>
-                    <DuplicateButton order={o} />
+                  <span className="truncate font-bold text-on-surface">
+                    {o.display_name}
+                    {isCoordinator && (
+                      <span className="ml-2 font-medium text-on-surface-variant">
+                        {o.center_name}
+                      </span>
+                    )}
                   </span>
-                )}
+                </div>
+                <span className="shrink-0">
+                  <OrderStatusChip status={o.status as CenterOrderStatus} />
+                </span>
               </div>
+              <div className="mt-1 text-[12.5px] text-on-surface-variant">
+                {fmtWhen(o.created_at)} · {o.line_count} item(s) ·{" "}
+                {fmtQty(o.total_units)} units · {money(o.total_value)}
+                {isCoordinator ? ` · by ${o.created_by}` : ""}
+              </div>
+              {(o.odoo_picking_name || isOrderer) && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span>
+                    {o.odoo_picking_name && (
+                      <Badge tone="outline" title="The draft transfer in Odoo">
+                        {o.odoo_picking_name}
+                      </Badge>
+                    )}
+                  </span>
+                  {isOrderer && (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <DuplicateButton order={o} />
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

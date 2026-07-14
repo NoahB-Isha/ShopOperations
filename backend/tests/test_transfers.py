@@ -299,3 +299,51 @@ def test_line_validation(client, db, settings_env):
         headers=floor,
     )
     assert r.status_code == 422
+
+
+def test_coming_soon_aggregates_active_requests(client, db, settings_env):
+    """Coming soon via transfer: per-product totals across ACTIVE requests
+    only — sent quantities preferred, done/cancelled excluded, floor-scoped."""
+    copper, incense, _water = _setup(db)
+    _sync_locations(db, settings_env)
+    floor = login(client, "floor@test.io")
+
+    r1 = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 10}]},
+        headers=floor,
+    ).json()
+    client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 5}, {"product_id": incense.id, "qty": 3}]},
+        headers=floor,
+    )
+    # a cancelled request must not count
+    r3 = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 99}]},
+        headers=floor,
+    ).json()
+    client.post(f"/api/v1/transfer-requests/{r3['id']}/cancel", json={}, headers=floor)
+    # warehouse trimmed r1 to 8 in transit (sent qty wins over requested)
+    from app.models import TransferRequestLine
+    from sqlalchemy import select as sa_select
+
+    line = db.scalar(
+        sa_select(TransferRequestLine).where(TransferRequestLine.request_id == r1["id"])
+    )
+    line.qty_sent = 8
+    db.commit()
+
+    r = client.get("/api/v1/transfer-requests/coming-soon", headers=floor)
+    assert r.status_code == 200, r.text
+    items = {i["sku"]: i for i in r.json()}
+    assert set(items) == {"CA0023000009", "IN0000000777"}
+    assert items["CA0023000009"]["qty_on_the_way"] == 13  # 8 sent + 5 requested
+    assert items["IN0000000777"]["qty_on_the_way"] == 3
+    assert {req["qty"] for req in items["CA0023000009"]["requests"]} == {8, 5}
+    assert items["CA0023000009"]["bwhse_qty"] > 0  # fixture stock, synced
+
+    # orderers have no business here
+    orderer = login(client, "orderer@test.io")
+    assert client.get("/api/v1/transfer-requests/coming-soon", headers=orderer).status_code == 403

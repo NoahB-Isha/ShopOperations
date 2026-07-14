@@ -36,7 +36,7 @@ import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import Settings
@@ -48,6 +48,7 @@ from ..models import (
     RestockLine,
     SalesDaily,
     StockLevel,
+    utcnow,
 )
 
 POS = "pos"
@@ -248,3 +249,37 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
         )
     items.sort(key=lambda i: (i.days_of_cover is not None, i.days_of_cover or 0.0))
     return items
+
+
+# -------------------------------------------------------------------- reset
+def reset_floor(db: Session, today: date, actor_user_id: int | None = None) -> dict:
+    """The floor was just physically fully restocked: wipe the checklist
+    (open AND checked-off lines — the old list is void), zero every
+    accumulator, and make TODAY an amnesty day, so counting resumes with
+    tomorrow's sales. Records who reset and when, so the empty list can
+    explain itself. Commits."""
+    # SQLAlchemy types DML executes as Result[Any]; the runtime object is a
+    # CursorResult carrying rowcount.
+    n_lines = _dml_rowcount(
+        db.execute(delete(RestockLine).where(RestockLine.list_type == FLOOR_LIST))
+    )
+    n_accums = _dml_rowcount(
+        db.execute(
+            update(RestockAccum).values(
+                accumulated=0.0, last_flagged_on=None, updated_at=utcnow()
+            )
+        )
+    )
+    state = db.get(RestockFoldState, 1)
+    if state is None:
+        state = RestockFoldState(id=1)
+        db.add(state)
+    state.folded_through = today
+    state.last_reset_at = utcnow()
+    state.last_reset_by_id = actor_user_id
+    db.commit()
+    return {"lines_cleared": int(n_lines), "accumulators_zeroed": int(n_accums)}
+
+
+def _dml_rowcount(result: object) -> int:
+    return int(getattr(result, "rowcount", 0) or 0)

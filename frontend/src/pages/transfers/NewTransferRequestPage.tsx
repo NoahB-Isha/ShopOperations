@@ -1,8 +1,10 @@
 /* Floor: build a BWHSE→Floor request on a phone in the aisle — search,
    tap to add, adjust quantities, send. Floor vs warehouse quantities are
-   right there so nobody requests what the warehouse doesn't have. */
+   right there so nobody requests what the warehouse doesn't have.
+   The restock page's "New transfer from these items" arrives prefilled
+   via router state. */
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useCreateTransferRequest } from "../../api/hooks";
 import type { TransferRequestOut } from "../../api/types";
 import { Button, Card, EmptyState, Field, PageHeader, Textarea, useToast } from "../../design";
@@ -14,9 +16,16 @@ import {
   type PickedLine,
 } from "../shared/OpsBits";
 
+export interface TransferPrefill {
+  notes?: string;
+  lines: PickedLine[];
+}
+
 export function NewTransferRequestPage() {
-  const [lines, setLines] = useState<PickedLine[]>([]);
-  const [notes, setNotes] = useState("");
+  const location = useLocation();
+  const prefill = (location.state as { prefill?: TransferPrefill } | null)?.prefill;
+  const [lines, setLines] = useState<PickedLine[]>(() => prefill?.lines ?? []);
+  const [notes, setNotes] = useState(prefill?.notes ?? "");
   const create = useCreateTransferRequest();
   const toast = useToast();
   const navigate = useNavigate();

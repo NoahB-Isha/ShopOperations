@@ -17,6 +17,7 @@ from .config import get_settings
 from .health import router as health_router
 from .odoo.errors import OdooWriteError
 from .odoo.writer import WriterValidationError
+from .oos.router import router as oos_router
 from .orders.router import router as orders_router
 from .restock.router import router as restock_router
 from .transfers.router import adjustments_router
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
         orders_router,
         center_orders_router,
         restock_router,
+        oos_router,
         transfers_router,
         adjustments_router,
         admin_users_router,

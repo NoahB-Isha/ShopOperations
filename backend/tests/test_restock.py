@@ -274,3 +274,49 @@ def test_admin_toggles_restock_exclude_via_catalog(client, db, settings_env):
         f"/api/v1/products/{a.id}", json={"restock_exclude": True}, headers=admin
     )
     assert r.status_code == 200 and r.json()["restock_exclude"] is True
+
+
+def test_floor_reset_wipes_list_and_gives_today_amnesty(client, db, settings_env):
+    """'Floor fully stocked' reset: list emptied, counters zeroed, today's
+    sales never fold — counting resumes with tomorrow's. Orderers can't."""
+    from app.models import Role as R
+    from app.models import utcnow
+
+    today = utcnow().date()
+    a, b, *_ = _fixture_products(db)
+    _sale(db, a.id, today - timedelta(days=1), 9)  # flags on the first read
+    _sale(db, b.id, today - timedelta(days=1), 2)  # accumulating, below 4
+    _sale(db, a.id, today, 50)  # TODAY: must be amnestied by the reset
+    db.commit()
+    mk_user(db, "floor@test.io", (R.SHOPPE_FLOOR, None, None))
+    headers = login(client, "floor@test.io")
+
+    body = client.get("/api/v1/restock", headers=headers).json()
+    assert len(body["floor"]) == 1  # A flagged; B quietly at 2
+
+    r = client.post("/api/v1/restock/floor/reset", headers=headers)
+    assert r.status_code == 200, r.text
+    reset = r.json()
+    assert reset["lines_cleared"] == 1
+    assert reset["accumulators_zeroed"] >= 2  # A and B both zeroed
+    assert reset["meta"]["folded_through"] == today.isoformat()
+    assert reset["meta"]["last_reset_by"] == "floor"
+
+    body = client.get("/api/v1/restock", headers=headers).json()
+    assert body["floor"] == []
+    assert body["meta"]["last_reset_at"] is not None
+
+    # tomorrow's read folds nothing (today was amnestied)…
+    from app.config import get_settings
+    from app.restock.engine import fold_floor_restock
+
+    assert fold_floor_restock(db, get_settings(), today + timedelta(days=1)) == 0
+    # …but a sale TOMORROW folds the day after: counting truly resumed
+    _sale(db, b.id, today + timedelta(days=1), 5)
+    db.commit()
+    assert fold_floor_restock(db, get_settings(), today + timedelta(days=2)) == 1
+
+    # scoped: an orderer can't reset the floor
+    mk_user(db, "orderer@test.io", (R.CENTER_ORDERER, None, None))
+    r = client.post("/api/v1/restock/floor/reset", headers=login(client, "orderer@test.io"))
+    assert r.status_code == 403

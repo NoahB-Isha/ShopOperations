@@ -85,7 +85,7 @@ function Detail({ req }: { req: TransferRequestOut }) {
         <TransferStepper status={req.status} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-5">
           {/* ---- the one action that matters right now ---- */}
           {a.can_ack && (

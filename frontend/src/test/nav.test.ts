@@ -8,6 +8,7 @@ test("each role sees its own nav", () => {
   expect(navForRoles(new Set(["warehouse"])).map((i) => i.label)).toEqual([
     "Incoming",
     "Transfers",
+    "Coming soon",
     "Adjustments",
     "Catalog",
   ]);
@@ -18,8 +19,8 @@ test("multi-role users get a deduped union", () => {
   const items = navForRoles(new Set(["zone_coordinator", "center_orderer"]));
   const paths = items.map((i) => i.path);
   expect(paths).toEqual([
-    "/my-centers",
     "/pending-orders",
+    "/my-centers",
     "/my-order-lists",
     "/order-history",
     "/place-order",

@@ -138,6 +138,12 @@ def seed_flags(db: Session) -> None:
             "Enable only after create_internal_transfer is proven.",
         ),
         (
+            "write_create_inventory_reduction",
+            "OdooWriter.create_inventory_reduction may write live (draft 'USA-III: "
+            "Inventory Adj Reduction' pickings from floor OOS marks). Enable only "
+            "after its canary passes.",
+        ),
+        (
             "notify_whatsapp_live",
             "Order notifications may actually send over the WhatsApp bridge. "
             "Off = sends are recorded as simulated.",

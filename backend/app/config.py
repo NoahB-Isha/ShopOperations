@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     odoo_fixtures_dir: str = "backend/data/demo_fixtures"
     # seconds between polls of a count picking's state (per request)
     odoo_count_poll_seconds: int = 10
+    # picking type for floor OOS inventory reductions, matched by name (ilike
+    # contains — the live instance shows it as "USA-III: Inventory Adj Reduction")
+    odoo_reduction_picking_type: str = "Inventory Adj Reduction"
 
     # --- sync cadence (minutes) ---
     sync_products_minutes: int = 720

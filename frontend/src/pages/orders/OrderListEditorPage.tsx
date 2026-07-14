@@ -152,7 +152,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px]">
         <Card pad={false}>
           <div className="flex items-center justify-between border-b border-outline-variant/60 px-5 py-3.5">
             <h3 className="headline text-[16px]">Products</h3>

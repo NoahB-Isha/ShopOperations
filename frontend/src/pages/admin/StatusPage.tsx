@@ -238,13 +238,13 @@ export function StatusPage() {
         />
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Object.entries(data.sync).map(([domain, d]) => (
           <SyncCard key={domain} domain={domain} d={d} />
         ))}
       </div>
 
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CanaryCard />
         {data.notifications && <NotificationsCard n={data.notifications} />}
         <Card>

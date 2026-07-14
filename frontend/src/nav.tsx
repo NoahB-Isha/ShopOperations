@@ -39,6 +39,9 @@ export const Icons = {
   scale: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2.5v11M4.5 13.5h7M3.5 4.5h9M3.5 4.5 1.8 9a2 2 0 0 0 3.4 0L3.5 4.5ZM12.5 4.5 10.8 9a2 2 0 0 0 3.4 0l-1.7-4.5Z" /></svg>
   ),
+  eta: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8" cy="8" r="5.5" /><path {...stroke} d="M8 5v3l2.2 1.3M13.5 2.5 15 4M2.5 2.5 1 4" /></svg>
+  ),
 };
 
 export interface NavItem {
@@ -61,17 +64,20 @@ const byRole: Record<string, NavItem[]> = {
   warehouse: [
     { path: "/incoming", label: "Incoming", icon: Icons.truck },
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
+    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
     { path: "/catalog", label: "Catalog", icon: Icons.box },
   ],
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
+    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/catalog", label: "Catalog", icon: Icons.box },
   ],
   zone_coordinator: [
-    { path: "/my-centers", label: "My centers", icon: Icons.mapPin },
+    // pending orders first: it's the job — and the landing page (homeForRoles)
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
+    { path: "/my-centers", label: "My centers", icon: Icons.mapPin },
     { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
@@ -80,8 +86,8 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/order-history", label: "Order history", icon: Icons.history },
   ],
   dept_liaison: [
-    { path: "/my-centers", label: "My departments", icon: Icons.mapPin },
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
+    { path: "/my-centers", label: "My departments", icon: Icons.mapPin },
     { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],

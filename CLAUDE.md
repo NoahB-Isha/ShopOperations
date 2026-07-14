@@ -128,7 +128,16 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   Odoo `III/CityCenter/<City>` locations by leaf-name match, REBUILT every stock sync
   (`centers.odoo_location_id`). Sales sync also fills `sales_daily` (UTC days,
   retention-pruned); restock folds it lazily on read, each calendar day exactly once
-  (`restock_fold_state`).
+  (`restock_fold_state`). `reset_floor` = the "floor fully stocked" reset (clears every
+  floor line, zeroes accumulators, `folded_through=today` so today gets amnesty and
+  counting resumes with tomorrow's sales; who/when recorded on `restock_fold_state`,
+  shown on the Restock page) — `POST /restock/floor/reset`, floor/warehouse roles.
+  The back-stock ("From warehouse") tab has NO checkboxes — its one action is "New
+  transfer from these items", which opens /transfer-requests/new prefilled via router
+  state (suggested quantities; floor/admin only — warehouse can't create requests).
+  `GET /transfer-requests/coming-soon` (declared BEFORE /{request_id} — route order
+  matters) aggregates per-product qty on ACTIVE requests (sent qty preferred over
+  requested) → the /coming-soon page in floor+warehouse navs.
 - Dev-auth mode skips the 60s resend throttle (nothing is delivered; e2e re-logs demo users
   within seconds) — real delivery modes keep it. E2E runs with `workers: 1` and REQUIRES the
   `write_create_internal_transfer` flag OFF so order-list AND center-order approvals stay

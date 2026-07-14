@@ -48,10 +48,14 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 21, "complete_name": "III/CityCenter", "usage": "view"},
         {"id": 22, "complete_name": "III/CityCenter/Austin", "usage": "internal"},
         {"id": 23, "complete_name": "III/CityCenter/Ghost Town", "usage": "internal"},
+        # the reduction operation type's default destination (virtual loss)
+        {"id": 31, "complete_name": "Virtual Locations/USA-III: Inventory adjustment", "usage": "inventory"},
     ]
     picking_types = [
-        {"id": 1, "name": "III: Receipts", "code": "incoming"},
-        {"id": 5, "name": "III: Internal Transfers", "code": "internal"},
+        {"id": 1, "name": "III: Receipts", "code": "incoming", "default_location_dest_id": False},
+        {"id": 5, "name": "III: Internal Transfers", "code": "internal", "default_location_dest_id": False},
+        {"id": 7, "name": "USA-III: Inventory Adj Reduction", "code": "internal",
+         "default_location_dest_id": [31, "Virtual Locations/USA-III: Inventory adjustment"]},
     ]
     quants = [
         _q(1, 201, "Copper Water Bottle — 950ml", 12, "III/Stock/BWHSE", 120),
@@ -108,7 +112,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         "stock.move": ["id", "description_picking", "product_id", "product_uom_qty", "product_qty",
                        "date", "state", "location_id", "location_dest_id", "picking_id",
                        "picking_code"],
-        "stock.picking.type": ["id", "name", "code"],
+        "stock.picking.type": ["id", "name", "code", "default_location_dest_id"],
         "pos.order": ["id", "name", "date_order", "state"],
         "pos.order.line": ["id", "order_id", "product_id", "qty"],
         "sale.order": ["id", "name", "date_order", "state"],

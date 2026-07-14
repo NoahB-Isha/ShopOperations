@@ -185,7 +185,7 @@ function ExamplePage() {
         <Badge tone="outline">untracked</Badge>
       </div>
 
-      <div className="mb-6 grid gap-4 md:grid-cols-[1fr_240px]">
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-[1fr_240px]">
         <div className="flex flex-col gap-3">
           <Input
             aria-label="Example search"

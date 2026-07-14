@@ -414,7 +414,11 @@ body {
      Put .stagger-children on a container; its direct children rise
      in one after another. CSS-only — replays on route mount. */
   .stagger-children > * {
-    animation: rise-in 0.5s var(--ease-spring) both;
+    /* `backwards`, never `both`: a retained end-state transform (even the
+       identity matrix) turns the child into the containing block for any
+       position:fixed descendant — FABs and cart bars would anchor to the
+       page instead of the viewport. */
+    animation: rise-in 0.5s var(--ease-spring) backwards;
   }
   .stagger-children > :nth-child(1) { animation-delay: 0ms; }
   .stagger-children > :nth-child(2) { animation-delay: 50ms; }

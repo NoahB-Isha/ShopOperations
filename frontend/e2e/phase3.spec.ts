@@ -12,8 +12,10 @@
  *   3. The seeded deliberately-absurd order carries visible reasonability
  *      warnings on the coordinator's board and detail page.
  *
- * Requires the stack up and seeded (make dev && make seed). Write flags and
- * notify flags must be OFF (their shipped state).
+ * Requires the stack up and seeded (make dev && make seed). Write flags must
+ * be OFF (their shipped state). Notify flags may be either state — the tests
+ * assert the notification EVENT, not the channel outcome — but note that live
+ * notify flags make e2e runs send real mail to the demo users' fake addresses.
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -78,9 +80,11 @@ test("a city orderer places on a phone in under a minute; coordinator approves; 
   await expect(cpage.getByText("Approved", { exact: true }).first()).toBeVisible();
   await expect(cpage.getByText(/simulated/).first()).toBeVisible();
 
-  // the orderer's WhatsApp ping is on the shared timeline — simulated, honestly
+  // the orderer's ping is on the shared timeline — either "SIMULATED (flag
+  // off)" or "via email/whatsapp", depending on which channels this
+  // environment has live. Both are the honest truth; the event must exist.
   await expect(
-    cpage.getByText(/order approved notification .* SIMULATED/i).first(),
+    cpage.getByText(/order approved notification/i).first(),
   ).toBeVisible();
   await desktop.close();
 });
@@ -117,16 +121,40 @@ test("a department orders water (non-Odoo) and it never touches Odoo", async ({ 
   await desktop.close();
 });
 
-test("the absurd seed order wears its warnings on the board and the detail", async ({ page }) => {
-  await login(page, "coordinator@demo.ishalife.test");
-  await page.goto("/pending-orders");
+test("an absurd order wears its warnings on the board and the detail", async ({ browser }) => {
+  test.setTimeout(120_000);
 
-  // the seeded absurd order (80× usual + more than the warehouse has)
-  const flagged = page.getByTestId(/pending-order-/).filter({ hasText: "worth a look" });
-  await expect(flagged.first()).toBeVisible();
-  await flagged.first().click();
+  // ---- the orderer goes wild: 9,999 of the first thing on the menu
+  // (self-contained: guarantees exceeds-stock + very-large-order warnings
+  // regardless of what happened to earlier seed data)
+  const phone = await browser.newContext({ viewport: PHONE });
+  const page = await phone.newPage();
+  await login(page, "orderer@demo.ishalife.test");
+  await page.goto("/place-order");
+  await page.getByRole("button", { name: /^Add / }).first().click();
+  await page.getByLabel(/^Quantity for/).fill("9999");
+  await page.getByTestId("review-order").click();
+  // the gentle check already speaks up before placing
+  await expect(page.getByTestId("reasonability-summary")).toBeVisible();
+  await page.getByRole("button", { name: "Place order" }).click();
+  await expect(page.getByText("Order placed!")).toBeVisible();
+  await page.getByRole("button", { name: "View order" }).click();
+  const orderId = page.url().split("/").pop()!;
+  await phone.close();
 
-  await expect(page.getByTestId("order-reasonability")).toBeVisible();
-  // at least one concrete rule badge is visible on the lines
-  await expect(page.getByText(/× your usual volume|warehouse has/).first()).toBeVisible();
+  // ---- the coordinator sees it flagged on the board and in the detail
+  const desktop = await browser.newContext();
+  const cpage = await desktop.newPage();
+  await login(cpage, "coordinator@demo.ishalife.test");
+  await cpage.goto("/pending-orders");
+  const flagged = cpage.getByTestId(`pending-order-${orderId}`);
+  await expect(flagged).toBeVisible();
+  await expect(flagged.getByText("worth a look")).toBeVisible();
+  await flagged.click();
+
+  await expect(cpage.getByTestId("order-reasonability")).toBeVisible();
+  await expect(cpage.getByText(/Reasonability: Worth a look/)).toBeVisible();
+  // at least one concrete, terse rule badge is visible on the lines
+  await expect(cpage.getByText(/× usual volume|only .* in stock/).first()).toBeVisible();
+  await desktop.close();
 });

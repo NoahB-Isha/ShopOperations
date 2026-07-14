@@ -370,6 +370,8 @@ export interface RestockOut {
     low_cover_days: number;
     target_cover_days: number;
     avg_window_days: number;
+    last_reset_at?: string | null;
+    last_reset_by?: string;
   };
 }
 
@@ -528,4 +530,15 @@ export interface NotificationsStatusOut {
   whatsapp: NotifyChannelOut;
   email: NotifyChannelOut;
   has_pending: boolean;
+}
+
+export interface ComingSoonItem {
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  qty_on_the_way: number;
+  floor_qty: number;
+  bwhse_qty: number;
+  requests: { id: number; display_name: string; status: TransferStatus; qty: number }[];
 }

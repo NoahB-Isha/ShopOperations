@@ -56,7 +56,7 @@ def test_volume_spike_needs_two_priors(settings_env):
     assert "volume_spike" in _codes(a, 1)
     assert a.level == "warn"
     [badge] = [b for b in a.lines[1] if b.code == "volume_spike"]
-    assert "3.3× your usual volume" in badge.text  # 20 / 6
+    assert badge.text == "3.3× usual volume"  # 20 / 6 — chip-length on purpose
 
 
 def test_exceeds_stock_and_low_stock_caveat(settings_env):

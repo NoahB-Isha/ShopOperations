@@ -42,7 +42,7 @@ export function CoordinatorListsPage() {
           hint="When the office grants a catalog to your zone, it lands here."
         />
       ) : (
-        <div className="stagger-children grid gap-3 md:grid-cols-2">
+        <div className="stagger-children grid grid-cols-1 gap-3 md:grid-cols-2">
           {(data ?? []).map((ol) => (
             <ListCard key={ol.id} summary={ol} onOpen={() => setOpenId(ol.id)} />
           ))}

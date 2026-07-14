@@ -290,12 +290,16 @@ class RestockAccum(Base):
 
 class RestockFoldState(Base):
     """Single row: the last complete day folded into the accumulator. Keeps
-    the fold idempotent no matter how often syncs or reads trigger it."""
+    the fold idempotent no matter how often syncs or reads trigger it. Also
+    remembers the last "floor fully stocked" reset so the empty list can
+    explain itself."""
 
     __tablename__ = "restock_fold_state"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)  # always 1
     folded_through: Mapped[date | None] = mapped_column(Date)
+    last_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reset_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 
 class RestockLine(Base):
@@ -332,3 +336,29 @@ class RestockCheckoff(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     checked_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ------------------------------------------------------------ floor OOS marks
+class FloorOosMark(Base, TimestampMixin):
+    """The floor team's 'this shelf is actually empty' declaration. Marking a
+    product renders a DRAFT inventory-reduction picking that removes whatever
+    quantity Odoo still claims is on the floor — a human validates it in Odoo
+    (data cleanup, the app never adjusts stock itself). A mark with nothing
+    to remove (Odoo already says 0) is pure bookkeeping: picking stays 'none'."""
+
+    __tablename__ = "floor_oos_marks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    qty_removed: Mapped[float] = mapped_column(Float, default=0)  # floor qty at mark time
+
+    picking_status: Mapped[str] = mapped_column(String(12), default="none")
+    picking_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-OOS-…
+    picking_error: Mapped[str] = mapped_column(Text, default="")
+    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
+    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
+    odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
+
+    product: Mapped[Product] = relationship()

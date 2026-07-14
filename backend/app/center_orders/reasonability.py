@@ -132,12 +132,19 @@ class LineFacts:
     case_size: int = 1
 
 
+def _x(ratio: float) -> str:
+    """'3.3×' but never '12.0×' — chips stay terse."""
+    return f"{ratio:.1f}".removesuffix(".0") + "×"
+
+
 def assess_rules(
     lines: list[LineFacts],
     history: CenterHistory,
     settings: Settings,
-    source_label: str = "warehouse",
 ) -> Assessment:
+    """Badge texts are chip-length ON PURPOSE — they sit under the product
+    name on a phone, so they never repeat it and never explain twice what the
+    availability badge already shows."""
     a = Assessment()
     total_units = sum(line.qty for line in lines)
 
@@ -148,58 +155,33 @@ def assess_rules(
         if prior and prior[0] >= 2 and prior[1] > 0:
             ratio = line.qty / prior[1]
             if ratio >= settings.reasonability_spike_factor:
-                badges.append(
-                    Badge(
-                        "volume_spike",
-                        "warn",
-                        f"{ratio:.1f}× your usual volume of {line.name}"
-                        + (
-                            f" — {source_label} has {line.on_hand:g}"
-                            if line.on_hand is not None
-                            else ""
-                        ),
-                    )
-                )
+                badges.append(Badge("volume_spike", "warn", f"{_x(ratio)} usual volume"))
         elif prior is None and history.order_count >= 1:
-            badges.append(Badge("first_time_item", "info", f"first order of {line.name}"))
+            badges.append(Badge("first_time_item", "info", "first time ordering this"))
 
         if line.on_hand is not None:
             if line.qty > line.on_hand:
                 badges.append(
-                    Badge(
-                        "exceeds_stock",
-                        "warn",
-                        f"asked for {line.qty:g} — {source_label} has {line.on_hand:g}",
-                    )
+                    Badge("exceeds_stock", "warn", f"only {line.on_hand:g} in stock")
                 )
             elif 0 < line.on_hand <= settings.catalog_low_stock_threshold:
                 badges.append(
                     Badge(
                         "low_stock_data",
                         "info",
-                        f"only {line.on_hand:g} on hand — low counts are often wrong; "
-                        "worth verifying",
+                        f"low count ({line.on_hand:g}) — verify",
                     )
                 )
 
         if line.case_size > 1 and line.qty % line.case_size:
             badges.append(
-                Badge(
-                    "case_mismatch",
-                    "info",
-                    f"{line.name} comes in cases of {line.case_size} — "
-                    f"{line.qty:g} isn't a full case count",
-                )
+                Badge("case_mismatch", "info", f"not a full case ({line.case_size}/case)")
             )
 
         days_ago = history.days_since_last.get(line.product_id)
         if days_ago is not None and days_ago <= 7:
             badges.append(
-                Badge(
-                    "repeat_recent",
-                    "info",
-                    f"{line.name} was on an order {max(1, round(days_ago))} day(s) ago",
-                )
+                Badge("repeat_recent", "info", f"ordered {max(1, round(days_ago))}d ago")
             )
 
         if badges:
@@ -207,26 +189,16 @@ def assess_rules(
 
     # ---- order level
     if history.order_count == 0:
-        a.order_badges.append(
-            Badge("first_order", "info", "first order from this center — no history to compare")
-        )
+        a.order_badges.append(Badge("first_order", "info", "first order — no history yet"))
     elif history.order_count >= 2 and history.avg_total_units > 0:
         ratio = total_units / history.avg_total_units
         if ratio >= settings.reasonability_spike_factor:
             a.order_badges.append(
-                Badge(
-                    "huge_order",
-                    "warn",
-                    f"{total_units:g} units is {ratio:.1f}× this center's usual order size",
-                )
+                Badge("huge_order", "warn", f"{_x(ratio)} usual order size")
             )
     if total_units >= settings.reasonability_huge_order_units:
         a.order_badges.append(
-            Badge(
-                "very_large_order",
-                "warn",
-                f"{total_units:g} units in one order — double-check before approving",
-            )
+            Badge("very_large_order", "warn", f"{total_units:g} units — double-check")
         )
 
     line_levels = [b.level for badges in a.lines.values() for b in badges]
@@ -350,8 +322,7 @@ def assess_order(
 ) -> Assessment:
     history = load_center_history(db, center.id, settings.reasonability_history_days)
     facts = line_facts_for(db, lines, source_key)
-    source_label = "the Shoppe floor" if source_key == "floor" else "warehouse"
-    a = assess_rules(facts, history, settings, source_label=source_label)
+    a = assess_rules(facts, history, settings)
     if use_llm:
         context = {
             "center": center.name,

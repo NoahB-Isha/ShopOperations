@@ -19,6 +19,7 @@ from .notify import (
 from .ops import (
     Adjustment,
     AdjustmentStatus,
+    FloorOosMark,
     OdooWriteOutcome,
     OrderList,
     OrderListCenter,
@@ -78,6 +79,7 @@ __all__ = [
     "NotifyChannelState",
     "Adjustment",
     "AdjustmentStatus",
+    "FloorOosMark",
     "OdooWriteOutcome",
     "OrderList",
     "OrderListCenter",

@@ -30,6 +30,7 @@ from .operations import (
     TransferLine,
     build_count_transfer_payload,
     build_internal_transfer_payload,
+    build_inventory_reduction_payload,
     is_app_reference,
     new_reference,
 )
@@ -40,6 +41,7 @@ from .urls import odoo_record_url
 OPERATION_FLAGS = {
     "create_internal_transfer": "write_create_internal_transfer",
     "prepare_count_transfer": "write_prepare_count_transfer",
+    "create_inventory_reduction": "write_create_inventory_reduction",
 }
 
 
@@ -357,6 +359,198 @@ class OdooWriter:
             deep_link=deep_link,
             payload=payload,
             message=f"Draft transfer {rec.get('name', picking_id)} created — review it in Odoo.",
+            audit_id=audit_id,
+        )
+
+    def _reduction_env(self) -> tuple[int | None, int | None, list[str]]:
+        """(picking_type_id, default dest location id, warnings) for the
+        inventory-reduction operation type, matched by configured name.
+        Failures fall back to None so dry-runs still render honestly."""
+        warnings: list[str] = []
+        type_id: int | None = None
+        dest_id: int | None = None
+        wanted = self.settings.odoo_reduction_picking_type
+        try:
+            types = self.conn.search_read(
+                "stock.picking.type",
+                [["name", "ilike", wanted]],
+                ["id", "name", "default_location_dest_id"],
+                order="id asc",
+            )
+            if types:
+                type_id = types[0]["id"]
+                dest = types[0].get("default_location_dest_id")
+                dest_id = dest[0] if isinstance(dest, list) else (dest or None)
+                if not dest_id:
+                    warnings.append(
+                        f"picking type '{types[0].get('name')}' has no default destination "
+                        "location — set one in Odoo"
+                    )
+            else:
+                warnings.append(f"no picking type matching '{wanted}' on the instance")
+        except OdooError as e:
+            warnings.append(f"could not resolve the reduction picking type ({e})")
+        return type_id, dest_id, warnings
+
+    def create_inventory_reduction(
+        self,
+        *,
+        product_id: int,
+        qty: float,
+        note: str = "",
+        reference: str | None = None,
+        dry_run: bool = False,
+        ignore_feature_flag: bool = False,
+    ) -> WriteResult:
+        """Create a DRAFT picking on the inventory-reduction operation type
+        ("USA-III: Inventory Adj Reduction") removing `qty` of one product
+        from the floor — the floor team's 'this shelf is actually empty' data
+        cleanup. Draft only; a human confirms it in Odoo."""
+        started = time.monotonic()
+        operation = "create_inventory_reduction"
+
+        if qty <= 0:
+            raise WriterValidationError(f"Quantity must be positive (got {qty:g}).")
+        product = self.db.get(Product, int(product_id))
+        if product is None:
+            raise WriterValidationError(f"Unknown product id {product_id}.")
+        if not product.is_stock_tracked or not product.odoo_product_id:
+            raise WriterValidationError(
+                f"'{product.name}' is not stock-tracked in Odoo — nothing to reduce."
+            )
+        floor = self._resolve_location("floor")
+        line = TransferLine(
+            product_odoo_id=product.odoo_product_id,
+            description=f"{product.global_sku} {product.name}"[:120],
+            qty=qty,
+        )
+
+        reference = reference or new_reference("OOS")
+        reason = self._forced_dry_run_reason(operation, dry_run, ignore_feature_flag)
+        type_id, dest_id, env_warnings = self._reduction_env()
+        payload = build_inventory_reduction_payload(
+            picking_type_id=type_id,
+            source_location_id=floor.odoo_id,
+            dest_location_id=dest_id,
+            reference=reference,
+            line=line,
+            note=note,
+        )
+
+        if reason:
+            audit_id = self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                record_ids=[],
+                payload=payload,
+                response={"warnings": env_warnings},
+                error="",
+                started=started,
+            )
+            return WriteResult(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                payload=payload,
+                message=_dry_run_message(reason),
+                audit_id=audit_id,
+            )
+
+        # ---- live path
+        if type_id is None or not dest_id:
+            raise WriterValidationError(
+                "The inventory-reduction operation type isn't usable: "
+                + "; ".join(env_warnings)
+            )
+        try:
+            existing = self.conn.search_read(
+                "stock.picking", [["origin", "=", reference]], ["id", "name", "state"]
+            )
+            if existing:
+                rec = existing[0]
+                audit_id = self._audit(
+                    operation=operation,
+                    reference=reference,
+                    dry_run=False,
+                    dry_run_reason="",
+                    success=True,
+                    odoo_model="stock.picking",
+                    record_ids=[rec["id"]],
+                    payload=payload,
+                    response={"idempotent_hit": True, "record": rec},
+                    error="",
+                    started=started,
+                )
+                return WriteResult(
+                    operation=operation,
+                    reference=reference,
+                    dry_run=False,
+                    dry_run_reason="",
+                    success=True,
+                    odoo_model="stock.picking",
+                    record_ids=[rec["id"]],
+                    record_name=str(rec.get("name") or ""),
+                    deep_link=odoo_record_url(self.settings, "stock.picking", rec["id"]),
+                    payload=payload,
+                    message=f"Reduction already exists as {rec.get('name')} (idempotent retry).",
+                    audit_id=audit_id,
+                )
+
+            picking_id = self.conn.call_kw("stock.picking", "create", [payload])
+            if isinstance(picking_id, list):
+                picking_id = picking_id[0]
+            readback = self.conn.call_kw(
+                "stock.picking", "read", [[picking_id], ["name", "state", "origin"]]
+            )
+            rec = readback[0] if readback else {}
+        except OdooError as e:
+            audit_id = self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=False,
+                dry_run_reason="",
+                success=False,
+                odoo_model="stock.picking",
+                record_ids=[],
+                payload=payload,
+                response={},
+                error=str(e),
+                started=started,
+            )
+            raise OdooWriteError(f"Odoo rejected the reduction: {e}") from e
+
+        audit_id = self._audit(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[picking_id],
+            payload=payload,
+            response={"record": rec, "warnings": env_warnings},
+            error="",
+            started=started,
+        )
+        return WriteResult(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[picking_id],
+            record_name=str(rec.get("name") or ""),
+            deep_link=odoo_record_url(self.settings, "stock.picking", picking_id),
+            payload=payload,
+            message=f"Draft reduction {rec.get('name', picking_id)} created — review it in Odoo.",
             audit_id=audit_id,
         )
 

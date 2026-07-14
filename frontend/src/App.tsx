@@ -23,6 +23,7 @@ import { OrderListsPage } from "./pages/orders/OrderListsPage";
 import { PendingOrdersPage } from "./pages/orders/PendingOrdersPage";
 import { PlaceOrderPage } from "./pages/orders/PlaceOrderPage";
 import { RestockPage } from "./pages/restock/RestockPage";
+import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
 import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
 import { TransferRequestsPage } from "./pages/transfers/TransferRequestsPage";
@@ -180,6 +181,11 @@ export default function App() {
               <Route path="/transfer-requests/new" element={
                 <Protected title="Request stock" roles={["shoppe_floor"]}>
                   <NewTransferRequestPage />
+                </Protected>
+              } />
+              <Route path="/coming-soon" element={
+                <Protected title="Coming soon" roles={["shoppe_floor", "warehouse"]}>
+                  <ComingSoonPage />
                 </Protected>
               } />
               <Route path="/transfer-requests/:id" element={
