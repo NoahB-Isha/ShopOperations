@@ -1,6 +1,21 @@
 from .audit import FeatureFlag, OdooWriteAudit
 from .base import Base, utcnow
-from .catalog import Product, ProductSource, ProductTag, TagName
+from .catalog import Product, ProductSource, ProductTag, TagName, not_clothing
+from .center_orders import (
+    CenterOrder,
+    CenterOrderEvent,
+    CenterOrderEventKind,
+    CenterOrderLine,
+    CenterOrderStatus,
+    ReasonabilityLevel,
+)
+from .notify import (
+    ChannelOutcome,
+    Notification,
+    NotificationKind,
+    NotificationStatus,
+    NotifyChannelState,
+)
 from .ops import (
     Adjustment,
     AdjustmentStatus,
@@ -50,6 +65,17 @@ __all__ = [
     "utcnow",
     "FeatureFlag",
     "OdooWriteAudit",
+    "CenterOrder",
+    "CenterOrderEvent",
+    "CenterOrderEventKind",
+    "CenterOrderLine",
+    "CenterOrderStatus",
+    "ReasonabilityLevel",
+    "ChannelOutcome",
+    "Notification",
+    "NotificationKind",
+    "NotificationStatus",
+    "NotifyChannelState",
     "Adjustment",
     "AdjustmentStatus",
     "OdooWriteOutcome",
@@ -71,6 +97,7 @@ __all__ = [
     "ProductSource",
     "ProductTag",
     "TagName",
+    "not_clothing",
     "ODOO_LOCATION_NAMES",
     "SYNC_DOMAINS",
     "IncomingMove",

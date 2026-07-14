@@ -212,6 +212,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
             <h3 className="headline mb-3 text-[16px]">Add products</h3>
             <ProductPicker
               pickedIds={pickedIds}
+              excludeClothing
               onPick={(line) =>
                 mutate([
                   ...products,

@@ -16,8 +16,12 @@ import { CentersPage } from "./pages/admin/CentersPage";
 import { StatusPage } from "./pages/admin/StatusPage";
 import { UsersPage } from "./pages/admin/UsersPage";
 import { CoordinatorListsPage } from "./pages/orders/CoordinatorListsPage";
+import { OrderDetailPage } from "./pages/orders/OrderDetailPage";
+import { OrderHistoryPage } from "./pages/orders/OrderHistoryPage";
 import { OrderListEditorPage } from "./pages/orders/OrderListEditorPage";
 import { OrderListsPage } from "./pages/orders/OrderListsPage";
+import { PendingOrdersPage } from "./pages/orders/PendingOrdersPage";
+import { PlaceOrderPage } from "./pages/orders/PlaceOrderPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
@@ -113,7 +117,7 @@ export default function App() {
               } />
               <Route path="/pending-orders" element={
                 <Protected title="Pending orders" roles={["zone_coordinator", "dept_liaison"]}>
-                  <ComingSoon what="Order approval" phase="Phase 3" />
+                  <PendingOrdersPage />
                 </Protected>
               } />
               <Route path="/my-order-lists" element={
@@ -124,8 +128,8 @@ export default function App() {
 
               {/* orderers */}
               <Route path="/place-order" element={
-                <Protected title="Place an order" roles={["center_orderer", "dept_orderer"]}>
-                  <ComingSoon what="Ordering" phase="Phase 3" />
+                <Protected title="Place an order" roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}>
+                  <PlaceOrderPage />
                 </Protected>
               } />
               <Route path="/order-history" element={
@@ -133,7 +137,15 @@ export default function App() {
                   title="Order history"
                   roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}
                 >
-                  <ComingSoon what="Order history" phase="Phase 3" />
+                  <OrderHistoryPage />
+                </Protected>
+              } />
+              <Route path="/order/:id" element={
+                <Protected
+                  title="Order"
+                  roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}
+                >
+                  <OrderDetailPage />
                 </Protected>
               } />
 

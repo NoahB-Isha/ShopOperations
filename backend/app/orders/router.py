@@ -311,6 +311,12 @@ def put_lines(
             raise HTTPException(
                 422, f"'{product.name}' is inactive — lists only carry live products."
             )
+        if product.is_clothing:
+            raise HTTPException(
+                422,
+                f"'{product.name}' is clothing — clothing is out of scope for "
+                "ordering (project decision).",
+            )
         validated.append(product)
     for old in list(ol.lines):
         db.delete(old)

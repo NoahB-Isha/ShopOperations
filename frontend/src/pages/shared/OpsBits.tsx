@@ -218,10 +218,14 @@ export function ProductPicker({
   onPick,
   pickedIds,
   placeholder = "Search products by name, SKU, barcode…",
+  excludeClothing = false,
 }: {
   onPick: (line: PickedLine) => void;
   pickedIds: Set<number>;
   placeholder?: string;
+  /** Ordering surfaces (order lists) never offer clothing — out of scope.
+   *  Stock flows (floor transfers) still move it, so this is opt-in. */
+  excludeClothing?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const { data, isLoading } = useProducts({
@@ -232,7 +236,10 @@ export function ProductPicker({
     sort: "name",
     dir: "asc",
   });
-  const results = (data?.items ?? []).filter((p) => p.is_stock_tracked).slice(0, 30);
+  const results = (data?.items ?? [])
+    .filter((p) => p.is_stock_tracked)
+    .filter((p) => !excludeClothing || !/clothing/i.test(p.category))
+    .slice(0, 30);
 
   return (
     <div>

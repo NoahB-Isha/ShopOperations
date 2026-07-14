@@ -16,13 +16,21 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..center_orders.reasonability import assess_order
 from ..centers.importer import run_import
 from ..config import get_settings
 from ..db import get_sessionmaker
 from ..models import (
     Adjustment,
     Center,
+    CenterOrder,
+    CenterOrderEvent,
+    CenterOrderEventKind,
+    CenterOrderLine,
+    CenterOrderStatus,
     FeatureFlag,
+    IncomingMove,
+    NotificationKind,
     OdooWriteOutcome,
     OrderList,
     OrderListCenter,
@@ -41,8 +49,10 @@ from ..models import (
     User,
     Zone,
     ZoneKind,
+    not_clothing,
     utcnow,
 )
+from ..notify import service as notify_service
 from ..restock.engine import fold_floor_restock
 from ..sync.runner import run_all
 
@@ -127,6 +137,16 @@ def seed_flags(db: Session) -> None:
             "picking as the STAGING→FLOOR count, mark To Do, check availability). "
             "Enable only after create_internal_transfer is proven.",
         ),
+        (
+            "notify_whatsapp_live",
+            "Order notifications may actually send over the WhatsApp bridge. "
+            "Off = sends are recorded as simulated.",
+        ),
+        (
+            "notify_email_live",
+            "Order notifications may actually send email (the WhatsApp fallback). "
+            "Off = sends are recorded as simulated.",
+        ),
     ]
     for key, description in flags:
         if db.get(FeatureFlag, key) is None:
@@ -142,6 +162,7 @@ def _top_stocked_products(db: Session, n: int) -> list[Product]:
             Product.is_stock_tracked.is_(True),
             Product.is_active.is_(True),
             Product.odoo_product_id.is_not(None),
+            not_clothing(),  # clothing is out of scope for ordering flows
         )
         .order_by(StockLevel.qty.desc())
         .limit(n)
@@ -312,6 +333,222 @@ def seed_phase2_flows(db: Session) -> None:
     db.commit()
 
 
+def _ensure_grants_for(db: Session, order_list: OrderList, center: Center, granter: User | None) -> None:
+    """Zone grant + center grant so the center can actually order from the list."""
+    if center.zone_id and not db.scalar(
+        select(OrderListZone).where(
+            OrderListZone.order_list_id == order_list.id,
+            OrderListZone.zone_id == center.zone_id,
+        )
+    ):
+        db.add(OrderListZone(order_list_id=order_list.id, zone_id=center.zone_id,
+                             granted_by_id=granter.id if granter else None))
+    if not db.scalar(
+        select(OrderListCenter).where(
+            OrderListCenter.order_list_id == order_list.id,
+            OrderListCenter.center_id == center.id,
+        )
+    ):
+        db.add(OrderListCenter(order_list_id=order_list.id, center_id=center.id,
+                               granted_by_id=granter.id if granter else None))
+
+
+def seed_phase3_flows(db: Session) -> None:
+    """Center orders across the lifecycle: approved history (feeds the
+    reasonability engine and the duplicate button), a fresh pending order, a
+    deliberately ABSURD pending order that trips the warning badges, a
+    department water order that never touches Odoo, and simulated WhatsApp
+    notifications. Idempotent — skips if any order exists."""
+    settings = get_settings()
+    if db.scalar(select(CenterOrder)) is not None:
+        print("  phase 3: center orders already present — skipped")
+        return
+    admin = db.scalar(select(User).where(User.email == f"admin@{DEMO_DOMAIN}"))
+    coord = db.scalar(select(User).where(User.email == f"coordinator@{DEMO_DOMAIN}"))
+    orderer = db.scalar(select(User).where(User.email == f"orderer@{DEMO_DOMAIN}"))
+    liaison = db.scalar(select(User).where(User.email == f"liaison@{DEMO_DOMAIN}"))
+    kitchen_user = db.scalar(select(User).where(User.email == f"kitchen@{DEMO_DOMAIN}"))
+    austin = db.scalar(select(Center).where(Center.name.ilike("Austin%")))
+    kitchen = db.scalar(select(Center).where(Center.name == "Kitchen"))
+    starter = db.scalar(select(OrderList).where(OrderList.name == "Center starter kit"))
+    specials = db.scalar(select(OrderList).where(OrderList.name == "Festival specials"))
+    if not (austin and orderer and coord and starter and starter.lines):
+        print("  phase 3: missing demo prerequisites (Austin/orderer/starter list) — skipped")
+        return
+
+    # demo phones so the WhatsApp path has someone to (simulated-)message
+    for user, phone in [
+        (orderer, "+15125550171"), (coord, "+16155550142"),
+        (liaison, "+19315550117"), (kitchen_user, "+19315550163"),
+    ]:
+        if user is not None and not user.phone:
+            user.phone = phone
+
+    # the demo coordinator must coordinate AUSTIN's zone (wherever the roster
+    # put it) — that's who approves the demo orders and gets the pings
+    if austin.zone_id:
+        ensure_role(db, coord, Role.ZONE_COORDINATOR, zone_id=austin.zone_id)
+
+    # make sure Austin can order from both demo catalogs, whatever its zone
+    _ensure_grants_for(db, starter, austin, admin)
+    if specials is not None:
+        _ensure_grants_for(db, specials, austin, admin)
+    db.flush()
+
+    products = [line.product for line in starter.lines]
+    now = utcnow()
+
+    # --- an OOS-timeline demo item: out of stock, shipment due in ~5 weeks
+    if specials is not None and specials.lines:
+        oos_product = specials.lines[0].product
+        level = db.scalar(
+            select(StockLevel).where(
+                StockLevel.product_id == oos_product.id, StockLevel.location_key == "bwhse"
+            )
+        )
+        if level is not None:
+            level.qty = 0
+        db.add(
+            IncomingMove(
+                odoo_move_id=990001, product_id=oos_product.id, qty=48,
+                expected_date=(now + timedelta(days=35)).date(),
+                state="assigned", picking_ref="WH/IN/DEMO",
+            )
+        )
+
+    # --- a low-stock item so exceeds_stock/low-count caveats have a target
+    low_product = products[-1]
+    low_level = db.scalar(
+        select(StockLevel).where(
+            StockLevel.product_id == low_product.id, StockLevel.location_key == "bwhse"
+        )
+    )
+    if low_level is not None:
+        low_level.qty = 3
+
+    def mk_order(
+        *, center: Center, creator: User, days_ago: float, status: str,
+        items: list[tuple[Product, float]], source_key: str,
+        decided_by: User | None = None, decision_note: str = "", notes: str = "",
+        picking_status: str = OdooWriteOutcome.NONE.value, odoo_note: str = "",
+    ) -> CenterOrder:
+        created = now - timedelta(days=days_ago)
+        order = CenterOrder(
+            center_id=center.id, status=status, notes=notes,
+            created_by_id=creator.id, source_location_key=source_key,
+            picking_status=picking_status,
+            decided_by_id=decided_by.id if decided_by else None,
+            decided_at=(created + timedelta(hours=3)) if decided_by else None,
+            decision_note=decision_note,
+            created_at=created, updated_at=created,
+        )
+        db.add(order)
+        db.flush()
+        for p, qty in items:
+            db.add(
+                CenterOrderLine(
+                    order_id=order.id, product_id=p.id, qty_requested=qty,
+                    unit_price=float(p.retail_price or 0),
+                )
+            )
+        db.add(
+            CenterOrderEvent(
+                order_id=order.id, kind=CenterOrderEventKind.STATUS.value,
+                status=CenterOrderStatus.PENDING.value, actor_user_id=creator.id,
+                note=f"{len(items)} item(s) requested", created_at=created,
+            )
+        )
+        if decided_by is not None and status in (
+            CenterOrderStatus.APPROVED.value, CenterOrderStatus.SHIPPED.value,
+        ):
+            db.add(
+                CenterOrderEvent(
+                    order_id=order.id, kind=CenterOrderEventKind.STATUS.value,
+                    status=CenterOrderStatus.APPROVED.value, actor_user_id=decided_by.id,
+                    note=decision_note or "approved",
+                    created_at=created + timedelta(hours=3),
+                )
+            )
+        if odoo_note:
+            db.add(
+                CenterOrderEvent(
+                    order_id=order.id, kind=CenterOrderEventKind.ODOO.value,
+                    actor_user_id=(decided_by or creator).id, note=odoo_note,
+                    created_at=created + timedelta(hours=3),
+                )
+            )
+        db.flush()
+        db.refresh(order)
+        return order
+
+    # --- Austin's approved history (what "usual volume" means here)
+    usual: list[list[tuple[Product, float]]] = [
+        [(products[0], 6), (products[1], 4), (products[2], 6), (products[3], 2)],
+        [(products[0], 6), (products[2], 4), (products[4 % len(products)], 3)],
+        [(products[0], 8), (products[1], 6), (products[3], 2)],
+    ]
+    for i, items in enumerate(usual):
+        mk_order(
+            center=austin, creator=orderer, days_ago=35 - i * 12,
+            status=CenterOrderStatus.APPROVED.value, items=items, source_key="bwhse",
+            decided_by=coord, decision_note="approved",
+            picking_status=OdooWriteOutcome.SIMULATED.value,
+            odoo_note="Odoo draft simulated (feature flag) — nothing was written",
+        )
+
+    # --- Kitchen's department history: water, straight from the floor, no Odoo
+    water = db.scalar(select(Product).where(Product.global_sku == "MAN-WATER"))
+    if kitchen and kitchen_user and liaison and water:
+        mk_order(
+            center=kitchen, creator=kitchen_user, days_ago=9,
+            status=CenterOrderStatus.APPROVED.value, items=[(water, 4.0)], source_key="floor",
+            decided_by=liaison, decision_note="approved",
+            odoo_note="no Odoo transfer — nothing on this order is Odoo-tracked; "
+            "fulfilled directly from the Shoppe floor",
+        )
+
+    # --- a fresh, sensible pending order (the coordinator's approval demo)
+    fresh_items: list[tuple[Product, float]] = [(products[0], 6), (products[1], 4), (products[2], 6)]
+    fresh = mk_order(
+        center=austin, creator=orderer, days_ago=0.05,
+        status=CenterOrderStatus.PENDING.value, items=fresh_items, source_key="bwhse",
+        notes="Regular biweekly restock",
+    )
+    a = assess_order(db, settings, austin, fresh_items, "bwhse", use_llm=False)
+    fresh.reasonability, fresh.reasonability_level = a.as_dict(), a.level
+
+    # --- the deliberately ABSURD pending order (reasonability must fire)
+    absurd_items: list[tuple[Product, float]] = [(products[0], 80), (low_product, 25)]
+    absurd = mk_order(
+        center=austin, creator=orderer, days_ago=0.02,
+        status=CenterOrderStatus.PENDING.value, items=absurd_items, source_key="bwhse",
+        notes="Big festival coming up!!",
+    )
+    a = assess_order(db, settings, austin, absurd_items, "bwhse", use_llm=False)
+    absurd.reasonability, absurd.reasonability_level = a.as_dict(), a.level
+    if a.level in ("info", "warn"):
+        db.add(
+            CenterOrderEvent(
+                order_id=absurd.id, kind=CenterOrderEventKind.REASONABILITY.value,
+                note=a.summary,
+            )
+        )
+
+    # --- notifications for the two live pending orders (simulated: flags off)
+    pinged: list = []
+    for order in (fresh, absurd):
+        pinged += notify_service.enqueue_order_notifications(
+            db, settings, order, NotificationKind.ORDER_PLACED
+        )
+    db.commit()
+    notify_service.deliver_now(db, settings, pinged)
+    print(
+        f"  phase 3: center orders seeded — {len(usual)} approved (history), "
+        f"1 dept water order, 2 pending (one absurd: {absurd.reasonability_level}), "
+        f"{len(pinged)} notification(s) recorded"
+    )
+
+
 def replay_restock_folds(db: Session, days: int = 10) -> None:
     """Run the accumulator day by day over the recent sales history, exactly
     as if the old restock script had run every morning."""
@@ -386,6 +623,9 @@ def main() -> None:
         # 6. phase-2 flows: restock accumulator history + demo lists/requests
         replay_restock_folds(db)
         seed_phase2_flows(db)
+
+        # 7. phase-3 flows: center orders, reasonability, notifications
+        seed_phase3_flows(db)
 
         n_products = db.scalar(select(func.count()).select_from(Product))
         print(f"\nDone. {n_products} products in the catalog.")

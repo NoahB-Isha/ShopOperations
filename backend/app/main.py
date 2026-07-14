@@ -11,6 +11,7 @@ from .admin.system_router import router as admin_system_router
 from .admin.users_router import router as admin_users_router
 from .auth.router import router as auth_router
 from .catalog.router import router as catalog_router
+from .center_orders.router import router as center_orders_router
 from .centers.router import router as centers_router
 from .config import get_settings
 from .health import router as health_router
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
         catalog_router,
         centers_router,
         orders_router,
+        center_orders_router,
         restock_router,
         transfers_router,
         adjustments_router,

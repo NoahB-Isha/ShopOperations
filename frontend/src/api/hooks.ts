@@ -354,3 +354,101 @@ export function useCheckRestock() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["restock"] }),
   });
 }
+
+// ------------------------------------------------------------ center orders
+import type {
+  CenterOrderOut,
+  CenterOrderSummaryOut,
+  OrderCatalogOut,
+  OrderContextCenter,
+  ReasonPreviewOut,
+} from "./types";
+
+export function useOrderContext() {
+  return useQuery({
+    queryKey: ["order-context"],
+    queryFn: () => api<OrderContextCenter[]>("/center-orders/context"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useOrderCatalog(centerId: number | null) {
+  return useQuery({
+    queryKey: ["order-catalog", centerId],
+    queryFn: () => api<OrderCatalogOut>("/center-orders/catalog", { params: { center_id: centerId ?? undefined } }),
+    enabled: centerId !== null,
+    staleTime: 60_000,
+  });
+}
+
+export function usePreviewReasonability() {
+  return useMutation({
+    mutationFn: (body: { center_id: number; lines: { product_id: number; qty: number }[] }) =>
+      api<ReasonPreviewOut>("/center-orders/preview", { method: "POST", body }),
+  });
+}
+
+export function useCenterOrders(params: { status?: string; center_id?: number; mine?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["center-orders", params],
+    queryFn: () => api<CenterOrderSummaryOut[]>("/center-orders", { params }),
+    refetchInterval: BOARD_POLL_MS, // the board is also the SHIPPED listener
+  });
+}
+
+export function useCenterOrder(id: number | null) {
+  return useQuery({
+    queryKey: ["center-order", id],
+    queryFn: () => api<CenterOrderOut>(`/center-orders/${id}`),
+    enabled: id !== null,
+    refetchInterval: BOARD_POLL_MS,
+  });
+}
+
+function useCenterOrderMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["center-orders"] });
+      qc.invalidateQueries({ queryKey: ["center-order"] });
+    },
+  });
+}
+
+export function usePlaceCenterOrder() {
+  return useCenterOrderMutation(
+    (body: {
+      center_id: number;
+      notes?: string;
+      duplicate_of_id?: number | null;
+      lines: { product_id: number; qty: number }[];
+    }) => api<CenterOrderOut>("/center-orders", { method: "POST", body }),
+  );
+}
+
+export function useApproveCenterOrder() {
+  return useCenterOrderMutation(
+    ({ id, note, lines }: { id: number; note?: string; lines?: { product_id: number; qty: number }[] }) =>
+      api<CenterOrderOut>(`/center-orders/${id}/approve`, { method: "POST", body: { note: note ?? "", lines } }),
+  );
+}
+
+export function useRejectCenterOrder() {
+  return useCenterOrderMutation(({ id, note }: { id: number; note: string }) =>
+    api<CenterOrderOut>(`/center-orders/${id}/reject`, { method: "POST", body: { note } }),
+  );
+}
+
+export function useCancelCenterOrder() {
+  return useCenterOrderMutation(({ id, note }: { id: number; note?: string }) =>
+    api<CenterOrderOut>(`/center-orders/${id}/cancel`, { method: "POST", body: { note: note ?? "" } }),
+  );
+}
+
+export function useAdjustCenterOrderLines() {
+  return useCenterOrderMutation(
+    ({ id, lines }: { id: number; lines: { product_id: number; qty: number }[] }) =>
+      api<CenterOrderOut>(`/center-orders/${id}/lines`, { method: "PUT", body: lines }),
+  );
+}

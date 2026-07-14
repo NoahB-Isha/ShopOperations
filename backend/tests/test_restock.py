@@ -24,7 +24,7 @@ Back list (window 28d, low cover 7d, target 14d):
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 from app.config import get_settings
 from app.models import (
@@ -121,11 +121,15 @@ def test_flag_merges_into_open_line_and_daily_reset(db, settings_env):
     assert line.flagged_on == T
 
     # checked lines drop off the list the NEXT day (daily reset), and a fresh
-    # crossing then makes a NEW line rather than growing the closed one
+    # crossing then makes a NEW line rather than growing the closed one.
+    # Pin the check-off to the story's clock (day T+1), not the real one —
+    # utcnow() here made the test fail once the calendar passed T+1.
     row = db.get(RestockLine, line.line_id)
-    from app.models import utcnow
+    from datetime import datetime
 
-    row.checked_off_at = utcnow()
+    row.checked_off_at = datetime(T.year, T.month, T.day, 12, tzinfo=UTC) + timedelta(
+        days=1
+    )
     db.commit()
     _sale(db, a.id, T + timedelta(days=1), 6)
     db.commit()

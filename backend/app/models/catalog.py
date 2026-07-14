@@ -63,6 +63,20 @@ class Product(Base, TimestampMixin):
         back_populates="product", cascade="all, delete-orphan"
     )
 
+    @property
+    def is_clothing(self) -> bool:
+        """Clothing is OUT OF SCOPE for ordering flows (project brief) —
+        excluded from order lists, center catalogs, and placements. Matched by
+        category (live paths look like 'Isha Life USA / Clothing & …').
+        Query-side twin: `not_clothing()`."""
+        return "clothing" in (self.category or "").lower()
+
+
+def not_clothing():
+    """The SQL predicate matching `Product.is_clothing == False` — use it in
+    every query that feeds an ordering flow."""
+    return ~Product.category.ilike("%clothing%")
+
 
 class ProductTag(Base):
     __tablename__ = "product_tags"

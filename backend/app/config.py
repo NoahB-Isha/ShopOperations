@@ -66,6 +66,36 @@ class Settings(BaseSettings):
     restock_target_cover_days: float = 14  # back-stock suggestion refills to this cover
     restock_avg_window_days: int = 28  # trailing window for avg daily POS units
 
+    # --- center ordering (phase 3) ---
+    # stock at/below this (but above zero) shows the "low — verify" caveat
+    catalog_low_stock_threshold: float = 4
+    # seconds between polls of an approved order's picking state (shipped detection)
+    order_shipped_poll_seconds: int = 30
+    # reasonability rules: history window + spike multiplier
+    reasonability_history_days: int = 120
+    reasonability_spike_factor: float = 3.0
+    reasonability_huge_order_units: float = 500  # absolute order-size sanity cap
+
+    # --- LLM (reasonability polish; advisory only, rules run without it) ---
+    anthropic_api_key: str = ""
+    reasonability_llm_model: str = "claude-opus-4-8"
+    reasonability_llm_timeout_seconds: float = 10.0
+
+    # --- notifications (WhatsApp primary, email fallback) ---
+    notify_enabled: bool = True  # kill switch; False simulates every send app-wide
+    notify_max_attempts: int = 5
+    whatsapp_bridge_url: str = ""  # skubot's bridge HTTP endpoint; blank = not configured
+    whatsapp_bridge_token: str = ""
+    whatsapp_bridge_timeout_seconds: float = 10.0
+    smtp_host: str = ""  # blank = email not configured
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "Isha Life Shop Ops <orders@ishalife.test>"
+    smtp_starttls: bool = True
+    # where notification links point (the public app URL once tunneled)
+    app_public_url: str = "http://localhost:5173"
+
     # --- seeds ---
     seed_coordinator_xlsx: str = "docs/reference/IL City Coordinators.xlsx"
 

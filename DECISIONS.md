@@ -148,3 +148,39 @@ transfers, not sales, so it doesn't appear here.
 Python is a uv workspace (`backend/`, `worker/`; worker imports the backend package). One Docker
 image serves both services with different commands; only the backend runs migrations
 (`RUN_MIGRATIONS=0` on the worker).
+
+**2026-07-13 — Approval reuses `create_internal_transfer`; no new write operation** *(Phase 3)*
+A center-order approval renders the same draft internal transfer the phase-2 flow does — source
+BWHSE (III-FLOOR for departments), destination the center's `III/CityCenter/<City>` location id.
+Same `write_create_internal_transfer` flag, same audit trail, no second canary to run. Orders
+whose lines are all untracked, or department "centers" with no Odoo location, legitimately create
+NOTHING: `picking_status` stays `none` and the timeline says why — that's the designed path for
+department water/snacks, not a failure. An unmapped FIELD center, by contrast, fails loudly with
+the actionable "no Odoo location mapped" error (an admin must fix the mapping before go-live
+anyway; a masking dry-run would hide it).
+
+**2026-07-13 — SHIPPED is polled, never pushed** *(Phase 3)*
+An approved order flips to `shipped` when its picking hits state `done` in Odoo — detected by
+the same polite listener pattern as the count-transfer validation (throttled per order via
+`picking_checked_at`, the list/detail GETs are the listener). The app still validates nothing.
+
+**2026-07-13 — Notification outbox with OdooWriter-style honesty** *(Phase 3)*
+Every notification is a DB row enqueued in the same transaction as the change it announces; the
+API attempts delivery inline after commit and the worker sweeps retries (2^n-minute backoff,
+capped attempts). Gates mirror writes: `NOTIFY_ENABLED` kill switch → per-channel feature flags
+(`notify_whatsapp_live`, `notify_email_live`, shipped OFF) → configuration; gated sends are
+recorded as SIMULATED, never faked. WhatsApp is primary through a tiny `WhatsAppTransport`
+protocol (today: skubot's unofficial bridge over HTTP `POST /send` / `GET /status`; the official
+Cloud API becomes a drop-in second implementation). Failure or a missing phone falls back to
+email automatically. Bridge health is probed by the worker into `notify_channel_state` and shown
+on the admin status page. Message bodies are single plain-text strings — template-message-safe
+for the official API migration.
+
+**2026-07-13 — Reasonability = deterministic rules, LLM polish on top, advisory always** *(Phase 3)*
+The rules layer is pure and always runs: volume spike vs the center's own approved-order history
+(Odoo has no per-center sales — the app's orders ARE the history), stock coverage at the
+fulfillment source, low-count honesty, case-size mismatch, recent repeats, first-order/new-item
+notes, absolute size caps. The optional Anthropic call (blank key = skipped) only rewrites the
+order-level summary and may RAISE the severity, never lower it; any API failure degrades to
+rules-only. Assessments compute at placement (stored on the order), recompute rules-only on
+coordinator adjustments, and the order form's live preview is rules-only. Nothing ever blocks.

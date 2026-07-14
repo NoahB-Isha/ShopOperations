@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useAdminStatus, useCanary, useSetFlag, useTriggerSync } from "../../api/hooks";
-import type { CanaryResult, DomainSync } from "../../api/types";
+import type {
+  CanaryResult,
+  DomainSync,
+  NotificationsStatusOut,
+  NotifyChannelOut,
+} from "../../api/types";
 import {
   Badge,
   Button,
@@ -137,6 +142,57 @@ function CanaryCard() {
   );
 }
 
+function ChannelRow({ name, c }: { name: string; c: NotifyChannelOut }) {
+  const chip = !c.configured ? (
+    <Badge tone="neutral">not configured</Badge>
+  ) : !c.live ? (
+    <Badge tone="gold" title={c.gate ?? undefined}>simulating · {c.gate}</Badge>
+  ) : c.connected ? (
+    <Badge tone="forest">connected</Badge>
+  ) : (
+    <Badge tone="danger" title={c.last_error}>down · falls back</Badge>
+  );
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-[13.5px] font-semibold capitalize">{name}</div>
+        <div className="truncate text-[12px] text-ink-faint">
+          {c.detail || (c.configured ? "ok" : name === "whatsapp" ? "set WHATSAPP_BRIDGE_URL" : "set SMTP_HOST")}
+          {c.consecutive_failures > 0 && ` · ${c.consecutive_failures} failure(s) in a row`}
+        </div>
+      </div>
+      {chip}
+    </div>
+  );
+}
+
+/** WhatsApp bridge + email fallback health — unofficial bridges drop sessions,
+ *  so this is watched, not assumed. */
+function NotificationsCard({ n }: { n: NotificationsStatusOut }) {
+  return (
+    <Card>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="display text-[16px]">Notifications</h3>
+        {!n.enabled ? (
+          <Badge tone="gold">kill switch OFF</Badge>
+        ) : n.has_pending ? (
+          <Badge tone="gold">retrying sends</Badge>
+        ) : (
+          <Badge tone="forest">idle</Badge>
+        )}
+      </div>
+      <p className="mb-3 text-[13px] text-ink-faint">
+        WhatsApp first (skubot's bridge), email as the automatic fallback. Gated sends are
+        recorded as simulated — nothing silently pretends to deliver.
+      </p>
+      <div className="flex flex-col gap-3">
+        <ChannelRow name="whatsapp" c={n.whatsapp} />
+        <ChannelRow name="email" c={n.email} />
+      </div>
+    </Card>
+  );
+}
+
 export function StatusPage() {
   const { data, isLoading } = useAdminStatus();
   const setFlag = useSetFlag();
@@ -190,6 +246,7 @@ export function StatusPage() {
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <CanaryCard />
+        {data.notifications && <NotificationsCard n={data.notifications} />}
         <Card>
           <h3 className="display mb-1 text-[16px]">Feature flags</h3>
           <p className="mb-3 text-[13px] text-ink-faint">

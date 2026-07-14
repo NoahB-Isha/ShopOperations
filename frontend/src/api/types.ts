@@ -143,6 +143,7 @@ export interface StatusOut extends HealthOut {
   odoo_base_url: string | null;
   recent_runs: SyncRunOut[];
   flags: FlagOut[];
+  notifications?: NotificationsStatusOut; // phase 3 — optional for older backends
 }
 
 export interface AuditRow {
@@ -370,4 +371,161 @@ export interface RestockOut {
     target_cover_days: number;
     avg_window_days: number;
   };
+}
+
+// ------------------------------------------------------------ center orders
+export type CenterOrderStatus = "pending" | "approved" | "shipped" | "rejected" | "cancelled";
+export type ReasonLevel = "" | "ok" | "info" | "warn";
+
+export interface AvailabilityOut {
+  status: "in" | "low" | "out" | "untracked";
+  qty: number | null;
+  low_count_caveat: boolean;
+  incoming_qty: number;
+  incoming_expected: string | null;
+  incoming_label: string;
+}
+
+export interface OrderContextCenter {
+  id: number;
+  name: string;
+  zone_name: string;
+  zone_kind: "field" | "departments";
+  item_count: number;
+}
+
+export interface CatalogItemOut {
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  retail_price: number;
+  case_size: number;
+  untracked: boolean;
+  from_lists: string[];
+  availability: AvailabilityOut;
+}
+
+export interface OrderCatalogOut {
+  center: { id: number; name: string; zone_name: string; zone_kind: string };
+  source_key: "bwhse" | "floor";
+  items: CatalogItemOut[];
+}
+
+export interface ReasonBadge {
+  code: string;
+  level: "info" | "warn";
+  text: string;
+}
+
+export interface ReasonPreviewOut {
+  level: ReasonLevel;
+  summary: string;
+  source: string;
+  order_badges: ReasonBadge[];
+  lines: Record<string, ReasonBadge[]>;
+}
+
+export interface CenterOrderLineOut {
+  id: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  qty_requested: number;
+  qty_approved: number | null;
+  qty_final: number;
+  unit_price: number;
+  untracked: boolean;
+  badges: ReasonBadge[];
+  availability: AvailabilityOut | null;
+}
+
+export interface CenterOrderEventOut {
+  id: number;
+  kind: string;
+  status: string;
+  note: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface CenterOrderActions {
+  can_approve: boolean;
+  can_reject: boolean;
+  can_adjust: boolean;
+  can_cancel: boolean;
+}
+
+export interface CenterOrderOut {
+  id: number;
+  display_name: string;
+  status: CenterOrderStatus;
+  notes: string;
+  center: { id: number; name: string; zone_name: string; zone_kind: string };
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  decided_by: string;
+  decided_at: string | null;
+  decision_note: string;
+  duplicate_of_id: number | null;
+  source_location_key: string;
+  reasonability: {
+    level?: ReasonLevel;
+    summary?: string;
+    source?: string;
+    order_badges?: ReasonBadge[];
+    lines?: Record<string, ReasonBadge[]>;
+  };
+  reasonability_level: ReasonLevel;
+  placement: {
+    status: "none" | "created" | "simulated" | "failed";
+    reference: string;
+    error: string;
+    picking_id: number | null;
+    picking_name: string;
+    url: string;
+  };
+  totals: { items: number; units: number; value: number };
+  lines: CenterOrderLineOut[];
+  events: CenterOrderEventOut[];
+  actions: CenterOrderActions;
+}
+
+export interface CenterOrderSummaryOut {
+  id: number;
+  display_name: string;
+  status: CenterOrderStatus;
+  center_id: number;
+  center_name: string;
+  zone_name: string;
+  created_by: string;
+  created_at: string;
+  decided_at: string | null;
+  line_count: number;
+  total_units: number;
+  total_value: number;
+  reasonability_level: ReasonLevel;
+  picking_status: "none" | "created" | "simulated" | "failed";
+  odoo_picking_name: string;
+}
+
+export interface NotifyChannelOut {
+  configured: boolean;
+  live: boolean;
+  gate: string | null;
+  connected: boolean;
+  detail: string;
+  last_ok_at: string | null;
+  checked_at: string | null;
+  consecutive_failures: number;
+  last_error: string;
+}
+
+export interface NotificationsStatusOut {
+  enabled: boolean;
+  whatsapp: NotifyChannelOut;
+  email: NotifyChannelOut;
+  has_pending: boolean;
 }

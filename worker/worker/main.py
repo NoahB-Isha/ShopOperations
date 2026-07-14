@@ -1,10 +1,14 @@
-"""Background worker: runs the Odoo snapshot syncs on their cadence.
+"""Background worker: Odoo snapshot syncs on their cadence, plus the
+notification pump (phase 3).
 
 Polite-client policy (from the brief): stock & incoming a few times a day,
 products twice a day, sales hourly (current-month incrementals; the previous
 month is folded in once a day; the 24-month backfill happens automatically on
-the very first sales run). Later phases add email ingestion and WhatsApp
-notification queues here.
+the very first sales run). Later phases add email ingestion here.
+
+Notifications: the API delivers best-effort inline; this loop sweeps up the
+stragglers (retries with backoff until the attempt cap) and probes the
+WhatsApp bridge so the admin status page shows honest channel health.
 
 The loop wakes every minute, runs whatever is due (serially — one polite
 client), and staggers domains so they don't all fire at once. Every run is
@@ -21,12 +25,16 @@ from datetime import UTC, datetime
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.models import SYNC_DOMAINS
+from app.notify.service import deliver_pending, email_channel_snapshot, probe_whatsapp_bridge
 from app.sync.runner import get_or_create_state, run_domain
 
 log = logging.getLogger("worker")
 
 # initial stagger (seconds) so domains don't stampede on first boot
 STAGGER = {"products": 0, "stock": 20, "sales": 40, "incoming": 60}
+
+NOTIFY_SWEEP_SECONDS = 30  # outbox retries
+BRIDGE_PROBE_SECONDS = 60  # WhatsApp bridge health → admin status page
 
 
 class Worker:
@@ -35,6 +43,8 @@ class Worker:
         self.sessions = get_sessionmaker()
         self.stop = False
         self.booted_at = time.monotonic()
+        self._last_notify_sweep = 0.0
+        self._last_bridge_probe = 0.0
 
     def _due(self, domain: str) -> bool:
         if time.monotonic() - self.booted_at < STAGGER[domain]:
@@ -63,6 +73,35 @@ class Worker:
         finally:
             db.close()
 
+    def _pump_notifications(self) -> None:
+        now = time.monotonic()
+        if now - self._last_notify_sweep < NOTIFY_SWEEP_SECONDS:
+            return
+        self._last_notify_sweep = now
+        db = self.sessions()
+        try:
+            done = deliver_pending(db, self.settings)
+            if done:
+                log.info("notification sweep: %s reached a terminal state", done)
+        except Exception:  # noqa: BLE001 — the loop must survive anything
+            log.exception("notification sweep failed")
+        finally:
+            db.close()
+
+    def _probe_bridge(self) -> None:
+        now = time.monotonic()
+        if now - self._last_bridge_probe < BRIDGE_PROBE_SECONDS:
+            return
+        self._last_bridge_probe = now
+        db = self.sessions()
+        try:
+            probe_whatsapp_bridge(db, self.settings)
+            email_channel_snapshot(db, self.settings)
+        except Exception:  # noqa: BLE001
+            log.exception("bridge probe failed")
+        finally:
+            db.close()
+
     def run_forever(self) -> None:
         log.info(
             "worker up — odoo mode: %s, cadence (min): %s",
@@ -75,7 +114,9 @@ class Worker:
                     break
                 if self._due(domain):
                     self._run(domain)
-            for _ in range(60):
+            self._pump_notifications()
+            self._probe_bridge()
+            for _ in range(15):
                 if self.stop:
                     break
                 time.sleep(1)

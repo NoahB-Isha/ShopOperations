@@ -131,4 +131,26 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   (`restock_fold_state`).
 - Dev-auth mode skips the 60s resend throttle (nothing is delivered; e2e re-logs demo users
   within seconds) — real delivery modes keep it. E2E runs with `workers: 1` and REQUIRES the
-  `write_create_internal_transfer` flag OFF so order-list approvals stay simulated.
+  `write_create_internal_transfer` flag OFF so order-list AND center-order approvals stay
+  simulated.
+- Phase 3 modules (same build-on-never-around rule): `app/center_orders/` — `flow.py`
+  (pending → approved → shipped / rejected / cancelled; SHIPPED is service-only, polled via
+  `picking_checked_at` like the count listener), `catalog.py` (a center's menu = its granted
+  order lists ∪ `dept_orderable` products for departments-zone centers; availability/OOS
+  timeline from StockLevel + IncomingMove — "expected back mid-August" labels),
+  `reasonability.py` (pure rules vs the center's own approved-order history + optional
+  Anthropic polish that can only escalate; advisory, never blocking), `service.py` (approval →
+  the existing `create_internal_transfer` op with `dest_odoo_location_id=center.odoo_location_id
+  or 0` — 0 not None, so unmapped FIELD centers get the actionable writer error; all-untracked
+  or locationless dept orders take the honest `picking_status="none"` path — that's the
+  department water flow, not a failure). `app/notify/` — `transport.py` (`WhatsAppTransport`
+  protocol; bridge contract `POST {url}/send {to,text}` / `GET {url}/status → {connected}`;
+  SMTP fallback), `service.py` (outbox enqueued in-transaction, inline best-effort delivery
+  post-commit, worker sweep w/ 2^n-minute backoff; gate ladder NOTIFY_ENABLED →
+  `notify_whatsapp_live`/`notify_email_live` flags → configured; gated sends recorded as
+  SIMULATED and logged on the order timeline as `notify` events). The worker probes bridge
+  health into `notify_channel_state` (surfaced in admin `/status` under `notifications`).
+  Center-orders list/detail GETs are the shipped-listener; UI polls ~4s. Migration
+  `b9a08e5413de` (additive only). The seed gives the demo coordinator a role in AUSTIN's zone
+  (wherever the roster puts Austin) — don't "simplify" that away; coordinator pings and e2e
+  approvals depend on it.

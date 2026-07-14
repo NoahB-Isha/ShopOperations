@@ -11,6 +11,7 @@ from ..centers.importer import run_import
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import SYNC_DOMAINS, FeatureFlag, OdooWriteAudit, Role
+from ..notify import service as notify_service
 from ..odoo.canary import run_canary_create_internal_transfer
 from ..odoo.connection import get_connection
 from ..odoo.contract import check_contract
@@ -32,10 +33,17 @@ def status(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
         "auth_mode": settings.auth_mode,
         "odoo_base_url": settings.odoo_base_url or None,  # never the credentials
         "recent_runs": recent_runs(db),
+        "notifications": notify_service.channels_payload(db, settings),
         "flags": [
             {"key": f.key, "enabled": f.enabled, "description": f.description} for f in flags
         ],
     }
+
+
+@router.get("/notifications")
+def list_notifications(limit: int = 50, db: Session = Depends(get_db)) -> list[dict]:
+    """The outbox, newest first — who was (or would have been) told what."""
+    return notify_service.recent_notifications(db, limit)
 
 
 @router.post("/sync/{domain}")
