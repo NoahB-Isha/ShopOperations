@@ -22,6 +22,10 @@ import { OrderListEditorPage } from "./pages/orders/OrderListEditorPage";
 import { OrderListsPage } from "./pages/orders/OrderListsPage";
 import { PendingOrdersPage } from "./pages/orders/PendingOrdersPage";
 import { PlaceOrderPage } from "./pages/orders/PlaceOrderPage";
+import { PurchaseOrderPage } from "./pages/purchasing/PurchaseOrderPage";
+import { PurchasingPage } from "./pages/purchasing/PurchasingPage";
+import { VendorsPage } from "./pages/purchasing/VendorsPage";
+import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
 import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
@@ -81,7 +85,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
 
               <Route path="/catalog" element={
-                <Protected title="Catalog"><CatalogPage /></Protected>
+                <Protected title="All SKUs"><CatalogPage /></Protected>
               } />
               <Route path="/styleguide" element={
                 <Protected title="Styleguide"><StyleguidePage /></Protected>
@@ -104,10 +108,19 @@ export default function App() {
                 <Protected title="Audit log" roles={["admin"]}><AuditPage /></Protected>
               } />
               <Route path="/orders" element={
-                <Protected title="Order lists" roles={["admin"]}><OrderListsPage /></Protected>
+                <Protected title="Catalogs" roles={["admin"]}><OrderListsPage /></Protected>
               } />
               <Route path="/orders/:id" element={
-                <Protected title="Order list" roles={["admin"]}><OrderListEditorPage /></Protected>
+                <Protected title="Catalog" roles={["admin"]}><OrderListEditorPage /></Protected>
+              } />
+              <Route path="/purchasing" element={
+                <Protected title="Purchasing" roles={["admin"]}><PurchasingPage /></Protected>
+              } />
+              <Route path="/purchasing/vendors" element={
+                <Protected title="Vendors" roles={["admin"]}><VendorsPage /></Protected>
+              } />
+              <Route path="/purchasing/:id" element={
+                <Protected title="Purchase order" roles={["admin"]}><PurchaseOrderPage /></Protected>
               } />
 
               {/* coordinator / liaison */}
@@ -122,7 +135,7 @@ export default function App() {
                 </Protected>
               } />
               <Route path="/my-order-lists" element={
-                <Protected title="Order lists" roles={["zone_coordinator", "dept_liaison"]}>
+                <Protected title="Catalogs" roles={["zone_coordinator", "dept_liaison"]}>
                   <CoordinatorListsPage />
                 </Protected>
               } />
@@ -186,6 +199,11 @@ export default function App() {
               <Route path="/coming-soon" element={
                 <Protected title="Coming soon" roles={["shoppe_floor", "warehouse"]}>
                   <ComingSoonPage />
+                </Protected>
+              } />
+              <Route path="/out-of-stock" element={
+                <Protected title="Out of stock" roles={["shoppe_floor"]}>
+                  <OutOfStockPage />
                 </Protected>
               } />
               <Route path="/transfer-requests/:id" element={

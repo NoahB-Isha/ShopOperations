@@ -30,7 +30,7 @@ from .operations import (
     TransferLine,
     build_count_transfer_payload,
     build_internal_transfer_payload,
-    build_inventory_reduction_payload,
+    build_inventory_adjustment_payload,
     is_app_reference,
     new_reference,
 )
@@ -42,6 +42,7 @@ OPERATION_FLAGS = {
     "create_internal_transfer": "write_create_internal_transfer",
     "prepare_count_transfer": "write_prepare_count_transfer",
     "create_inventory_reduction": "write_create_inventory_reduction",
+    "create_inventory_addition": "write_create_inventory_addition",
 }
 
 
@@ -362,35 +363,40 @@ class OdooWriter:
             audit_id=audit_id,
         )
 
-    def _reduction_env(self) -> tuple[int | None, int | None, list[str]]:
-        """(picking_type_id, default dest location id, warnings) for the
-        inventory-reduction operation type, matched by configured name.
-        Failures fall back to None so dry-runs still render honestly."""
+    def _adjustment_env(
+        self, wanted: str, need: str
+    ) -> tuple[int | None, int | None, list[str]]:
+        """(picking_type_id, the type's default src/dest location id, warnings)
+        for an inventory-adjustment operation type matched by configured name
+        (ilike; % wildcards allowed). `need` is which default the operation
+        requires: 'dest' for reductions, 'src' for additions. Failures fall
+        back to None so dry-runs still render honestly."""
         warnings: list[str] = []
         type_id: int | None = None
-        dest_id: int | None = None
-        wanted = self.settings.odoo_reduction_picking_type
+        loc_id: int | None = None
+        field = "default_location_dest_id" if need == "dest" else "default_location_src_id"
         try:
             types = self.conn.search_read(
                 "stock.picking.type",
                 [["name", "ilike", wanted]],
-                ["id", "name", "default_location_dest_id"],
+                ["id", "name", field],
                 order="id asc",
             )
             if types:
                 type_id = types[0]["id"]
-                dest = types[0].get("default_location_dest_id")
-                dest_id = dest[0] if isinstance(dest, list) else (dest or None)
-                if not dest_id:
+                loc = types[0].get(field)
+                loc_id = loc[0] if isinstance(loc, list) else (loc or None)
+                if not loc_id:
+                    side = "destination" if need == "dest" else "source"
                     warnings.append(
-                        f"picking type '{types[0].get('name')}' has no default destination "
+                        f"picking type '{types[0].get('name')}' has no default {side} "
                         "location — set one in Odoo"
                     )
             else:
                 warnings.append(f"no picking type matching '{wanted}' on the instance")
         except OdooError as e:
-            warnings.append(f"could not resolve the reduction picking type ({e})")
-        return type_id, dest_id, warnings
+            warnings.append(f"could not resolve the adjustment picking type ({e})")
+        return type_id, loc_id, warnings
 
     def create_inventory_reduction(
         self,
@@ -406,8 +412,63 @@ class OdooWriter:
         ("USA-III: Inventory Adj Reduction") removing `qty` of one product
         from the floor — the floor team's 'this shelf is actually empty' data
         cleanup. Draft only; a human confirms it in Odoo."""
+        return self._create_adjustment_draft(
+            operation="create_inventory_reduction",
+            label="reduction",
+            type_name=self.settings.odoo_reduction_picking_type,
+            need="dest",  # floor → the type's default destination (loss)
+            product_id=product_id,
+            qty=qty,
+            note=note,
+            reference=reference,
+            dry_run=dry_run,
+            ignore_feature_flag=ignore_feature_flag,
+        )
+
+    def create_inventory_addition(
+        self,
+        *,
+        product_id: int,
+        qty: float,
+        note: str = "",
+        reference: str | None = None,
+        dry_run: bool = False,
+        ignore_feature_flag: bool = False,
+    ) -> WriteResult:
+        """Create a DRAFT picking on the inventory-addition operation type
+        ("USA-III: Inventory Adj  Adding Qty") putting `qty` of one product
+        ONTO the floor — the back-in-stock counterpart of the reduction.
+        Draft only; a human confirms it in Odoo."""
+        return self._create_adjustment_draft(
+            operation="create_inventory_addition",
+            label="addition",
+            type_name=self.settings.odoo_addition_picking_type,
+            need="src",  # the type's default source (loss) → floor
+            product_id=product_id,
+            qty=qty,
+            note=note,
+            reference=reference,
+            dry_run=dry_run,
+            ignore_feature_flag=ignore_feature_flag,
+        )
+
+    def _create_adjustment_draft(
+        self,
+        *,
+        operation: str,
+        label: str,
+        type_name: str,
+        need: str,
+        product_id: int,
+        qty: float,
+        note: str,
+        reference: str | None,
+        dry_run: bool,
+        ignore_feature_flag: bool,
+    ) -> WriteResult:
+        """The shared core of both inventory adjustments — identical
+        discipline, opposite directions."""
         started = time.monotonic()
-        operation = "create_inventory_reduction"
 
         if qty <= 0:
             raise WriterValidationError(f"Quantity must be positive (got {qty:g}).")
@@ -416,7 +477,7 @@ class OdooWriter:
             raise WriterValidationError(f"Unknown product id {product_id}.")
         if not product.is_stock_tracked or not product.odoo_product_id:
             raise WriterValidationError(
-                f"'{product.name}' is not stock-tracked in Odoo — nothing to reduce."
+                f"'{product.name}' is not stock-tracked in Odoo — nothing to adjust."
             )
         floor = self._resolve_location("floor")
         line = TransferLine(
@@ -427,10 +488,16 @@ class OdooWriter:
 
         reference = reference or new_reference("OOS")
         reason = self._forced_dry_run_reason(operation, dry_run, ignore_feature_flag)
-        type_id, dest_id, env_warnings = self._reduction_env()
-        payload = build_inventory_reduction_payload(
+        type_id, loc_id, env_warnings = self._adjustment_env(type_name, need)
+        src_id: int | None
+        dest_id: int | None
+        if need == "dest":
+            src_id, dest_id = floor.odoo_id, loc_id
+        else:
+            src_id, dest_id = loc_id, floor.odoo_id
+        payload = build_inventory_adjustment_payload(
             picking_type_id=type_id,
-            source_location_id=floor.odoo_id,
+            source_location_id=src_id,
             dest_location_id=dest_id,
             reference=reference,
             line=line,
@@ -464,9 +531,9 @@ class OdooWriter:
             )
 
         # ---- live path
-        if type_id is None or not dest_id:
+        if type_id is None or not src_id or not dest_id:
             raise WriterValidationError(
-                "The inventory-reduction operation type isn't usable: "
+                f"The inventory-{label} operation type isn't usable: "
                 + "; ".join(env_warnings)
             )
         try:
@@ -499,7 +566,7 @@ class OdooWriter:
                     record_name=str(rec.get("name") or ""),
                     deep_link=odoo_record_url(self.settings, "stock.picking", rec["id"]),
                     payload=payload,
-                    message=f"Reduction already exists as {rec.get('name')} (idempotent retry).",
+                    message=f"The {label} already exists as {rec.get('name')} (idempotent retry).",
                     audit_id=audit_id,
                 )
 
@@ -524,7 +591,7 @@ class OdooWriter:
                 error=str(e),
                 started=started,
             )
-            raise OdooWriteError(f"Odoo rejected the reduction: {e}") from e
+            raise OdooWriteError(f"Odoo rejected the {label}: {e}") from e
 
         audit_id = self._audit(
             operation=operation,
@@ -550,7 +617,7 @@ class OdooWriter:
             record_name=str(rec.get("name") or ""),
             deep_link=odoo_record_url(self.settings, "stock.picking", picking_id),
             payload=payload,
-            message=f"Draft reduction {rec.get('name', picking_id)} created — review it in Odoo.",
+            message=f"Draft {label} {rec.get('name', picking_id)} created — review it in Odoo.",
             audit_id=audit_id,
         )
 

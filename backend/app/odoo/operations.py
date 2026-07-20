@@ -99,19 +99,18 @@ def build_internal_transfer_payload(
     return vals
 
 
-def build_inventory_reduction_payload(
+def build_inventory_adjustment_payload(
     *,
     picking_type_id: int | None,
-    source_location_id: int,
+    source_location_id: int | None,
     dest_location_id: int | None,
     reference: str,
     line: TransferLine,
     note: str = "",
 ) -> dict:
-    """`stock.picking` create-vals for a DRAFT inventory reduction — the
-    "USA-III: Inventory Adj Reduction" operation type, removing phantom floor
-    stock. The app never validates it; a human confirms the shelf is really
-    empty in Odoo."""
+    """`stock.picking` create-vals for a DRAFT inventory adjustment (either
+    direction: reduction = floor → loss, addition = loss → floor). The app
+    never validates it; a human confirms the real count in Odoo."""
     vals: dict = {
         "picking_type_id": picking_type_id,
         "location_id": source_location_id,

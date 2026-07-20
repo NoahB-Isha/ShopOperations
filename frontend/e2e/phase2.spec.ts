@@ -113,7 +113,7 @@ test("catalog: admin grants a list to Zone 1, coordinator opens it to a center",
   // ---- admin: create the catalog (products only — no quantities anywhere)
   await login(page, "admin@demo.ishalife.test");
   await page.goto("/orders");
-  await page.getByRole("button", { name: "New list" }).first().click();
+  await page.getByRole("button", { name: "New Catalog" }).first().click();
   await page.getByLabel("Name").fill(listName);
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page).toHaveURL(/orders\/\d+/);

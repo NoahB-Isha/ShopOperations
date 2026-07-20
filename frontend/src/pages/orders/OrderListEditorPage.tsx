@@ -165,7 +165,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
           {products.length === 0 ? (
             <div className="p-6">
               <EmptyState
-                title="Nothing on this list yet"
+                title="Nothing in this catalog yet"
                 hint="Search on the right — only active, Odoo-tracked products can be added."
               />
             </div>
@@ -246,7 +246,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
       <Dialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete this list?"
+        title="Delete this catalog?"
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
@@ -303,7 +303,7 @@ function ZoneGrantsCard({ ol }: { ol: OrderListOut }) {
     <Card>
       <h3 className="headline mb-1 text-[16px]">Zones</h3>
       <p className="mb-3 text-[13px] text-on-surface-variant">
-        Granted zones' coordinators can open this list to their centers. Revoking a zone also
+        Granted zones' coordinators can open this catalog to their centers. Revoking a zone also
         revokes its centers.
       </p>
       <div className="flex flex-wrap gap-1.5">

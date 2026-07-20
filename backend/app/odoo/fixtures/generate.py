@@ -64,7 +64,7 @@ CATEGORIES = [
     ("Silver Jewelry", "SJ", 8, (25, 220), 0.05),
     ("Gold Jewelry", "GJ", 2, (150, 1200), 0.02),
     ("Yoga Props", "YP", 20, (10, 85), 0.06),
-    ("Apparel", "AP", 15, (15, 70), 0.04),  # clothing — out of scope for ordering flows
+    ("Clothing & Apparel", "AP", 15, (15, 70), 0.04),  # out of scope for ordering flows
 ]
 
 BASES = {
@@ -93,7 +93,7 @@ BASES = {
     "Gold Jewelry": ["Gold Pendant", "Gold Ring", "Gold Earrings", "Gold Chain"],
     "Yoga Props": ["Yoga Mat", "Meditation Shawl", "Yoga Block", "Bolster",
                    "Mat Bag", "Copper Neti Pot", "Eye Pillow", "Asana Strap"],
-    "Apparel": ["Kurta", "Meditation Pants", "Isha T-Shirt", "Shawl", "Dhoti", "Scarf"],
+    "Clothing & Apparel": ["Kurta", "Meditation Pants", "Isha T-Shirt", "Shawl", "Dhoti", "Scarf"],
 }
 
 VARIANTS = ["Small", "Medium", "Large", "Classic", "Deluxe", "Set of 2", "Set of 3", "Gift Box",

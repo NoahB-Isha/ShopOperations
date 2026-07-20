@@ -13,6 +13,7 @@ names so `fields_get` stays meaningful for empty tables.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -318,7 +319,13 @@ class OdooSimulator:
                 "<": actual < expected,
             }[op]
         if op in ("ilike", "like"):
-            return str(expected).lower() in str(actual or "").lower()
+            # Odoo's (i)like supports % wildcards inside the pattern
+            hay = str(actual or "").lower()
+            pattern = str(expected).lower()
+            if "%" in pattern:
+                regex = ".*".join(re.escape(part) for part in pattern.split("%"))
+                return re.search(regex, hay) is not None
+            return pattern in hay
         raise OdooError(f"Simulator does not support domain operator {op!r}.")
 
     @staticmethod

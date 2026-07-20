@@ -1,10 +1,14 @@
-"""Background worker: Odoo snapshot syncs on their cadence, plus the
-notification pump (phase 3).
+"""Background worker: Odoo snapshot syncs on their cadence, the notification
+pump (phase 3), and order-mailbox ingestion (phase 4).
 
 Polite-client policy (from the brief): stock & incoming a few times a day,
 products twice a day, sales hourly (current-month incrementals; the previous
 month is folded in once a day; the 24-month backfill happens automatically on
-the very first sales run). Later phases add email ingestion here.
+the very first sales run).
+
+Mailbox ingestion is READ-ONLY IMAP scoped to order threads: unmatched mail
+is never touched, and a blank IMAP_HOST makes the poll a no-op (replies can
+always be pasted in through the admin endpoint instead).
 
 Notifications: the API delivers best-effort inline; this loop sweeps up the
 stragglers (retries with backoff until the attempt cap) and probes the
@@ -26,6 +30,7 @@ from app.config import get_settings
 from app.db import get_sessionmaker
 from app.models import SYNC_DOMAINS
 from app.notify.service import deliver_pending, email_channel_snapshot, probe_whatsapp_bridge
+from app.ordering.mailbox import mailbox_configured, poll_mailbox
 from app.sync.runner import get_or_create_state, run_domain
 
 log = logging.getLogger("worker")
@@ -45,6 +50,7 @@ class Worker:
         self.booted_at = time.monotonic()
         self._last_notify_sweep = 0.0
         self._last_bridge_probe = 0.0
+        self._last_mailbox_poll = 0.0
 
     def _due(self, domain: str) -> bool:
         if time.monotonic() - self.booted_at < STAGGER[domain]:
@@ -102,6 +108,23 @@ class Worker:
         finally:
             db.close()
 
+    def _poll_mailbox(self) -> None:
+        if not mailbox_configured(self.settings):
+            return
+        now = time.monotonic()
+        if now - self._last_mailbox_poll < self.settings.ordering_mailbox_poll_seconds:
+            return
+        self._last_mailbox_poll = now
+        db = self.sessions()
+        try:
+            ingested = poll_mailbox(db, self.settings)
+            if ingested:
+                log.info("mailbox poll: %s order reply(ies) ingested", ingested)
+        except Exception:  # noqa: BLE001 — the loop must survive anything
+            log.exception("mailbox poll failed")
+        finally:
+            db.close()
+
     def run_forever(self) -> None:
         log.info(
             "worker up — odoo mode: %s, cadence (min): %s",
@@ -116,6 +139,7 @@ class Worker:
                     self._run(domain)
             self._pump_notifications()
             self._probe_bridge()
+            self._poll_mailbox()
             for _ in range(15):
                 if self.stop:
                     break

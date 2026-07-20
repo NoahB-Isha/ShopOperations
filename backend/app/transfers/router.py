@@ -423,6 +423,7 @@ class ComingSoonRequestRef(BaseModel):
 class ComingSoonItemOut(BaseModel):
     product_id: int
     sku: str
+    barcode: str  # the identifier the team actually uses; sku is the fallback
     name: str
     category: str
     qty_on_the_way: float  # sent qty where known, requested otherwise
@@ -471,6 +472,7 @@ def coming_soon(
         ComingSoonItemOut(
             product_id=pid,
             sku=e["product"].global_sku,
+            barcode=e["product"].barcode,
             name=e["product"].name,
             category=e["product"].category,
             qty_on_the_way=round(e["qty"], 3),

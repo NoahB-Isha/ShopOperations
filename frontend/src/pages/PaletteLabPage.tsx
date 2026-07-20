@@ -21,7 +21,7 @@ import {
 } from "../design";
 import type { Column } from "../design";
 import { useToast } from "../design/Toast";
-import { FlowerMark } from "../shell/AppShell";
+import { ILMark } from "../shell/AppShell";
 import { setPalette } from "../theme";
 
 interface DemoRow {
@@ -130,7 +130,7 @@ function ExamplePage() {
     <div className="rounded-(--radius-lg) bg-surface p-6 md:p-8">
       {/* faux nav strip so the secondary-container active pill is visible */}
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <FlowerMark size={30} />
+        <ILMark size={30} />
         <span className="state-layer flex h-9 items-center gap-2 rounded-full bg-secondary-container px-4 text-sm font-semibold text-on-secondary-container">
           Status
         </span>

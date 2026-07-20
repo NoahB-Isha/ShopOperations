@@ -8,6 +8,12 @@ import type { ProductOut, TransferStatus } from "../../api/types";
 import { Badge, Button, Input, Spinner, toneForLabel } from "../../design";
 import type { BadgeTone } from "../../design";
 
+/** The identifier the team actually uses on the floor: barcode when the
+ *  product has one (93% do), Global SKU as the honest fallback. */
+export function productCode(barcode: string | undefined, sku: string): string {
+  return barcode || sku;
+}
+
 export function fmtQty(n: number | null | undefined): string {
   if (n === null || n === undefined) return "—";
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -193,6 +199,7 @@ export function QtyInput({
 export interface PickedLine {
   product_id: number;
   sku: string;
+  barcode?: string;
   name: string;
   category: string;
   qty: number;
@@ -204,6 +211,7 @@ export function toPicked(p: ProductOut, qty = 1): PickedLine {
   return {
     product_id: p.id,
     sku: p.global_sku,
+    barcode: p.barcode,
     name: p.name,
     category: p.category,
     qty,
@@ -280,7 +288,7 @@ export function ProductPicker({
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{p.name}</span>
                       <span className="mt-0.5 flex items-center gap-2 text-[12px] text-on-surface-variant">
-                        <span className="font-mono">{p.global_sku}</span>
+                        <span className="font-mono">{productCode(p.barcode, p.global_sku)}</span>
                         <Badge tone={toneForLabel(p.category)}>{p.category}</Badge>
                       </span>
                     </span>

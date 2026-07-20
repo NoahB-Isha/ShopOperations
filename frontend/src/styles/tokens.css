@@ -438,6 +438,14 @@ body {
     transform: rotate(180deg) scale(1.08);
   }
 
+  /* the emblem's hello: a springy scale bounce — no spin, no travel */
+  .bounce-on-hover {
+    transition: transform 0.5s var(--ease-spring);
+  }
+  .bounce-on-hover:hover {
+    transform: scale(1.14);
+  }
+
   /* ---- M3 filled text fields ---------------------------------
      All control styling lives HERE (component layer) so Tailwind
      utilities passed by call sites can still override on purpose.

@@ -50,9 +50,11 @@ class Settings(BaseSettings):
     odoo_fixtures_dir: str = "backend/data/demo_fixtures"
     # seconds between polls of a count picking's state (per request)
     odoo_count_poll_seconds: int = 10
-    # picking type for floor OOS inventory reductions, matched by name (ilike
-    # contains — the live instance shows it as "USA-III: Inventory Adj Reduction")
+    # operation types for floor OOS data cleanup, matched by name (ilike; %
+    # wildcards allowed — the live names are "USA-III: Inventory Adj Reduction"
+    # and "USA-III: Inventory Adj  Adding Qty", note the double space)
     odoo_reduction_picking_type: str = "Inventory Adj Reduction"
+    odoo_addition_picking_type: str = "Inventory Adj%Adding Qty"
 
     # --- sync cadence (minutes) ---
     sync_products_minutes: int = 720
@@ -83,6 +85,21 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     reasonability_llm_model: str = "claude-opus-4-8"
     reasonability_llm_timeout_seconds: float = 10.0
+
+    # --- ordering (phase 4: India imports, vendor orders, order mailbox) ---
+    # Recipients live in the admin-editable `ordering_email` AppSetting row —
+    # only transport-level config sits here.
+    # Order-reply ingestion mailbox (READ-ONLY IMAP, scoped to order threads).
+    imap_host: str = ""  # blank = reply ingestion not configured
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    imap_folder: str = "INBOX"
+    ordering_mailbox_poll_seconds: int = 300
+    # LLM reply parsing (proposals only, human-confirmed; a deterministic
+    # heuristic parser runs when no key is configured)
+    ordering_parser_llm_model: str = "claude-opus-4-8"
+    ordering_parser_llm_timeout_seconds: float = 30.0
 
     # --- notifications (WhatsApp primary, email fallback) ---
     notify_enabled: bool = True  # kill switch; False simulates every send app-wide

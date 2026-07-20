@@ -452,7 +452,7 @@ export function PlaceOrderPage() {
           hint={
             isDept
               ? "No department items are marked orderable yet — ask the office."
-              : "Your coordinator hasn't shared an order list with this center yet."
+              : "Your coordinator hasn't shared a catalog with this center yet."
           }
         />
       ) : (

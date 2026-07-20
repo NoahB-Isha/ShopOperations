@@ -29,6 +29,7 @@ from ..models import (
     CenterOrderLine,
     CenterOrderStatus,
     FeatureFlag,
+    ForecastAnalogy,
     IncomingMove,
     NotificationKind,
     OdooWriteOutcome,
@@ -38,15 +39,21 @@ from ..models import (
     OrderListZone,
     Product,
     ProductSource,
+    ProductTag,
+    PurchaseOrder,
     Role,
     RoleAssignment,
+    SalesMonthly,
     StockLevel,
+    TagName,
     TransferEvent,
     TransferEventKind,
     TransferRequest,
     TransferRequestLine,
     TransferRequestStatus,
     User,
+    Vendor,
+    VendorKind,
     Zone,
     ZoneKind,
     not_clothing,
@@ -144,6 +151,12 @@ def seed_flags(db: Session) -> None:
             "after its canary passes.",
         ),
         (
+            "write_create_inventory_addition",
+            "OdooWriter.create_inventory_addition may write live (draft 'USA-III: "
+            "Inventory Adj  Adding Qty' pickings when marked-out items come back). "
+            "Enable only after its canary passes.",
+        ),
+        (
             "notify_whatsapp_live",
             "Order notifications may actually send over the WhatsApp bridge. "
             "Off = sends are recorded as simulated.",
@@ -152,6 +165,12 @@ def seed_flags(db: Session) -> None:
             "notify_email_live",
             "Order notifications may actually send email (the WhatsApp fallback). "
             "Off = sends are recorded as simulated.",
+        ),
+        (
+            "ordering_email_live",
+            "Purchase-order emails (India + vendor POs, CSV/XLSX attached) may "
+            "actually send over SMTP. Off = placement renders the email as a "
+            "dry-run, recorded SIMULATED on the order thread.",
         ),
     ]
     for key, description in flags:
@@ -555,6 +574,171 @@ def seed_phase3_flows(db: Session) -> None:
     )
 
 
+def _ensure_tag(db: Session, product: Product, tag: str) -> None:
+    exists = db.scalar(
+        select(ProductTag).where(ProductTag.product_id == product.id, ProductTag.tag == tag)
+    )
+    if exists is None:
+        db.add(ProductTag(product_id=product.id, tag=tag))
+
+
+def seed_phase4_flows(db: Session) -> None:
+    """India ordering demo: rule tags across the catalog (gold/silver air-only,
+    Bloom expiry, toothpaste/camphor bulk-cycle), order-email recipients, a
+    domestic vendor with MOQ items, a forecast analogy on a brand-new product,
+    one PLACED import order with a vendor reply mid-review (two pending
+    proposals awaiting the admin — the acceptance-demo state), and a fresh
+    draft. Idempotent — skips if any purchase order exists."""
+    from ..ordering import service as ordering_service
+    from ..ordering import tracking as ordering_tracking
+    from ..ordering.emailer import EMAIL_SETTING_KEY
+    from ..ordering.inputs import import_candidates
+
+    settings = get_settings()
+    admin = db.scalar(select(User).where(User.email == f"admin@{DEMO_DOMAIN}"))
+
+    # 1. rule tags, derived from the fixture catalog's categories/names
+    tagged = 0
+    for category, tag in [
+        ("Gold Jewelry", TagName.GOLD.value),
+        ("Silver Jewelry", TagName.SILVER.value),
+        ("Bloom", TagName.BLOOM.value),
+    ]:
+        for product in db.scalars(select(Product).where(Product.category == category)):
+            _ensure_tag(db, product, tag)
+            tagged += 1
+    for pattern, tag in [("%toothpaste%", TagName.TOOTHPASTE.value),
+                         ("%camphor%", TagName.CAMPHOR.value)]:
+        for product in db.scalars(select(Product).where(Product.name.ilike(pattern))):
+            _ensure_tag(db, product, tag)
+            tagged += 1
+    db.flush()
+
+    # 2. order-email recipients (dry-run until the flag is enabled anyway)
+    ordering_service.set_app_setting(
+        db, EMAIL_SETTING_KEY,
+        {"india_to": ["exports.demo@ishalife.in"], "cc": [f"admin@{DEMO_DOMAIN}"]}, admin,
+    )
+
+    # 3. a domestic vendor with MOQ items (the workbook's Botanie pattern)
+    vendor = db.scalar(select(Vendor).where(Vendor.name == "Botanie Soap Co."))
+    if vendor is None:
+        vendor = Vendor(
+            name="Botanie Soap Co.", kind=VendorKind.US.value, contact_name="Caroline",
+            contact_email="caroline@botaniesoap.test",
+            notes="Demo domestic vendor — order one MOQ when cover drops below 4 months.",
+        )
+        db.add(vendor)
+        db.flush()
+    assigned = db.scalars(select(Product).where(Product.vendor_id == vendor.id)).all()
+    if not assigned:
+        # fixture catalogs carry US- domestic codes; live catalogs don't, so
+        # fall back to soap-like items (the real Botanie products)
+        domestic = db.scalars(
+            select(Product)
+            .where(Product.global_sku.like("US-%"), Product.is_active.is_(True), not_clothing())
+            .order_by(Product.id)
+            .limit(3)
+        ).all()
+        if not domestic:
+            domestic = db.scalars(
+                select(Product)
+                .where(
+                    Product.name.ilike("%soap%"),
+                    Product.is_active.is_(True),
+                    Product.vendor_id.is_(None),
+                    not_clothing(),
+                )
+                .order_by(Product.id)
+                .limit(3)
+            ).all()
+        for product, moq in zip(domestic, (1080, 540, 240), strict=False):
+            product.vendor_id = vendor.id
+            product.moq = moq
+        assigned = domestic
+
+    # 4. forecast-by-analogy for a product with no sales history yet
+    analogy_note = "already seeded"
+    if db.scalar(select(ForecastAnalogy)) is None:
+        analogy_note = "no candidate found"
+        seen_sales = {
+            pid for (pid,) in db.execute(select(SalesMonthly.product_id).distinct())
+        }
+        candidates = import_candidates(db)
+        fresh = next((p for p in candidates if p.id not in seen_sales), None)
+        analog = next(
+            (p for p in candidates
+             if fresh is not None and p.category == fresh.category and p.id in seen_sales),
+            None,
+        )
+        if fresh and analog:
+            db.add(
+                ForecastAnalogy(
+                    product_id=fresh.id, analog_product_id=analog.id, source="llm",
+                    rationale=f"Same family as {analog.name} — expected to sell similarly.",
+                    created_by_id=admin.id if admin else None,
+                )
+            )
+            analogy_note = f"{fresh.name} → sells like {analog.name}"
+    db.commit()
+
+    # 5. one placed import order with the vendor's reply mid-review
+    if db.scalar(select(PurchaseOrder)) is not None:
+        print(
+            f"  phase 4: rule tags/vendor/analogy refreshed ({len(assigned)} MOQ items); "
+            "orders already present — demo order skipped"
+        )
+        return
+    now = utcnow()
+    quarter = (now.month - 1) // 3 + 1
+    order = ordering_service.create_import_order(
+        db, settings, name=f"Q{quarter} {now.year}", created_by=admin,
+        notes="Demo quarterly import — generated from the app snapshot.",
+    )
+    db.commit()
+
+    def _plain(line) -> bool:  # names the reply parser's regexes can carry
+        name = str((line.suggestion_json or {}).get("name") or "")
+        return bool(name) and all(c.isalnum() or c in " '&./-" for c in name)
+
+    ordering_lines = [
+        ln for ln in order.lines if ln.final_sea_qty > 0 and _plain(ln)
+    ]
+    reply_note = "no reply seeded (no suitable lines)"
+    if len(ordering_lines) >= 2:
+        first, second = ordering_lines[0], ordering_lines[1]
+        first_name = first.suggestion_json["name"]
+        second_name = second.suggestion_json["name"]
+        ordering_service.place_order(db, settings, order, actor=admin)
+        db.commit()
+        reply = (
+            f"Namaskaram,\n\nThank you for order {order.reference}. We checked with the "
+            f"warehouse — we can only send {first.final_sea_qty // 2} of the "
+            f"{first.final_sea_qty} {first_name}, and {second_name} is discontinued.\n\n"
+            "Everything else ships as planned in the container.\n\nPranam,\nExports Team"
+        )
+        _, proposals = ordering_tracking.ingest_email(
+            db, settings, order,
+            sender="exports.demo@ishalife.in",
+            subject=f"Re: Isha Life USA — Purchase Order {order.display_name} [{order.reference}]",
+            body=reply,
+        )
+        db.commit()
+        reply_note = f"{len(proposals)} proposal(s) pending on {order.display_name}"
+
+    # 6. a fresh working draft for the review-screen demo
+    ordering_service.create_import_order(
+        db, settings, name=f"Q{quarter % 4 + 1} draft", created_by=admin,
+        notes="Working draft for the next container — play with the review table here.",
+    )
+    db.commit()
+    print(
+        f"  phase 4: {tagged} rule tags, vendor “{vendor.name}” ({len(assigned)} MOQ items), "
+        f"analogy: {analogy_note}"
+    )
+    print(f"  phase 4: {reply_note}")
+
+
 def replay_restock_folds(db: Session, days: int = 10) -> None:
     """Run the accumulator day by day over the recent sales history, exactly
     as if the old restock script had run every morning."""
@@ -632,6 +816,9 @@ def main() -> None:
 
         # 7. phase-3 flows: center orders, reasonability, notifications
         seed_phase3_flows(db)
+
+        # 8. phase-4 flows: India ordering, vendor, analogy, reply proposals
+        seed_phase4_flows(db)
 
         n_products = db.scalar(select(func.count()).select_from(Product))
         print(f"\nDone. {n_products} products in the catalog.")

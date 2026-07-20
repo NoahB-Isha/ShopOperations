@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth.deps import AuthedUser, get_current_user, require_roles
+from ..catalog.matching import SpreadsheetError, match_products, parse_table
 from ..db import get_db
 from ..models import (
     Center,
@@ -243,6 +244,78 @@ def create_order_list(
     db.add(ol)
     db.commit()
     return _out(db, _load(db, ol.id))
+
+
+class ImportResultOut(BaseModel):
+    catalog: OrderListOut
+    matched: int
+    skipped: list[str]  # matched products a catalog can't carry (with reason)
+    unmatched_rows: list[str]  # row previews nobody could resolve
+    total_rows: int
+
+
+def _catalog_eligibility(product: Product) -> str:
+    """'' when the product can sit on a catalog, else the human reason."""
+    if not product.is_stock_tracked or not product.odoo_product_id:
+        return "not tracked in Odoo"
+    if not product.is_active:
+        return "inactive"
+    if product.is_clothing:
+        return "clothing (out of scope)"
+    return ""
+
+
+@router.post("/import", response_model=ImportResultOut, status_code=201)
+def import_order_list(
+    name: str = Form(..., min_length=2, max_length=160),
+    notes: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> ImportResultOut:
+    """Create a catalog from ANY spreadsheet with a list of items — names,
+    SKUs or barcodes in any combination; quantities and other columns are
+    ignored. Unmatched rows come back for manual follow-up, never dropped."""
+    data = file.file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(413, "upload too large (10 MB max)")
+    try:
+        rows = parse_table(data, file.filename or "")
+    except SpreadsheetError as e:
+        raise HTTPException(400, str(e)) from e
+    if not rows:
+        raise HTTPException(400, "no rows found in the file")
+    report = match_products(db, rows)
+
+    skipped: list[str] = []
+    eligible: list[Product] = []
+    for hit in report.hits:
+        reason = _catalog_eligibility(hit.product)
+        if reason:
+            skipped.append(f"{hit.product.name or hit.product.global_sku} — {reason}")
+        else:
+            eligible.append(hit.product)
+    if not eligible:
+        raise HTTPException(
+            400,
+            "nothing usable matched — "
+            f"{len(report.unmatched)} row(s) unrecognized, {len(skipped)} matched "
+            "product(s) can't be ordered",
+        )
+
+    ol = OrderList(name=name.strip(), notes=notes.strip(), created_by_id=authed.id)
+    db.add(ol)
+    db.flush()
+    for position, product in enumerate(eligible):
+        db.add(OrderListLine(order_list_id=ol.id, product_id=product.id, position=position))
+    db.commit()
+    return ImportResultOut(
+        catalog=_out(db, _load(db, ol.id)),
+        matched=len(eligible),
+        skipped=skipped,
+        unmatched_rows=[preview for _, preview in report.unmatched],
+        total_rows=report.total_rows,
+    )
 
 
 @router.get("/{order_list_id}", response_model=OrderListOut)

@@ -29,7 +29,7 @@ export function CoordinatorListsPage() {
   return (
     <>
       <PageHeader
-        title="Order lists"
+        title="Catalogs"
         subtitle="Catalogs the office granted to your zone. Open each one to the centers that should order from it."
       />
       {isLoading ? (
@@ -91,7 +91,7 @@ function CentersDialog({ id, onClose }: { id: number | null; onClose: () => void
   const { data: ol } = useOrderList(id);
   if (id === null) return null;
   return (
-    <Dialog open onClose={onClose} title={ol?.name ?? "Order list"} wide>
+    <Dialog open onClose={onClose} title={ol?.name ?? "Catalog"} wide>
       {!ol ? (
         <div className="grid place-items-center py-16">
           <Spinner size={22} />

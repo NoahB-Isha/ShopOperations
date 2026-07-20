@@ -3,7 +3,16 @@ from __future__ import annotations
 import enum
 from datetime import date
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -58,6 +67,15 @@ class Product(Base, TimestampMixin):
     # Non-retail POS items (campus meals, prasadam…) sell through the same
     # registers but never belong on the Shoppe restock lists.
     restock_exclude: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # --- ordering (phase 4; app-managed, workbook-sourced where Odoo lacks) ---
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")  # customs code
+    unit_weight_g: Mapped[float | None] = mapped_column(Float)
+    target_moh_override: Mapped[float | None] = mapped_column(Float)  # per-SKU MTHS REQ
+    moq: Mapped[int | None] = mapped_column(Integer)  # domestic vendors
+    vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.id"), index=True)
+    # keeps an item off the India review table without deactivating it
+    ordering_exclude: Mapped[bool] = mapped_column(Boolean, default=False)
 
     tags: Mapped[list[ProductTag]] = relationship(
         back_populates="product", cascade="all, delete-orphan"

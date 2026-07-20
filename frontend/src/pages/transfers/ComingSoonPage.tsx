@@ -1,20 +1,41 @@
 /* Everything already on its way from the warehouse to the floor — every item
    on an ACTIVE transfer request, totalled per product. The answer to "should
    I request this?" before anyone requests it twice. */
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
-import { EmptyState, PageHeader, Spinner } from "../../design";
-import { LowCountHint, TransferStatusChip, fmtQty } from "../shared/OpsBits";
+import { EmptyState, Input, PageHeader, Spinner } from "../../design";
+import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
 
 export function ComingSoonPage() {
   const { data: items, isLoading } = useComingSoon();
   const navigate = useNavigate();
+  const [search, setSearch] = useState("");
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items ?? [];
+    return (items ?? []).filter(
+      (i) =>
+        i.name.toLowerCase().includes(q) ||
+        i.sku.toLowerCase().includes(q) ||
+        i.barcode.toLowerCase().includes(q) ||
+        i.category.toLowerCase().includes(q),
+    );
+  }, [items, search]);
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Coming soon"
         subtitle="Already on an active transfer from the warehouse — no need to request it again."
+      />
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name, SKU, category…"
+        aria-label="Search items on the way"
+        className="mb-3 w-full"
       />
       {isLoading ? (
         <div className="grid place-items-center py-24">
@@ -25,9 +46,13 @@ export function ComingSoonPage() {
           title="Nothing on the way"
           hint="Items appear here the moment a transfer request is placed, and leave when it's done."
         />
+      ) : visible.length === 0 ? (
+        <div className="py-16 text-center text-sm text-on-surface-variant">
+          Nothing on the way matches “{search.trim()}”.
+        </div>
       ) : (
         <ul className="stagger-children flex flex-col gap-2 pb-8">
-          {items.map((item) => (
+          {visible.map((item) => (
             <li
               key={item.product_id}
               className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5"
@@ -36,7 +61,7 @@ export function ComingSoonPage() {
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-medium">{item.name}</div>
                   <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
-                    <span className="font-mono">{item.sku}</span> · floor{" "}
+                    <span className="font-mono">{productCode(item.barcode, item.sku)}</span> · floor{" "}
                     {fmtQty(item.floor_qty)} · whse {fmtQty(item.bwhse_qty)}{" "}
                     <LowCountHint qty={item.bwhse_qty} />
                   </div>

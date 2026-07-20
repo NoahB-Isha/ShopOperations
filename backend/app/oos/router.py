@@ -63,6 +63,7 @@ class MarkOut(BaseModel):
 class OosItemOut(BaseModel):
     product_id: int
     sku: str
+    barcode: str  # the identifier the team actually uses; sku is the fallback
     name: str
     category: str
     floor_qty: float  # what Odoo currently claims
@@ -112,6 +113,7 @@ def _item(
     return OosItemOut(
         product_id=p.id,
         sku=p.global_sku,
+        barcode=p.barcode,
         name=p.name,
         category=p.category,
         floor_qty=stock.get("floor", 0.0),
@@ -252,21 +254,14 @@ def mark_out_of_stock(
     return _item(db, product, stock, incoming, today, mark)
 
 
-@router.delete("/{mark_id}", status_code=204)
-def unmark(
-    mark_id: int,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+def _remove_mark_and_draft(
+    db: Session, settings: Settings, mark: FloorOosMark, actor_user_id: int
 ) -> None:
-    """Back in stock (or marked by mistake): remove the mark, and remove the
-    app-created draft from Odoo while it's still a draft. Failures leave the
-    draft for a human — never block the unmark."""
-    mark = db.get(FloorOosMark, mark_id)
-    if mark is None:
-        raise HTTPException(404, "Mark not found.")
+    """Remove the mark, and remove the app-created reduction draft from Odoo
+    while it's still a draft. Failures leave the draft for a human — never
+    block the unmark."""
     if mark.picking_status == OdooWriteOutcome.CREATED.value and mark.odoo_picking_id:
-        writer = OdooWriter(db, settings, actor_user_id=authed.id)
+        writer = OdooWriter(db, settings, actor_user_id=actor_user_id)
         try:
             conn = get_connection(settings, read_only=True)
             rows = conn.search_read(
@@ -277,4 +272,110 @@ def unmark(
         except (OdooError, OdooWriteError, ValueError):
             pass  # audited by the writer; the human can delete the draft in Odoo
     db.delete(mark)
+
+
+@router.delete("/{mark_id}", status_code=204)
+def unmark(
+    mark_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+) -> None:
+    """Marked by mistake: plain undo, no stock adjustment."""
+    mark = db.get(FloorOosMark, mark_id)
+    if mark is None:
+        raise HTTPException(404, "Mark not found.")
+    _remove_mark_and_draft(db, settings, mark, authed.id)
     db.commit()
+
+
+class RestockIn(BaseModel):
+    # the freshly counted shelf quantity; omit for a plain unmark
+    counted_qty: float | None = None
+
+
+class AdjustmentOut(BaseModel):
+    direction: str  # add | reduce
+    qty: float
+    status: str  # created | simulated | failed
+    reference: str
+    picking_name: str
+    url: str
+    error: str
+
+
+class RestockOut(BaseModel):
+    floor_qty_before: float  # Odoo's number at the time (last stock sync)
+    adjustment: AdjustmentOut | None  # None when counts already agreed
+
+
+@router.post("/{mark_id}/restock", response_model=RestockOut)
+def back_in_stock(
+    mark_id: int,
+    body: RestockIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+) -> RestockOut:
+    """The shelf has stock again. With a counted quantity, renders the draft
+    that reconciles Odoo to the count — "USA-III: Inventory Adj  Adding Qty"
+    when the count is higher than Odoo's number, a reduction when it's lower.
+    Draft only; quantities are re-checkable in Odoo before anyone validates."""
+    mark = db.get(FloorOosMark, mark_id)
+    if mark is None:
+        raise HTTPException(404, "Mark not found.")
+    product = db.get(Product, mark.product_id)
+    floor_qty = float(
+        db.scalar(
+            select(StockLevel.qty).where(
+                StockLevel.product_id == mark.product_id,
+                StockLevel.location_key == "floor",
+            )
+        )
+        or 0.0
+    )
+
+    adjustment: AdjustmentOut | None = None
+    if body.counted_qty is not None and product is not None:
+        delta = round(float(body.counted_qty) - floor_qty, 3)
+        if delta != 0 and product.is_stock_tracked and product.odoo_product_id:
+            writer = OdooWriter(db, settings, actor_user_id=authed.id)
+            direction = "add" if delta > 0 else "reduce"
+            op = (
+                writer.create_inventory_addition
+                if delta > 0
+                else writer.create_inventory_reduction
+            )
+            reference = new_reference("OOS")
+            note = (
+                f"Back in stock — counted {body.counted_qty:g}, Odoo showed "
+                f"{floor_qty:g} — {product.global_sku} {product.name}"
+            )[:120]
+            try:
+                result = op(
+                    product_id=product.id, qty=abs(delta), note=note, reference=reference
+                )
+            except OdooWriteError as e:
+                adjustment = AdjustmentOut(
+                    direction=direction, qty=abs(delta),
+                    status=OdooWriteOutcome.FAILED.value,
+                    reference=reference, picking_name="", url="", error=str(e),
+                )
+            else:
+                adjustment = AdjustmentOut(
+                    direction=direction,
+                    qty=abs(delta),
+                    status=(
+                        OdooWriteOutcome.SIMULATED.value
+                        if result.dry_run
+                        else OdooWriteOutcome.CREATED.value
+                    ),
+                    reference=result.reference,
+                    picking_name=result.record_name,
+                    url=result.deep_link,
+                    error="",
+                )
+
+    _remove_mark_and_draft(db, settings, mark, authed.id)
+    db.commit()
+    return RestockOut(floor_qty_before=floor_qty, adjustment=adjustment)

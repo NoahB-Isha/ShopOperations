@@ -52,10 +52,15 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 31, "complete_name": "Virtual Locations/USA-III: Inventory adjustment", "usage": "inventory"},
     ]
     picking_types = [
-        {"id": 1, "name": "III: Receipts", "code": "incoming", "default_location_dest_id": False},
-        {"id": 5, "name": "III: Internal Transfers", "code": "internal", "default_location_dest_id": False},
+        {"id": 1, "name": "III: Receipts", "code": "incoming", "default_location_src_id": False, "default_location_dest_id": False},
+        {"id": 5, "name": "III: Internal Transfers", "code": "internal", "default_location_src_id": False, "default_location_dest_id": False},
         {"id": 7, "name": "USA-III: Inventory Adj Reduction", "code": "internal",
+         "default_location_src_id": False,
          "default_location_dest_id": [31, "Virtual Locations/USA-III: Inventory adjustment"]},
+        # double space in the live name, on purpose — the config matches via %
+        {"id": 8, "name": "USA-III: Inventory Adj  Adding Qty", "code": "internal",
+         "default_location_src_id": [31, "Virtual Locations/USA-III: Inventory adjustment"],
+         "default_location_dest_id": False},
     ]
     quants = [
         _q(1, 201, "Copper Water Bottle — 950ml", 12, "III/Stock/BWHSE", 120),
@@ -112,7 +117,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         "stock.move": ["id", "description_picking", "product_id", "product_uom_qty", "product_qty",
                        "date", "state", "location_id", "location_dest_id", "picking_id",
                        "picking_code"],
-        "stock.picking.type": ["id", "name", "code", "default_location_dest_id"],
+        "stock.picking.type": ["id", "name", "code", "default_location_src_id", "default_location_dest_id"],
         "pos.order": ["id", "name", "date_order", "state"],
         "pos.order.line": ["id", "order_id", "product_id", "qty"],
         "sale.order": ["id", "name", "date_order", "state"],

@@ -184,3 +184,80 @@ notes, absolute size caps. The optional Anthropic call (blank key = skipped) onl
 order-level summary and may RAISE the severity, never lower it; any API failure degrades to
 rules-only. Assessments compute at placement (stored on the order), recompute rules-only on
 coordinator adjustments, and the order form's live preview is rules-only. Nothing ever blocks.
+
+**2026-07-14 — Floor OOS board writes through a third gated operation** *(Phase 3.x)*
+`OdooWriter.create_inventory_reduction` renders a DRAFT picking on the "USA-III: Inventory
+Adj Reduction" operation type (matched by `name ilike` on the configurable
+`ODOO_REDUCTION_PICKING_TYPE`, destination = the type's own default destination location),
+removing whatever quantity Odoo still claims is on the floor when the team marks a shelf
+empty. Same discipline as every write: feature flag `write_create_inventory_reduction`
+(ships OFF — needs its canary before enabling), ILAPP-OOS- reference, idempotent by origin,
+audited, draft-only — a human confirms the shelf is really empty in Odoo. Marks with nothing
+to remove are bookkeeping (`picking_status="none"`); unmarking deletes the mark and unlinks
+the app-created draft while it's still a draft. The /out-of-stock board itself is two honest
+sources: Odoo's own floor zeros (computed) + the team's marks.
+
+**2026-07-14 — The addition op mirrors the reduction; back-in-stock reconciles to a count** *(Phase 3.x)*
+`create_inventory_addition` is the fourth write operation: draft on "USA-III: Inventory Adj
+Adding Qty" (note the double space in the live name — the config default matches via an ilike
+`%` wildcard, which the simulator now honors), locations mirrored (the type's default SOURCE →
+floor). Both adjustments share one writer core (`_create_adjustment_draft`) — identical gates,
+audit, idempotency; flag `write_create_inventory_addition` ships OFF. The OOS board's "Back in
+stock" flow asks for the freshly counted shelf quantity and renders whichever draft reconciles
+Odoo to the count (higher → add the difference, lower → reduce, equal → nothing), with the
+honest caveat that the baseline is the last stock sync — the human validating in Odoo sees the
+live numbers either way.
+
+**2026-07-15 — The workbook stays the provable baseline; the forecast generalises it** *(Phase 4)*
+The ordering engine (`app/ordering/engine.py` + `forecasting.py`, pure modules) reproduces the
+USA INV CHK SEA sheet EXACTLY when demand is flat — `tests/test_workbook_parity.py` drives it
+with the workbook's own inputs and all 281 fully-numeric SEA rows match within rounding (the
+workbook is committed at `docs/reference/`, so CI runs parity on every push). Seasonal-index
+forecasting (24 months of `sales_monthly`; ≥24 useable months → multiplicative indices + OLS
+trend, 6–23 → moving average + trend, <6 → flat) rides ON TOP: demand becomes per-month MOH
+multipliers in the same projection, so when the forecast equals the flat average the result is
+identical to the workbook. The baseline sea/air numbers are always computed alongside and shown
+with a divergence flag — the buyer sanity-checks the smart number against the spreadsheet they
+trust. Category rules (target MOH per category, BLOOM case 32, gold/silver/air_only tags →
+AIR-sheet top-up rule, camphor/toothpaste → yearly bulk target, expiry cap, domestic MOQ
+trigger, clothing excluded) are code defaults merged with the admin-editable `ordering_rules`
+AppSetting row — overridable without code changes, typos ignored rather than fatal.
+
+**2026-07-15 — A purchase order is an immutable origin + an append-only event log** *(Phase 4)*
+Generation freezes everything (`suggestion_json` per line, `rules_json` on the order,
+`origin_*` quantities) — the review table IS the draft order, so later catalog/sales changes
+never rewrite what the buyer saw (the batch-freezing seam from Phase 1 lands here). Placement
+stores the ORDER LIST CSV+XLSX as attachments forever, creates the initial sea/air legs, and
+dispatches the order email through the standard gate ladder (NOTIFY_ENABLED →
+`ordering_email_live` flag, ships OFF → SMTP configured); a gated send is recorded SIMULATED
+with the full rendered body on the thread — dry-run mode IS the email, minus delivery. After
+placement, state moves only through confirmed timeline events (qty_change, substitution,
+discontinued, method_change, split→new leg, availability), each carrying actor, source quote,
+and confidence.
+
+**2026-07-15 — Vendor replies are data; parsers propose, humans confirm** *(Phase 4)*
+Replies land verbatim on the order thread (worker IMAP poll — READ-ONLY, tracks last UID in an
+AppSetting, touches nothing in the mailbox, matched to orders by In-Reply-To against our sent
+Message-IDs or the ILAPP-PO- reference token; unmatched mail is ignored. No IMAP configured →
+paste replies through the admin endpoint). Parsing prefers the Anthropic structured call
+(quotes must be verbatim substrings or they're dropped as hallucinations) and falls back to a
+deterministic heuristic parser — the offline/dev/test path — so "we can only send 200 of the
+500 lamps, and dhoop sticks are discontinued" always yields two line-matched proposals with
+quotes and confidence. Proposals NEVER touch state: confirm (optionally edited) applies the
+event append-only; reject records the decision. Same discipline for new products: the analog
+suggester (LLM or name-token heuristic) only ever proposes; a confirmed ForecastAnalogy is
+labelled method="analogy" on every suggestion it feeds and auto-graduates once ≥6 real months
+accumulate.
+
+**2026-07-16 — Domestic ordering is a weekly email, not a quarterly review** *(Phase 4.x)*
+Real cadence: domestic vendors get simple order emails monthly/weekly; only India gets the
+engine's review table. So /purchasing split into two tabs — India (engine, product-list-scoped
+drafts, sea/air) and Domestic (per-vendor Quick Order: suggested-by-MOQ quantities, one button
+that creates AND emails in a single step; wording "Dear {contact}, we kindly request the
+following products… reply with an invoice"; no sea/air anywhere). Same PurchaseOrder + timeline
+machinery underneath, so replies/tracking work identically. India generation is scoped by an
+admin-uploaded product list (the `india_product_list` AppSetting keeps the original file for
+download and the matched SKUs as the authoritative candidate set). Catalogs (né order lists —
+UI rebrand only, schema names unchanged) can be born from any spreadsheet via the shared
+matcher (`app/catalog/matching.py`): SKU/barcode/name in any combination, quantities ignored,
+ambiguity surfaces as unmatched rather than a wrong guess.

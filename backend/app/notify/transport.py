@@ -108,12 +108,42 @@ class SmtpEmailTransport:
         self._settings = settings
 
     def send(self, to_email: str, subject: str, text: str) -> None:
-        s = self._settings
         msg = EmailMessage()
-        msg["From"] = s.smtp_from
         msg["To"] = to_email
         msg["Subject"] = subject
         msg.set_content(text)
+        self._deliver(msg)
+
+    def send_with_attachments(
+        self,
+        to_emails: list[str],
+        subject: str,
+        text: str,
+        attachments: list[tuple[str, bytes, str]],  # (filename, data, content_type)
+        cc_emails: list[str] | None = None,
+    ) -> str:
+        """Multipart send for order emails (CSV/XLSX purchase orders). Returns
+        the generated Message-ID so replies can be threaded back."""
+        from email.utils import make_msgid
+
+        msg = EmailMessage()
+        msg["To"] = ", ".join(to_emails)
+        if cc_emails:
+            msg["Cc"] = ", ".join(cc_emails)
+        msg["Subject"] = subject
+        msg["Message-ID"] = make_msgid()
+        msg.set_content(text)
+        for filename, data, content_type in attachments:
+            maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+            msg.add_attachment(
+                data, maintype=maintype, subtype=subtype or "octet-stream", filename=filename
+            )
+        self._deliver(msg)
+        return str(msg["Message-ID"])
+
+    def _deliver(self, msg: EmailMessage) -> None:
+        s = self._settings
+        msg["From"] = s.smtp_from
         try:
             with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
                 if s.smtp_starttls:

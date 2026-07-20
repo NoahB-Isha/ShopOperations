@@ -28,7 +28,8 @@ test("admin, warehouse, and orderer see different navs", async ({ page }) => {
 
   await login(page, "orderer@demo.ishalife.test");
   await expect(page.getByRole("navigation")).toContainText("Place an order");
-  await expect(page.getByRole("navigation")).not.toContainText("Catalog");
+  await expect(page.getByRole("navigation")).not.toContainText("All SKUs");
+  await expect(page.getByRole("navigation")).not.toContainText("Catalogs");
 });
 
 test("catalog live search stays smooth at 1,200 products", async ({ page }) => {

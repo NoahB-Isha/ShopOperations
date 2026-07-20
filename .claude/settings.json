@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run ruff check backend worker)",
+      "Bash(npm run --silent typecheck)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run --silent lint)",
+      "Bash(npm run lint)",
+      "Bash(npm run --silent test)",
+      "Bash(npm run test)"
+    ]
+  }
+}

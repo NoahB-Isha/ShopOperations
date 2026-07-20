@@ -17,6 +17,7 @@ import {
   useToast,
 } from "../design";
 import type { Column } from "../design";
+import { productCode } from "./shared/OpsBits";
 import { ProductDrawer } from "./ProductDrawer";
 
 const TAG_LABELS: Record<string, string> = {
@@ -94,11 +95,11 @@ export function CatalogPage() {
     () => [
       {
         key: "sku",
-        header: "SKU",
+        header: "Barcode",
         width: "150px",
         sortable: true,
         render: (p) => (
-          <span className="font-mono text-[12.5px] text-ink-soft">{p.global_sku}</span>
+          <span className="font-mono text-[12.5px] text-ink-soft">{productCode(p.barcode, p.global_sku)}</span>
         ),
       },
       {
@@ -165,7 +166,7 @@ export function CatalogPage() {
   return (
     <>
       <PageHeader
-        title="Catalog"
+        title="All SKUs"
         subtitle={
           facets
             ? `${facets.total_active.toLocaleString()} active products · search by name, SKU, or barcode`

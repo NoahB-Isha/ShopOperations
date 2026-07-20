@@ -42,6 +42,9 @@ export const Icons = {
   eta: (
     <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8" cy="8" r="5.5" /><path {...stroke} d="M8 5v3l2.2 1.3M13.5 2.5 15 4M2.5 2.5 1 4" /></svg>
   ),
+  ship: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M2 10.5 3 13c.4.9 1.2 1 2 .4.9-.7 2.1-.7 3 0 .9.6 2.1.6 3 0 .8-.6 1.6-.5 2-.4l1-2.5-6-2-6 2Z" /><path {...stroke} d="M4 10V5.5h8V10M8 5.5V3M6.5 3h3" /></svg>
+  ),
 };
 
 export interface NavItem {
@@ -53,11 +56,12 @@ export interface NavItem {
 const byRole: Record<string, NavItem[]> = {
   admin: [
     { path: "/status", label: "Status", icon: Icons.pulse },
-    { path: "/catalog", label: "Catalog", icon: Icons.box },
+    { path: "/catalog", label: "All SKUs", icon: Icons.box },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
     { path: "/users", label: "Users", icon: Icons.users },
     { path: "/audit", label: "Audit log", icon: Icons.scroll },
-    { path: "/orders", label: "Order lists", icon: Icons.clipboard },
+    { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
+    { path: "/purchasing", label: "Purchasing", icon: Icons.ship },
     { path: "/styleguide", label: "Styleguide", icon: Icons.palette },
     { path: "/palette-lab", label: "Themes", icon: Icons.palette },
   ],
@@ -66,19 +70,20 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
-    { path: "/catalog", label: "Catalog", icon: Icons.box },
+    { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
-    { path: "/catalog", label: "Catalog", icon: Icons.box },
+    { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
+    { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],
   zone_coordinator: [
     // pending orders first: it's the job — and the landing page (homeForRoles)
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
     { path: "/my-centers", label: "My centers", icon: Icons.mapPin },
-    { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
+    { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
   center_orderer: [
@@ -88,7 +93,7 @@ const byRole: Record<string, NavItem[]> = {
   dept_liaison: [
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
     { path: "/my-centers", label: "My departments", icon: Icons.mapPin },
-    { path: "/my-order-lists", label: "Order lists", icon: Icons.scroll },
+    { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
   dept_orderer: [

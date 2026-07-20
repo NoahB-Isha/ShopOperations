@@ -8,28 +8,29 @@ import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
 import { PALETTES, currentPalette, setPalette } from "../theme";
 
-/** Eight-petal flower — the brand mark. It twirls when you say hello. */
-export function FlowerMark({ size = 34 }: { size?: number }) {
+/** The Isha Life "iL" emblem — the provided brand PNG, served from /public
+ *  (all-white variant in dark mode). Bounces when you say hello. */
+export function ILMark({ size = 36 }: { size?: number }) {
+  const width = Math.round(size * (353 / 400));
   return (
-    <span
-      className="twirl-on-hover grid shrink-0 place-items-center rounded-full text-primary"
-      style={{ width: size, height: size }}
-      aria-hidden
-    >
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        {[0, 45, 90, 135].map((a) => (
-          <ellipse key={a} cx="12" cy="12" rx="10.5" ry="3.6" transform={`rotate(${a} 12 12)`} />
-        ))}
-        <circle cx="12" cy="12" r="2.4" fill="var(--color-tertiary-container)" />
-      </svg>
-    </span>
+    <picture className="bounce-on-hover grid shrink-0 place-items-center" aria-hidden>
+      <source srcSet="/il-mark-dark.png" media="(prefers-color-scheme: dark)" />
+      <img
+        src="/il-mark.png"
+        alt=""
+        width={width}
+        height={size}
+        style={{ width, height: size }}
+        draggable={false}
+      />
+    </picture>
   );
 }
 
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-1">
-      <FlowerMark />
+      <ILMark />
       <div className="leading-tight">
         <div className="display text-[15px]">Isha Life</div>
         <div className="label-m">Shop Ops</div>

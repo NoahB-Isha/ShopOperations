@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { AuthConfig, SessionOut } from "../api/types";
 import { Button, Card, Field, Input, useToast } from "../design";
 import { homeForRoles } from "../nav";
-import { FlowerMark } from "../shell/AppShell";
+import { ILMark } from "../shell/AppShell";
 import { useAuth } from "./AuthContext";
 
 type Step = "identifier" | "code";
@@ -111,7 +111,7 @@ export function LoginPage() {
 
       <div className="stagger-children relative w-full max-w-sm">
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
-          <FlowerMark size={64} />
+          <ILMark size={120} />
           <div>
             <h1 className="display-l">Isha Life Shop Ops</h1>
             <p className="mt-2 text-[15px] text-on-surface-variant">

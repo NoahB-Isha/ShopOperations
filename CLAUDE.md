@@ -138,6 +138,21 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `GET /transfer-requests/coming-soon` (declared BEFORE /{request_id} — route order
   matters) aggregates per-product qty on ACTIVE requests (sent qty preferred over
   requested) → the /coming-soon page in floor+warehouse navs.
+- Floor OOS board (`app/oos/router.py`, /out-of-stock, floor role): Odoo's floor zeros
+  (computed from StockLevel) ∪ manual `floor_oos_marks`. Marking with phantom floor stock
+  calls `OdooWriter.create_inventory_reduction` — the THIRD write operation: draft picking
+  on the "USA-III: Inventory Adj Reduction" type (`ODOO_REDUCTION_PICKING_TYPE`, name-ilike
+  match; dest = the type's default destination — if the live type has none, the op fails
+  with an actionable error), qty = floor qty at mark time, ILAPP-OOS- reference. "Back in
+  stock" (`POST /oos/{id}/restock`) takes a counted qty and renders the reconciling draft:
+  count higher than Odoo → `create_inventory_addition` on "USA-III: Inventory Adj  Adding
+  Qty" (double-space live name — `ODOO_ADDITION_PICKING_TYPE` defaults to an ilike `%`
+  wildcard, which the simulator honors; locations mirrored: type's default SOURCE → floor);
+  lower → reduction; equal → nothing. Both share the writer's `_create_adjustment_draft`
+  core. Flags `write_create_inventory_reduction` + `write_create_inventory_addition` ship
+  OFF — canary each against the live types before enabling. Plain unmark (DELETE) removes
+  the mark AND unlinks the still-draft picking. The api() client returns undefined for
+  204/empty bodies (DELETEs) — don't "simplify" that away.
 - Dev-auth mode skips the 60s resend throttle (nothing is delivered; e2e re-logs demo users
   within seconds) — real delivery modes keep it. E2E runs with `workers: 1` and REQUIRES the
   `write_create_internal_transfer` flag OFF so order-list AND center-order approvals stay
@@ -163,3 +178,50 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `b9a08e5413de` (additive only). The seed gives the demo coordinator a role in AUSTIN's zone
   (wherever the roster puts Austin) — don't "simplify" that away; coordinator pings and e2e
   approvals depend on it.
+- Phase 4 modules (same build-on-never-around rule): `app/ordering/` — `engine.py` +
+  `forecasting.py` are PURE and parity-locked (`tests/test_workbook_parity.py` reproduces all
+  281 numeric SEA rows of `docs/reference/USA INV CHK.xlsx`, committed; forecast = per-month
+  MOH multipliers on the same projection, so flat forecast ≡ workbook EXACTLY — never "fix"
+  the max(0, oh − demand + incoming) recurrence or the ceil_to_case epsilon). Rules =
+  `rules.py` defaults merged with the `ordering_rules` AppSetting (`app_settings` table is the
+  generic admin-editable JSON store; `merged()` validates by ignoring). Import candidates =
+  active+stock-tracked+odoo products, not clothing, not `ordering_exclude`, India-ref
+  `^[A-Za-z]{2}\d{10}$` (or india vendor) and NOT vendor-assigned; on-hand sums
+  bwhse+floor+staging; sales from `sales_monthly` SPARSE (only selling months — velocity per
+  in-stock month, workbook semantics), current month excluded. The review table IS the draft
+  order (`suggestion_json` frozen per line, overrides move `final_*` and log qty_change
+  events); placement stores CSV+XLSX as OrderAttachments, creates sea/air legs, emails via
+  gate ladder NOTIFY_ENABLED → `ordering_email_live` (ships OFF) → SMTP; recipients live in
+  the `ordering_email` AppSetting, NOT env. Post-place state moves ONLY via
+  `timeline.apply_event` (new kinds: TRANSITIONS-style — add to OrderEventKind + apply_event,
+  never inline). `parser.py`: LLM extraction w/ verbatim-quote enforcement, heuristic
+  fallback (dev/test path — e2e and the acceptance email depend on it); proposals are
+  human-confirmed, `product_hint` is matching scaffolding stripped before apply. Mailbox
+  ingest (`mailbox.py`, worker `_poll_mailbox`) is READ-ONLY IMAP, last-UID in the
+  `ordering_mailbox_state` AppSetting, matches by In-Reply-To then ILAPP-PO- token, ignores
+  everything else; blank IMAP_HOST = no-op (paste replies via POST
+  /ordering/orders/{id}/ingest-email). Domestic vendors: products get `vendor_id`+`moq`;
+  suggestions run the same engine (`is_domestic` → MOQ-when-below-4 rule); `US-` fixture
+  codes are the domestic demo pool. ForecastAnalogy: one per product, LLM/heuristic SUGGESTS,
+  human confirms; graduates at ≥6 real months (checked at draft generation). Frontend:
+  /purchasing (+ /purchasing/vendors, /purchasing/:id) — draft = review table (flag-chip
+  filters, sparklines, qty inputs PATCH on blur), placed = timeline w/ proposal cards +
+  4s-poll on `/timeline`; downloads go through `apiDownload` (bearer in header, never URLs).
+  Migration `b8539cb5b38a` (additive; two NOT NULL product columns carry server_default for
+  deployed rows). E2e phase4.spec.ts needs `ordering_email_live` OFF (shipped state).
+- Phase 4.x UX rework (2026-07-16): UI-ONLY rebrand — "Order lists"→"Catalogs",
+  "Catalog"→"All SKUs" (backend names/tables/API paths unchanged; don't rename them).
+  `app/catalog/matching.py` = the ANY-spreadsheet→products matcher (sku → barcode(8-14
+  digits) → exact name → unique containment → unique token-subset; short numbers never
+  match, ambiguity = unmatched, never guess). POST /order-lists/import creates a catalog
+  from a file (report: matched/skipped/unmatched — skipped carries the eligibility
+  reason). India generation scope = the `india_product_list` AppSetting (original file
+  b64 inside for byte-identical download; PUT/GET/DELETE /ordering/product-list; when
+  present `import_candidates(restrict_skus=…)` treats the list as authoritative, pattern
+  check skipped). /purchasing is TABBED: India (product-list strip + import orders +
+  draft FAB) | Domestic (Quick order per vendor → `send:true` creates AND places in one
+  step — the plain "Dear {contact}, we kindly request… reply with an invoice" email, no
+  sea/air language anywhere domestic). Vendor rosters: products get vendor_id via
+  /ordering/vendors/{id}/products (POST upserts moq; one vendor per product, 409
+  otherwise); VendorsPage = contacts + ProductPicker roster mgmt, ordering lives on the
+  Domestic tab.

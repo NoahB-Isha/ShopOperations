@@ -535,10 +535,290 @@ export interface NotificationsStatusOut {
 export interface ComingSoonItem {
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   qty_on_the_way: number;
   floor_qty: number;
   bwhse_qty: number;
   requests: { id: number; display_name: string; status: TransferStatus; qty: number }[];
+}
+
+export interface OosMarkOut {
+  id: number;
+  note: string;
+  created_by: string;
+  created_at: string;
+  qty_removed: number;
+  picking: {
+    status: "none" | "created" | "simulated" | "failed";
+    reference: string;
+    error: string;
+    picking_id: number | null;
+    picking_name: string;
+    url: string;
+  };
+}
+
+export interface OosItemOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  category: string;
+  floor_qty: number;
+  bwhse_qty: number;
+  incoming_label: string;
+  mark: OosMarkOut | null;
+}
+
+// ------------------------------------------------------- purchasing (phase 4)
+export type PurchaseOrderStatus = "draft" | "placed" | "closed" | "cancelled";
+export type PurchaseOrderType = "import" | "domestic";
+export type OrderDestination = "III" | "CAN";
+
+export interface PurchaseOrderSummaryOut {
+  id: number;
+  name: string;
+  reference: string;
+  order_type: PurchaseOrderType;
+  status: PurchaseOrderStatus;
+  destination: OrderDestination;
+  vendor_id: number | null;
+  vendor_name: string | null;
+  snapshot_source: string;
+  created_at: string;
+  placed_at: string | null;
+  line_count: number;
+  ordering_line_count: number;
+  sea_units: number;
+  air_units: number;
+  pending_proposals: number;
+}
+
+/** The engine's frozen Suggestion — everything the review table renders. */
+export interface OrderingSuggestion {
+  name: string;
+  us_sku: string;
+  category: string;
+  avg_monthly_sales: number;
+  units_sold: number;
+  months_active: number;
+  forecast_monthly: number[];
+  forecast_mean: number;
+  baseline_monthly_sales: number;
+  forecast_method: string;
+  forecast_confidence: "high" | "medium" | "low";
+  diverges_from_baseline: boolean;
+  on_hand: number;
+  current_moh: number;
+  incoming_units_by_month: number[];
+  projected_moh: number[];
+  projected_moh_m4: number;
+  projected_moh_m6: number;
+  projected_moh_with_order: number[];
+  target_moh: number;
+  case_size: number;
+  suggested_sea_qty: number;
+  suggested_air_qty: number;
+  suggested_sea_round: number;
+  suggested_air_round: number;
+  baseline_sea_round: number;
+  baseline_air_round: number;
+  unit_cost: number;
+  retail_price: number;
+  margin: number;
+  profit_lost_by_air: number;
+  air_split_reason: string;
+  flags: string[];
+  notes: string[];
+}
+
+export interface PurchaseOrderLineOut {
+  id: number;
+  product_id: number | null;
+  global_sku: string;
+  line_status: "active" | "discontinued" | "substituted";
+  substitute_sku: string;
+  suggested_sea_qty: number;
+  suggested_air_qty: number;
+  baseline_sea_qty: number;
+  baseline_air_qty: number;
+  origin_sea_qty: number;
+  origin_air_qty: number;
+  final_sea_qty: number;
+  final_air_qty: number;
+  target_moh_used: number;
+  case_size: number;
+  suggestion: Partial<OrderingSuggestion>;
+}
+
+export interface OrderLegOut {
+  id: number;
+  label: string;
+  method: "sea" | "air";
+  status: "planned" | "shipped" | "arrived" | "cancelled";
+  eta: string | null;
+  line_quantities: Record<string, number>;
+}
+
+export type OrderEventKind =
+  | "status"
+  | "note"
+  | "qty_change"
+  | "substitution"
+  | "discontinued"
+  | "method_change"
+  | "split"
+  | "availability"
+  | "email"
+  | "attachment";
+
+export interface OrderEventOut {
+  id: number;
+  kind: OrderEventKind;
+  status: string;
+  note: string;
+  payload: Record<string, unknown>;
+  actor_label: string;
+  line_id: number | null;
+  line_sku: string | null;
+  source_message_id: number | null;
+  source_quote: string;
+  confidence: number | null;
+  created_at: string;
+}
+
+export interface OrderProposalOut {
+  id: number;
+  order_id: number;
+  message_id: number | null;
+  line_id: number | null;
+  line_sku: string | null;
+  kind: OrderEventKind;
+  payload: Record<string, unknown>;
+  quote: string;
+  confidence: number;
+  parsed_by: string;
+  status: "pending" | "confirmed" | "rejected";
+  created_at: string;
+}
+
+export interface OrderEmailOut {
+  id: number;
+  direction: "in" | "out";
+  sender: string;
+  recipients: string;
+  subject: string;
+  body: string;
+  status: string;
+  occurred_at: string;
+}
+
+export interface OrderAttachmentOut {
+  id: number;
+  source: "export" | "upload" | "email";
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  note: string;
+  message_id: number | null;
+  created_at: string;
+}
+
+export interface PurchaseOrderDetailOut {
+  order: PurchaseOrderSummaryOut;
+  rules: Record<string, unknown>;
+  notes: string;
+  snapshot_at: string | null;
+  email_gate_reason: string;
+  lines: PurchaseOrderLineOut[];
+  legs: OrderLegOut[];
+}
+
+export interface OrderTimelineOut {
+  order: PurchaseOrderSummaryOut;
+  events: OrderEventOut[];
+  proposals: OrderProposalOut[];
+  emails: OrderEmailOut[];
+  attachments: OrderAttachmentOut[];
+  legs: OrderLegOut[];
+}
+
+export interface VendorOut {
+  id: number;
+  name: string;
+  kind: "india" | "us" | "canada" | "other";
+  contact_name: string;
+  contact_email: string;
+  cc_emails: string;
+  notes: string;
+  active: boolean;
+  product_count: number;
+}
+
+export interface VendorSuggestionItem extends OrderingSuggestion {
+  global_sku: string;
+}
+
+export interface VendorSuggestionsOut {
+  vendor: { id: number; name: string; contact_email: string };
+  items: VendorSuggestionItem[];
+}
+
+export interface OrderingRulesOut {
+  effective: Record<string, unknown>;
+  overrides: Record<string, unknown>;
+}
+
+export interface OrderingEmailSettings {
+  india_to: string[];
+  cc: string[];
+}
+
+export interface AnalogyOut {
+  id: number;
+  product_id: number;
+  product_sku: string;
+  product_name: string;
+  analog_product_id: number | null;
+  analog_sku: string | null;
+  analog_name: string | null;
+  monthly_estimate: number | null;
+  rationale: string;
+  source: string;
+  status: "active" | "graduated" | "dismissed";
+}
+
+export interface AnalogSuggestionOut {
+  analog_product_id: number;
+  analog_sku: string;
+  analog_name: string;
+  rationale: string;
+  source: string;
+}
+
+export interface CatalogImportResultOut {
+  catalog: OrderListOut;
+  matched: number;
+  skipped: string[];
+  unmatched_rows: string[];
+  total_rows: number;
+}
+
+export interface ProductListMetaOut {
+  filename: string;
+  uploaded_at: string;
+  matched: number;
+  total_rows: number;
+  unmatched_rows: string[];
+}
+
+export interface VendorProductOut {
+  product_id: number;
+  global_sku: string;
+  name: string;
+  category: string;
+  moq: number | null;
+  is_active: boolean;
 }
