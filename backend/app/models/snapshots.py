@@ -32,7 +32,11 @@ class LocationKey(str, enum.Enum):
 ODOO_LOCATION_NAMES = {
     "III/Stock/BWHSE": LocationKey.BWHSE.value,
     "III/Stock/III-FLOOR": LocationKey.FLOOR.value,
-    "III/Stock/III-FLOOR-STAGING": LocationKey.STAGING.value,  # production
+    # production renamed staging ~2026-07-17 — the FLORR typo is THEIRS (live
+    # location id 2360); keep every spelling so old data and a future
+    # rename-back both keep resolving
+    "III/Stock/III-FLORR-STAGING": LocationKey.STAGING.value,  # production (sic)
+    "III/Stock/III-FLOOR-STAGING": LocationKey.STAGING.value,  # pre-07-17 production
     "III/Stock/III-FLOOR STAGING": LocationKey.STAGING.value,  # legacy fixtures
 }
 

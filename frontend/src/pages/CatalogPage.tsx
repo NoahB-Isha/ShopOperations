@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ProductOut } from "../api/types";
+import type { ProductOut, TagOut } from "../api/types";
 import { useCreateManualProduct, useFacets, useProducts } from "../api/hooks";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -18,29 +18,44 @@ import {
 } from "../design";
 import type { Column } from "../design";
 import { productCode } from "./shared/OpsBits";
+import { TAG_LABELS, TAG_TONES } from "./shared/tags";
 import { ProductDrawer } from "./ProductDrawer";
 
-const TAG_LABELS: Record<string, string> = {
-  air_only: "Air only",
-  sea_only: "Sea only",
-  gold: "Gold",
-  silver: "Silver",
-  bloom: "Bloom",
-  camphor: "Camphor",
-  toothpaste: "Toothpaste",
-  expires: "Expires",
-};
+/* ---- variant grouping: rows whose names are ≥70% similar collapse into one
+   expandable group (only meaningful in name order, where variants sit
+   together). Similarity = Sørensen–Dice over character bigrams. ---- */
+const GROUP_SIMILARITY = 0.7;
 
-const TAG_TONES: Record<string, "copper" | "forest" | "gold" | "danger" | "neutral"> = {
-  air_only: "copper",
-  sea_only: "forest",
-  gold: "gold",
-  silver: "neutral",
-  bloom: "forest",
-  camphor: "neutral",
-  toothpaste: "neutral",
-  expires: "danger",
-};
+function bigrams(text: string): Set<string> {
+  const s = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+function nameSimilarity(a: string, b: string): number {
+  const ba = bigrams(a);
+  const bb = bigrams(b);
+  if (ba.size === 0 || bb.size === 0) return 0;
+  let shared = 0;
+  for (const g of ba) if (bb.has(g)) shared++;
+  return (2 * shared) / (ba.size + bb.size);
+}
+
+function groupLabel(names: string[]): string {
+  let prefix = names[0];
+  for (const name of names.slice(1)) {
+    let i = 0;
+    while (i < prefix.length && i < name.length && prefix[i] === name[i]) i++;
+    prefix = prefix.slice(0, i);
+  }
+  const clean = prefix.replace(/[\s—–\-·(,/]+$/g, "").trim();
+  return clean.length >= 4 ? clean : names[0];
+}
+
+type CatalogRow =
+  | { kind: "product"; p: ProductOut; inGroup?: boolean }
+  | { kind: "group"; key: string; label: string; members: ProductOut[]; expanded: boolean };
 
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -49,6 +64,40 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => window.clearTimeout(t);
   }, [value, ms]);
   return debounced;
+}
+
+function sumStock(members: ProductOut[], key: "bwhse" | "floor"): number | undefined {
+  const tracked = members.filter((m) => m.is_stock_tracked);
+  if (tracked.length === 0) return undefined;
+  return tracked.reduce((n, m) => n + (m.stock[key] ?? 0), 0);
+}
+
+function priceRange(members: ProductOut[]): string {
+  const prices = members.map((m) => m.retail_price);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–$${hi.toFixed(2)}`;
+}
+
+function unionTags(members: ProductOut[]): TagOut[] {
+  const seen = new Map<string, TagOut>();
+  for (const m of members) for (const t of m.tags) if (!seen.has(t.tag)) seen.set(t.tag, t);
+  return [...seen.values()];
+}
+
+function TagChips({ tags }: { tags: TagOut[] }) {
+  const shown = tags.slice(0, 3);
+  return (
+    <span className="flex flex-wrap gap-1">
+      {shown.map((t) => (
+        <Badge key={t.tag} tone={TAG_TONES[t.tag] ?? "neutral"}>
+          {TAG_LABELS[t.tag] ?? t.tag}
+          {t.expires_on ? ` ${t.expires_on}` : ""}
+        </Badge>
+      ))}
+      {tags.length > shown.length && <Badge tone="outline">+{tags.length - shown.length}</Badge>}
+    </span>
+  );
 }
 
 function Qty({ value }: { value: number | undefined }) {
@@ -91,73 +140,126 @@ export function CatalogPage() {
   });
   const { data: facets } = useFacets();
 
-  const columns = useMemo<Column<ProductOut>[]>(
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const rows = useMemo<CatalogRow[]>(() => {
+    const items = data?.items ?? [];
+    if (sort.key !== "name") return items.map((p) => ({ kind: "product" as const, p }));
+    const clusters: ProductOut[][] = [];
+    for (const p of items) {
+      const current = clusters[clusters.length - 1];
+      if (current && nameSimilarity(current[0].name, p.name) >= GROUP_SIMILARITY) {
+        current.push(p);
+      } else {
+        clusters.push([p]);
+      }
+    }
+    const out: CatalogRow[] = [];
+    for (const cluster of clusters) {
+      if (cluster.length === 1) {
+        out.push({ kind: "product", p: cluster[0] });
+        continue;
+      }
+      const key = `group-${cluster[0].id}`;
+      const expanded = expandedGroups.has(key);
+      out.push({
+        kind: "group",
+        key,
+        label: groupLabel(cluster.map((m) => m.name)),
+        members: cluster,
+        expanded,
+      });
+      if (expanded) out.push(...cluster.map((p) => ({ kind: "product" as const, p, inGroup: true })));
+    }
+    return out;
+  }, [data, sort.key, expandedGroups]);
+
+  const columns = useMemo<Column<CatalogRow>[]>(
     () => [
       {
         key: "sku",
         header: "Barcode",
         width: "150px",
         sortable: true,
-        render: (p) => (
-          <span className="font-mono text-[12.5px] text-ink-soft">{productCode(p.barcode, p.global_sku)}</span>
-        ),
+        render: (r) =>
+          r.kind === "group" ? (
+            <span aria-hidden className="text-[13px] text-ink-soft">
+              {r.expanded ? "▾" : "▸"}
+            </span>
+          ) : (
+            <span className="font-mono text-[12.5px] text-ink-soft">
+              {r.inGroup && <span aria-hidden className="mr-1 text-ink-faint">└</span>}
+              {productCode(r.p.barcode, r.p.global_sku)}
+            </span>
+          ),
       },
       {
         key: "name",
         header: "Product",
         sortable: true,
-        render: (p) => (
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium">{p.name}</span>
-            {p.source === "manual" && (
-              <Badge tone="outline" title="App-only item — not tracked in Odoo">
-                untracked
-              </Badge>
-            )}
-            {!p.is_active && <Badge tone="danger">archived</Badge>}
-          </div>
-        ),
+        render: (r) =>
+          r.kind === "group" ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-semibold">{r.label}</span>
+              <Badge tone="secondary">{r.members.length} variants</Badge>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium">{r.p.name}</span>
+              {r.p.source === "manual" && (
+                <Badge tone="outline" title="App-only item — not tracked in Odoo">
+                  untracked
+                </Badge>
+              )}
+              {!r.p.is_active && <Badge tone="danger">archived</Badge>}
+            </div>
+          ),
       },
       { key: "category", header: "Category", sortable: true, hideBelow: "md",
-        render: (p) =>
-          p.category ? <Badge tone={toneForLabel(p.category)}>{p.category}</Badge> : null },
+        render: (r) => {
+          const category = r.kind === "group" ? r.members[0].category : r.p.category;
+          return category ? <Badge tone={toneForLabel(category)}>{category}</Badge> : null;
+        } },
       {
         key: "bwhse",
         header: "Bwhse",
         align: "right",
         hideBelow: "sm",
-        value: (p) => p.stock.bwhse ?? -1,
-        render: (p) => <Qty value={p.is_stock_tracked ? (p.stock.bwhse ?? 0) : undefined} />,
+        render: (r) =>
+          r.kind === "group" ? (
+            <Qty value={sumStock(r.members, "bwhse")} />
+          ) : (
+            <Qty value={r.p.is_stock_tracked ? (r.p.stock.bwhse ?? 0) : undefined} />
+          ),
       },
       {
         key: "floor",
         header: "Floor",
         align: "right",
         hideBelow: "sm",
-        value: (p) => p.stock.floor ?? -1,
-        render: (p) => <Qty value={p.is_stock_tracked ? (p.stock.floor ?? 0) : undefined} />,
+        render: (r) =>
+          r.kind === "group" ? (
+            <Qty value={sumStock(r.members, "floor")} />
+          ) : (
+            <Qty value={r.p.is_stock_tracked ? (r.p.stock.floor ?? 0) : undefined} />
+          ),
       },
       {
         key: "price",
         header: "Price",
         align: "right",
         sortable: true,
-        render: (p) => <span className="tabular-nums">${p.retail_price.toFixed(2)}</span>,
+        render: (r) =>
+          r.kind === "group" ? (
+            <span className="tabular-nums text-ink-soft">{priceRange(r.members)}</span>
+          ) : (
+            <span className="tabular-nums">${r.p.retail_price.toFixed(2)}</span>
+          ),
       },
       {
         key: "tags",
         header: "Tags",
         hideBelow: "lg",
-        render: (p) => (
-          <span className="flex flex-wrap gap-1">
-            {p.tags.map((t) => (
-              <Badge key={t.tag} tone={TAG_TONES[t.tag] ?? "neutral"}>
-                {TAG_LABELS[t.tag] ?? t.tag}
-                {t.expires_on ? ` ${t.expires_on}` : ""}
-              </Badge>
-            ))}
-          </span>
-        ),
+        render: (r) => <TagChips tags={r.kind === "group" ? unionTags(r.members) : r.p.tags} />,
       },
     ],
     [],
@@ -204,10 +306,21 @@ export function CatalogPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.items ?? []}
-        rowKey={(p) => p.id}
+        rows={rows}
+        rowKey={(r) => (r.kind === "group" ? r.key : `p${r.p.id}`)}
         loading={isLoading}
-        onRowClick={setSelected}
+        onRowClick={(r) => {
+          if (r.kind === "group") {
+            setExpandedGroups((prev) => {
+              const next = new Set(prev);
+              if (next.has(r.key)) next.delete(r.key);
+              else next.add(r.key);
+              return next;
+            });
+          } else {
+            setSelected(r.p);
+          }
+        }}
         sort={sort}
         onSortChange={(key, dir) => setSort({ key: key === "sku" ? "sku" : key, dir })}
         empty={

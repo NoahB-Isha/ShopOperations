@@ -48,7 +48,8 @@ test("catalog live search stays smooth at 1,200 products", async ({ page }) => {
 test("product drawer shows stock and the tag editor", async ({ page }) => {
   await login(page, "admin@demo.ishalife.test");
   await page.goto("/catalog");
-  await page.locator("tbody tr").first().click();
+  // similar names collapse into group rows (click = expand); open a product row
+  await page.locator("tbody tr").filter({ hasNotText: "variants" }).first().click();
   await expect(page.getByText("On hand")).toBeVisible();
   await expect(page.getByText("App tags")).toBeVisible();
 });

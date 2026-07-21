@@ -100,9 +100,11 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `description_picking`, never `name` — writing `name` fails with "Invalid field 'name' on model
   'stock.move'" (verified live 2026-07-12, `create_internal_transfer` canary). Recorded fixtures
   had drifted and masked this; the contract check now asserts `description_picking`.
-- App locations by `complete_name`: `III/Stock/BWHSE`, `III/Stock/III-FLOOR`, and
-  `III/Stock/III-FLOOR-STAGING` — **hyphenated** (verified live 2026-07-10; the space spelling
-  survives only in old fixtures; `ODOO_LOCATION_NAMES` accepts both). BWHSE stores stock in
+- App locations by `complete_name`: `III/Stock/BWHSE`, `III/Stock/III-FLOOR`, and the staging
+  location — which production RENAMED ~2026-07-17 to `III/Stock/III-FLORR-STAGING` (the FLORR
+  typo is theirs, live id 2360; before that `III/Stock/III-FLOOR-STAGING`, verified 2026-07-10;
+  the space spelling survives only in old fixtures). `ODOO_LOCATION_NAMES` maps ALL spellings —
+  when the stock sync fails with "locations not found", check for another rename FIRST. BWHSE stores stock in
   hundreds of bin sub-locations (`III/Stock/BWHSE/A/1/1/1`), so quants MUST be matched by
   subtree (`child_of` + path-prefix classification in `app/sync/stock.py`), never by exact
   location id. Floor has a `Vending Machine` child (counts as floor). Also live:
@@ -209,6 +211,10 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   4s-poll on `/timeline`; downloads go through `apiDownload` (bearer in header, never URLs).
   Migration `b8539cb5b38a` (additive; two NOT NULL product columns carry server_default for
   deployed rows). E2e phase4.spec.ts needs `ordering_email_live` OFF (shipped state).
+  **The write flags went LIVE on the shared stack 2026-07-20 17:38** (canaried + enabled by a
+  human): transfer/approval flows now render REAL draft pickings in production Odoo. The
+  Playwright suite therefore REFUSES to start when any `write_*`/`*_live` flag is enabled
+  (`e2e/global-setup.ts`) — never bypass that guard against this stack.
 - Phase 4.x UX rework (2026-07-16): UI-ONLY rebrand — "Order lists"→"Catalogs",
   "Catalog"→"All SKUs" (backend names/tables/API paths unchanged; don't rename them).
   `app/catalog/matching.py` = the ANY-spreadsheet→products matcher (sku → barcode(8-14

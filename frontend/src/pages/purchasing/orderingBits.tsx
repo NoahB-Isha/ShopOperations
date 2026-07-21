@@ -95,9 +95,10 @@ export function ProjectionSparkline({
   const y = (v: number) => height - pad - (Math.max(v, 0) / top) * (height - pad * 2);
   const points = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const targetY = y(target);
+  const zeroY = y(0);
   const title = `Projected months-on-hand with this order: ${values
     .map((v, i) => `M${i + 1} ${v.toFixed(1)}`)
-    .join(", ")} (target ${target})`;
+    .join(", ")} (target ${target}; the solid baseline is 0 = out of stock)`;
   return (
     <svg
       width={width}
@@ -108,6 +109,26 @@ export function ProjectionSparkline({
       className="shrink-0"
     >
       <title>{title}</title>
+      {/* the zero line — touching it means out of stock */}
+      <line
+        x1={pad}
+        x2={width - pad}
+        y1={zeroY}
+        y2={zeroY}
+        stroke="var(--color-on-surface-variant)"
+        strokeWidth="1.2"
+      />
+      {height >= 40 && (
+        <text
+          x={width - pad}
+          y={zeroY - 2.5}
+          textAnchor="end"
+          fontSize="7.5"
+          fill="var(--color-on-surface-variant)"
+        >
+          0
+        </text>
+      )}
       <line
         x1={pad}
         x2={width - pad}

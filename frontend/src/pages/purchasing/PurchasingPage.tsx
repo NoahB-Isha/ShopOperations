@@ -25,7 +25,6 @@ import {
   Card,
   DataTable,
   Dialog,
-  Drawer,
   EmptyState,
   Fab,
   Field,
@@ -44,9 +43,7 @@ type Tab = "india" | "domestic";
 
 export function PurchasingPage() {
   const [tab, setTab] = useState<Tab>("india");
-  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [analogiesOpen, setAnalogiesOpen] = useState(false);
   const orders = usePurchaseOrders("");
   const domesticPending = (orders.data ?? []).filter(
     (o) => o.order_type === "domestic" && o.pending_proposals > 0,
@@ -61,17 +58,21 @@ export function PurchasingPage() {
         title="Purchasing"
         subtitle="India imports quarterly by the engine; domestic vendors weekly by email — both tracked to arrival on the same timelines."
         actions={
-          <>
-            <Button variant="ghost" onClick={() => setAnalogiesOpen(true)}>
-              Analogies
-            </Button>
-            <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
-              Settings
-            </Button>
-            <Button variant="secondary" onClick={() => navigate("/purchasing/vendors")}>
-              Vendors
-            </Button>
-          </>
+          <Button
+            variant="ghost"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Ordering settings"
+            title="Ordering settings"
+            className="!h-10 !w-10 !px-0"
+            data-testid="ordering-settings"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+              <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="9" r="2.6" />
+                <path d="M9 1.8v2M9 14.2v2M1.8 9h2M14.2 9h2M3.9 3.9l1.4 1.4M12.7 12.7l1.4 1.4M14.1 3.9l-1.4 1.4M5.3 12.7l-1.4 1.4" />
+              </g>
+            </svg>
+          </Button>
         }
       />
 
@@ -105,7 +106,6 @@ export function PurchasingPage() {
       )}
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <AnalogiesDrawer open={analogiesOpen} onClose={() => setAnalogiesOpen(false)} />
     </div>
   );
 }
@@ -741,27 +741,32 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
             </pre>
           </details>
         )}
+        <AnalogiesSection />
       </div>
     </Dialog>
   );
 }
 
-function AnalogiesDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function AnalogiesSection() {
   const analogies = useAnalogies();
   const dismiss = useDismissAnalogy();
   const toast = useToast();
+  const rows = analogies.data ?? [];
   return (
-    <Drawer open={open} onClose={onClose} title="Forecast analogies">
-      <p className="mb-4 text-[13.5px] text-on-surface-variant">
+    <div className="border-t border-outline-variant/60 pt-4">
+      <h3 className="label-m mb-1 text-on-surface-variant">Forecast analogies</h3>
+      <p className="mb-3 text-[13px] text-on-surface-variant">
         New products with no sales history borrow a similar product's demand until real data
         accumulates — then they graduate automatically. Create analogies from a draft's review
         table (rows flagged “new product”).
       </p>
-      {(analogies.data ?? []).length === 0 && (
-        <EmptyState title="No analogies" hint="Nothing is forecasting by analogy right now." />
+      {rows.length === 0 && (
+        <p className="text-[13px] text-on-surface-variant">
+          Nothing is forecasting by analogy right now.
+        </p>
       )}
-      <div className="grid gap-2">
-        {(analogies.data ?? []).map((a) => (
+      <div className="grid max-h-64 gap-2 overflow-y-auto">
+        {rows.map((a) => (
           <Card key={a.id} className="p-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -799,6 +804,6 @@ function AnalogiesDrawer({ open, onClose }: { open: boolean; onClose: () => void
           </Card>
         ))}
       </div>
-    </Drawer>
+    </div>
   );
 }
