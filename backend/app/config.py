@@ -101,6 +101,20 @@ class Settings(BaseSettings):
     ordering_parser_llm_model: str = "claude-opus-4-8"
     ordering_parser_llm_timeout_seconds: float = 30.0
 
+    # --- phase 5: reporting, time machine, availability ---
+    stock_snapshot_retention_days: int = 730  # daily on-hand history for the time machine
+    timemachine_max_gap_days: int = 7  # past view falls back to the nearest snapshot this far
+    # the slider opens this far back even before history exists (uncovered
+    # dates get the honest empty state + a pointer at the backfill)
+    timemachine_min_past_days: int = 90
+    timemachine_backfill_weeks: int = 26  # weekly reconstructed points, ~6 months
+    availability_digest_hour_utc: int = 12  # earliest UTC hour a day's digest goes out
+    skubot_api_key: str = ""  # X-API-Key for the bot endpoints; blank = disabled
+    # LLM narrative/Q&A on the dashboard (generated content is always labeled;
+    # a deterministic summary is served when no key is configured)
+    reports_llm_model: str = "claude-opus-4-8"
+    reports_llm_timeout_seconds: float = 25.0
+
     # --- notifications (WhatsApp primary, email fallback) ---
     notify_enabled: bool = True  # kill switch; False simulates every send app-wide
     notify_max_attempts: int = 5

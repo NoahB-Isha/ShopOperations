@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
-import { PALETTES, currentPalette, setPalette } from "../theme";
+import { InboxMenu } from "./InboxMenu";
+import { WarpFX, fireWarp, msSinceLastWarp } from "./warpFx";
 
 /** The Isha Life "iL" emblem — the provided brand PNG, served from /public
  *  (all-white variant in dark mode). Bounces when you say hello. */
@@ -105,63 +106,20 @@ function BottomNav({ items }: { items: NavItem[] }) {
   );
 }
 
-/** Palette picker — presentation-only (data-palette + localStorage). */
-function ThemeMenu() {
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(currentPalette);
-  const pick = (id: string) => {
-    setPalette(id);
-    setActive(id);
-    setOpen(false);
-  };
+/** Top-bar link to the Settings page (palette picker lives there now). */
+function SettingsButton() {
   return (
-    <div className="relative">
-      <button
-        aria-label="Choose theme"
-        title="Choose theme"
-        onClick={() => setOpen((v) => !v)}
-        className="state-layer grid h-10 w-10 place-items-center rounded-full text-on-surface-variant"
-      >
-        {Icons.palette}
-      </button>
-      {open && (
-        <>
-          <button
-            aria-label="Close theme menu"
-            className="fixed inset-0 z-30 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            className="animate-pop-in absolute right-0 z-40 mt-1 w-52 rounded-(--radius-lg)
-              bg-surface-container-high p-1.5 shadow-(--shadow-e2)"
-          >
-            {PALETTES.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => pick(p.id)}
-                className={`state-layer flex w-full items-center gap-2.5 rounded-full px-3 py-2
-                  text-left text-sm
-                  ${
-                    active === p.id
-                      ? "bg-secondary-container font-semibold text-on-secondary-container"
-                      : "font-medium text-on-surface-variant"
-                  }`}
-              >
-                <span
-                  className="h-3.5 w-3.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: p.dot }}
-                  aria-hidden
-                />
-                {p.label}
-              </button>
-            ))}
-            <div className="px-3 pt-1.5 pb-1 text-[11px] text-on-surface-variant">
-              Dark mode follows your system.
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+    <NavLink
+      to="/settings"
+      aria-label="Settings"
+      title="Settings"
+      className={({ isActive }) =>
+        `state-layer grid h-10 w-10 place-items-center rounded-full
+         ${isActive ? "bg-secondary-container text-on-secondary-container" : "text-on-surface-variant"}`
+      }
+    >
+      {Icons.gear}
+    </NavLink>
   );
 }
 
@@ -183,10 +141,28 @@ function HealthChip() {
   );
 }
 
+/** Entering /time-machine breaks the 4th wall. The nav CLICK itself already
+ *  fires the shockwave (capture-phase listener in warpFx — before this heavy
+ *  page mounts); this effect only covers entries with no click, like a
+ *  direct URL or programmatic navigation. Entry is the ONLY warp now —
+ *  slider waves were disabled by request (commented in TimeMachinePage). */
+function useTimeWarpOnEntry(): void {
+  const location = useLocation();
+  const prevPath = useRef<string | null>(null);
+  useEffect(() => {
+    const entering =
+      location.pathname === "/time-machine" && prevPath.current !== "/time-machine";
+    prevPath.current = location.pathname;
+    if (entering && msSinceLastWarp() > 1200) fireWarp({ power: 1 });
+  }, [location.pathname]);
+}
+
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const { user, roles, signOut } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useTimeWarpOnEntry();
 
   const items = navForRoles(roles);
   // M3: bottom bar handles up to 5 destinations; busier roles get the drawer.
@@ -198,7 +174,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   };
 
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[248px_1fr]">
+    <div ref={rootRef} className="min-h-dvh md:grid md:grid-cols-[248px_1fr]">
       {/* desktop: standard navigation drawer */}
       <aside className="hidden bg-surface-container-low px-3 py-6 md:block">
         <Brand />
@@ -210,7 +186,8 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         px-4 py-3 md:hidden">
         <Brand />
         <div className="flex items-center gap-1">
-        <ThemeMenu />
+        <InboxMenu />
+        <SettingsButton />
         {bottomBar ? (
           <button
             aria-label="Sign out"
@@ -264,7 +241,10 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           <div className="title-l text-on-surface">{title}</div>
           <div className="flex items-center gap-4">
             <HealthChip />
-            <ThemeMenu />
+            <div className="flex items-center gap-1">
+              <InboxMenu />
+              <SettingsButton />
+            </div>
             <div className="flex items-center gap-2.5">
               <span className="grid h-8 w-8 place-items-center rounded-full bg-tertiary-container
                 text-[12.5px] font-bold text-on-tertiary-container">
@@ -291,6 +271,8 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       </div>
 
       {bottomBar && <BottomNav items={items} />}
+
+      <WarpFX targetRef={rootRef} />
     </div>
   );
 }

@@ -47,6 +47,7 @@ export interface ProductOut {
   case_size: number;
   dept_orderable: boolean;
   restock_exclude: boolean;
+  blacklisted: boolean;
   tags: TagOut[];
   stock: Record<string, number>;
   odoo_url: string | null;
@@ -821,4 +822,178 @@ export interface VendorProductOut {
   category: string;
   moq: number | null;
   is_active: boolean;
+}
+
+// -------------------------------------------------- phase 5: reporting
+export interface ChannelSummaryOut {
+  channel: string;
+  label: string;
+  units: number;
+  revenue: number;
+  prior_revenue: number;
+  share: number;
+  delta_pct: number | null;
+}
+
+export interface BreakdownRowOut {
+  key: string;
+  label: string;
+  units: number;
+  revenue: number;
+  estimated_share: number;
+  share: number;
+  prior_units: number;
+  prior_revenue: number;
+  delta_pct: number | null;
+  sku?: string;
+  category?: string;
+}
+
+export interface SalesOverviewOut {
+  period: { key: string; label: string; months: string[] };
+  scope: string;
+  orders: OrdersSummaryOut;
+  generated_at: string;
+  totals: {
+    units: number;
+    revenue: number;
+    prior_units: number;
+    prior_revenue: number;
+    revenue_delta_pct: number | null;
+    units_delta_pct: number | null;
+    estimated_share: number;
+    has_legacy_channel_rows: boolean;
+  };
+  channels: ChannelSummaryOut[];
+  series: { month: string; channel: string; units: number; revenue: number }[];
+  top_categories: BreakdownRowOut[];
+  top_products: BreakdownRowOut[];
+  centers: BreakdownRowOut[];
+}
+
+export interface BreakdownOut {
+  period: { key: string; label: string };
+  dim: string;
+  rows: BreakdownRowOut[];
+}
+
+export interface NarrativeOut {
+  headline: string;
+  bullets: string[];
+  actions: string[];
+  source: string;
+  generated: boolean;
+  generated_at: string;
+  period: string;
+}
+
+export interface QaOut {
+  answer: string;
+  source: string;
+  generated: boolean;
+  generated_at: string;
+}
+
+// ------------------------------------------------ phase 5: time machine
+export interface TimeMachineBoundsOut {
+  today: string;
+  min_date: string;
+  max_date: string;
+  history_days: string[];
+  horizon_months: number;
+}
+
+export interface TimeMachineItemOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  category: string;
+  total_qty: number;
+  bwhse_qty: number | null;
+  floor_qty: number | null;
+  staging_qty: number | null;
+  incoming_included: number;
+  forecast_method: string;
+  forecast_confidence: string;
+}
+
+export interface TimeMachineViewOut {
+  mode: "past" | "today" | "future";
+  requested_date: string;
+  effective_date: string;
+  confidence: {
+    level: "high" | "medium" | "low" | "none";
+    note: string;
+    gap_days?: number | null;
+    month_index?: number;
+    stock_synced_at?: string | null;
+  };
+  items: TimeMachineItemOut[];
+}
+
+// ------------------------------------------------ phase 5: availability
+export interface AvailabilityItemOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  category: string;
+  bwhse_qty: number;
+  floor_qty: number;
+  staging_qty: number;
+  total_qty: number;
+  incoming_qty: number;
+  incoming_expected: string | null;
+  incoming_label: string;
+  last_in_stock_on: string | null;
+  low_count_caveat: boolean;
+}
+
+export interface AvailabilityMetaOut {
+  freshness: { stock: string | null; incoming: string | null };
+}
+
+// ------------------------------------------------------- notices inbox
+export interface NoticeOut {
+  id: number;
+  title: string;
+  body: string;
+  author: string;
+  created_at: string;
+  read: boolean;
+}
+
+export interface InboxOut {
+  unread: number;
+  items: NoticeOut[];
+}
+
+export interface OrdersMonthOut {
+  month: string;
+  orders: number;
+  amount: number;
+  aov: number | null;
+  known_share: number | null;
+  customers: number;
+  new_customers: number;
+  returning_customers: number;
+}
+
+export interface OrdersSummaryOut {
+  series: OrdersMonthOut[];
+  totals: {
+    orders: number;
+    amount: number;
+    aov: number | null;
+    prior_orders: number;
+    prior_aov: number | null;
+    orders_delta_pct: number | null;
+    aov_delta_pct: number | null;
+    new_customers: number;
+    returning_share_last_month: number | null;
+    returning_share_month: string | null;
+    known_customer_share: number | null;
+  };
+  caveat: string;
 }

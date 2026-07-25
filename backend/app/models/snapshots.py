@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -70,6 +71,24 @@ class StockLevel(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class SalesChannel(str, enum.Enum):
+    """App sales channels. POS orders are classified by their pos.config:
+    the campus floor configs are the Shoppe, configs matching a city-center
+    name are that channel, every other config (snacks, events, tent…) is
+    campus-other. Rows synced before the split carry the legacy value 'pos'
+    until an admin re-runs the sales backfill; they count as Shoppe."""
+
+    SHOPPE = "shoppe"
+    CITY_CENTER = "city_center"
+    CAMPUS_OTHER = "campus_other"
+    ONLINE = "online"
+    POS_LEGACY = "pos"  # pre-split rows only — no new rows are written as 'pos'
+
+
+# Channels that represent the campus Shoppe floor (restock math, floor OOS).
+SHOPPE_CHANNELS = (SalesChannel.SHOPPE.value, SalesChannel.POS_LEGACY.value)
+
+
 class SalesMonthly(Base):
     """Monthly sales units per product per channel, maintained incrementally
     (full 24-month backfill once, then current-month refreshes)."""
@@ -77,14 +96,19 @@ class SalesMonthly(Base):
     __tablename__ = "sales_monthly"
     __table_args__ = (
         UniqueConstraint("product_id", "year", "month", "channel", name="uq_sales_bucket"),
+        Index("ix_sales_monthly_year_month", "year", "month"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)  # 1..12
-    channel: Mapped[str] = mapped_column(String(20))  # pos | online
+    channel: Mapped[str] = mapped_column(String(20))  # SalesChannel value
     units: Mapped[float] = mapped_column(Float, default=0)
+    # Gross revenue for the bucket (tax-in). NULL on rows synced before the
+    # amount capture existed — the dashboard estimates those honestly at the
+    # current retail price until a sales re-backfill fills them in.
+    amount: Mapped[float | None] = mapped_column(Float)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

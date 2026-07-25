@@ -45,6 +45,21 @@ export const Icons = {
   ship: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M2 10.5 3 13c.4.9 1.2 1 2 .4.9-.7 2.1-.7 3 0 .9.6 2.1.6 3 0 .8-.6 1.6-.5 2-.4l1-2.5-6-2-6 2Z" /><path {...stroke} d="M4 10V5.5h8V10M8 5.5V3M6.5 3h3" /></svg>
   ),
+  chart: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M2.5 2.5v11h11" /><path {...stroke} d="M5.5 10.5V7M8.5 10.5V4.5M11.5 10.5V6" /></svg>
+  ),
+  timeMachine: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8.5" cy="8" r="5" /><path {...stroke} d="M8.5 5.5V8l1.8 1.2M3.5 4 1.5 6M1.5 6l2.4.9M1.5 6" /></svg>
+  ),
+  radar: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 8 12.2 4.2M8 1.5A6.5 6.5 0 1 1 1.5 8" /><path {...stroke} d="M8 4.5A3.5 3.5 0 1 0 11.5 8" /><circle cx="8" cy="8" r="1" fill="currentColor" /></svg>
+  ),
+  gear: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8" cy="8" r="2.2" /><path {...stroke} d="M8 1.6l.9 1.8 2-.3 .4 2 1.9.7-.7 1.9 1.3 1.5-1.5 1.3.3 2-2 .3-1 1.8-1.8-.9-1.8.9-1-1.8-2-.3.3-2L1.8 9.2l1.3-1.5-.7-1.9 1.9-.7.4-2 2 .3L8 1.6Z" /></svg>
+  ),
+  bell: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2a4 4 0 0 1 4 4c0 3 .8 4 1.5 4.7H2.5C3.2 10 4 9 4 6a4 4 0 0 1 4-4ZM6.4 13a1.7 1.7 0 0 0 3.2 0" /></svg>
+  ),
 };
 
 export interface NavItem {
@@ -56,23 +71,34 @@ export interface NavItem {
 const byRole: Record<string, NavItem[]> = {
   admin: [
     { path: "/status", label: "Status", icon: Icons.pulse },
+    { path: "/reports", label: "Reports", icon: Icons.chart },
+    { path: "/time-machine", label: "Time machine", icon: Icons.timeMachine },
+    { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
     { path: "/users", label: "Users", icon: Icons.users },
-    { path: "/audit", label: "Audit log", icon: Icons.scroll },
     { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
     { path: "/purchasing", label: "Purchasing", icon: Icons.ship },
-    { path: "/styleguide", label: "Styleguide", icon: Icons.palette },
-    { path: "/palette-lab", label: "Themes", icon: Icons.palette },
   ],
   warehouse: [
     { path: "/incoming", label: "Incoming", icon: Icons.truck },
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
+    { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
+    { path: "/time-machine", label: "Time machine", icon: Icons.timeMachine },
     { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],
   shoppe_floor: [
+    { path: "/restock", label: "Restock", icon: Icons.clipboard },
+    { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
+    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
+    { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
+    { path: "/catalog", label: "All SKUs", icon: Icons.box },
+  ],
+  // rotating floor volunteers: the floor toolkit minus creating transfers
+  // (the pages hide the "new request" entry points; the API refuses too)
+  floor_rotating: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },

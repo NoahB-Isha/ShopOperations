@@ -36,6 +36,7 @@ import {
   useToast,
 } from "../../design";
 import type { Column } from "../../design";
+import { Icons } from "../../nav";
 import { fmtWhen } from "../shared/OpsBits";
 import { PoStatusChip, fmtMoh, fmtUnits } from "./orderingBits";
 
@@ -66,12 +67,7 @@ export function PurchasingPage() {
             className="!h-10 !w-10 !px-0"
             data-testid="ordering-settings"
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-              <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="9" r="2.6" />
-                <path d="M9 1.8v2M9 14.2v2M1.8 9h2M14.2 9h2M3.9 3.9l1.4 1.4M12.7 12.7l1.4 1.4M14.1 3.9l-1.4 1.4M5.3 12.7l-1.4 1.4" />
-              </g>
-            </svg>
+            {Icons.gear}
           </Button>
         }
       />
@@ -264,7 +260,6 @@ function IndiaTab({
   const [newOpen, setNewOpen] = useState(false);
   return (
     <div className="pb-24">
-      <ProductListStrip />
       <OrdersTable
         kind="india"
         orders={orders}
@@ -308,7 +303,7 @@ function ProductListStrip() {
   const m = meta.data;
   return (
     <div
-      className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-(--radius-md) bg-surface-container px-4 py-2.5 text-[13.5px]"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-(--radius-md) bg-surface-container px-4 py-2.5 text-[13.5px]"
       data-testid="product-list-strip"
     >
       <input
@@ -488,13 +483,13 @@ function DomesticTab({
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="headline text-[20px]">Quick order</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {usable.length > 0 && (
               <Select
                 value={String(selected?.id ?? "")}
                 onChange={(e) => setVendorId(Number(e.target.value))}
                 aria-label="Vendor"
-                className="w-56"
+                className="min-w-0 flex-1 sm:w-56 sm:flex-none"
               >
                 {usable.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -598,11 +593,13 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-surface-container">
-              {["Item", "On hand", "Cover", "Suggested", "Order qty"].map((h) => (
-                <th key={h} className="label-m px-3.5 py-3 text-left">
-                  {h}
-                </th>
-              ))}
+              {/* Cover + Suggested step aside on phones — the row's essentials
+                  (item, on hand, qty input) must fit a 375px screen */}
+              <th className="label-m px-3 py-3 text-left sm:px-3.5">Item</th>
+              <th className="label-m px-3 py-3 text-left sm:px-3.5">On hand</th>
+              <th className="label-m hidden px-3.5 py-3 text-left sm:table-cell">Cover</th>
+              <th className="label-m hidden px-3.5 py-3 text-left sm:table-cell">Suggested</th>
+              <th className="label-m px-3 py-3 text-left sm:px-3.5">Order qty</th>
             </tr>
           </thead>
           <tbody>
@@ -610,23 +607,23 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
               const shown = quantities[item.global_sku] ?? String(item.suggested_sea_round);
               return (
                 <tr key={item.global_sku} className="border-b border-outline-variant/50 last:border-b-0">
-                  <td className="max-w-72 px-3.5 py-2">
+                  <td className="max-w-40 px-3 py-2 sm:max-w-72 sm:px-3.5">
                     <div className="truncate font-medium">{item.name || item.global_sku}</div>
-                    <div className="text-[12px] text-on-surface-variant">{item.global_sku}</div>
+                    <div className="truncate text-[12px] text-on-surface-variant">{item.global_sku}</div>
                   </td>
-                  <td className="px-3.5 py-2 tabular-nums">{fmtUnits(item.on_hand)}</td>
-                  <td className="px-3.5 py-2 tabular-nums">
+                  <td className="px-3 py-2 tabular-nums sm:px-3.5">{fmtUnits(item.on_hand)}</td>
+                  <td className="hidden px-3.5 py-2 tabular-nums sm:table-cell">
                     {fmtMoh(item.current_moh)} mo
                     {item.current_moh < 4 && (
                       <span title="Below 4 months of cover — the reorder trigger"> ⚠</span>
                     )}
                   </td>
-                  <td className="px-3.5 py-2 text-[13px] text-on-surface-variant" title={item.air_split_reason}>
+                  <td className="hidden px-3.5 py-2 text-[13px] text-on-surface-variant sm:table-cell" title={item.air_split_reason}>
                     {item.suggested_sea_round > 0
                       ? item.suggested_sea_round.toLocaleString()
                       : "—"}
                   </td>
-                  <td className="px-3.5 py-2">
+                  <td className="px-3 py-2 sm:px-3.5">
                     <input
                       type="number"
                       min={0}
@@ -635,7 +632,7 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
                         setQuantities((q) => ({ ...q, [item.global_sku]: e.target.value }))
                       }
                       aria-label={`Order quantity for ${item.global_sku}`}
-                      className="w-24 rounded-(--radius-sm) border border-outline-variant bg-field px-2 py-1.5 text-right tabular-nums"
+                      className="w-16 rounded-(--radius-sm) border border-outline-variant bg-field px-2 py-1.5 text-right tabular-nums sm:w-24"
                     />
                   </td>
                 </tr>
@@ -644,7 +641,7 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
           </tbody>
         </table>
       </div>
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-[13.5px] text-on-surface-variant">
           {Object.keys(chosen).length} item(s) · {totalUnits.toLocaleString()} units →{" "}
           {vendor.contact_email || "no email on file"}
@@ -654,6 +651,7 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
           loading={send.isPending}
           onClick={submit}
           data-testid="email-vendor-order"
+          className="w-full sm:w-auto"
         >
           Email order to {vendor.name}
         </Button>
@@ -712,6 +710,10 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       }
     >
       <div className="grid gap-4">
+        <div>
+          <div className="label-m mb-1.5 text-on-surface-variant">India order scope</div>
+          <ProductListStrip />
+        </div>
         <Field
           label="India order email — To"
           help="Comma-separated. The Coimbatore exports team; placement emails (CSV+XLSX attached) go here. India orders are one email — vendor orders use each vendor's own contact."

@@ -7,7 +7,7 @@ import io
 
 import openpyxl
 from app.catalog.matching import match_products, parse_table
-from app.models import Role, SalesMonthly, StockLevel, utcnow
+from app.models import Role, SalesMonthly, utcnow
 
 from .util import login, mk_product, mk_user
 
@@ -39,13 +39,13 @@ def test_match_by_sku_barcode_and_name_in_any_column(db):
     lamp, dhoop, soap = _seed_catalog(db)
     rows = parse_table(
         (
-            "Item,Qty,Notes\n"
-            "HO0000500400,25,from last time\n"          # sku
-            "8901234567890,4,\n"                         # barcode
-            "Sambrani Dhoop Sticks,100,urgent\n"        # exact name
-            "lavender soap,12,\n"                        # case-insensitive name
-            "Mystery Widget,3,\n"                        # no match
-        ).encode(),
+            b"Item,Qty,Notes\n"
+            b"HO0000500400,25,from last time\n"          # sku
+            b"8901234567890,4,\n"                         # barcode
+            b"Sambrani Dhoop Sticks,100,urgent\n"        # exact name
+            b"lavender soap,12,\n"                        # case-insensitive name
+            b"Mystery Widget,3,\n"                        # no match
+        ),
         "list.csv",
     )
     report = match_products(db, rows)

@@ -1,6 +1,6 @@
 from .audit import FeatureFlag, OdooWriteAudit
 from .base import Base, utcnow
-from .catalog import Product, ProductSource, ProductTag, TagName, not_clothing
+from .catalog import Product, ProductSource, ProductTag, TagName, not_blacklisted, not_clothing
 from .center_orders import (
     CenterOrder,
     CenterOrderEvent,
@@ -9,6 +9,7 @@ from .center_orders import (
     CenterOrderStatus,
     ReasonabilityLevel,
 )
+from .notices import Notice, NoticeRead
 from .notify import (
     ChannelOutcome,
     Notification,
@@ -61,12 +62,21 @@ from .ordering import (
     Vendor,
     VendorKind,
 )
+from .reporting import (
+    CustomerFirstSeen,
+    SalesCenterMonthly,
+    SalesOrdersMonthly,
+    StockSnapshot,
+    StockSnapshotDay,
+)
 from .snapshots import (
     ODOO_LOCATION_NAMES,
+    SHOPPE_CHANNELS,
     SYNC_DOMAINS,
     IncomingMove,
     LocationKey,
     OdooLocation,
+    SalesChannel,
     SalesMonthly,
     StockLevel,
     SyncRun,
@@ -98,6 +108,8 @@ __all__ = [
     "CenterOrderStatus",
     "ReasonabilityLevel",
     "ChannelOutcome",
+    "Notice",
+    "NoticeRead",
     "Notification",
     "NotificationKind",
     "NotificationStatus",
@@ -147,16 +159,24 @@ __all__ = [
     "ProductSource",
     "ProductTag",
     "TagName",
+    "not_blacklisted",
     "not_clothing",
     "ODOO_LOCATION_NAMES",
+    "SHOPPE_CHANNELS",
     "SYNC_DOMAINS",
     "IncomingMove",
     "LocationKey",
     "OdooLocation",
+    "SalesChannel",
     "SalesMonthly",
     "StockLevel",
     "SyncRun",
     "SyncState",
+    "CustomerFirstSeen",
+    "SalesCenterMonthly",
+    "SalesOrdersMonthly",
+    "StockSnapshot",
+    "StockSnapshotDay",
     "CENTER_SCOPED_ROLES",
     "SEE_EVERYTHING_ROLES",
     "ZONE_SCOPED_ROLES",

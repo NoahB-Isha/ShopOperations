@@ -16,6 +16,11 @@ from dataclasses import dataclass
 from ..models import Role
 from ..models import TransferRequestStatus as S
 
+# Rotating floor volunteers work the receiving side of the flow (counting,
+# closing) exactly like the regular floor role — what they can't do is CREATE
+# requests (or edit request lines); that's enforced at the router.
+FLOOR_ROLES = {Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING}
+
 # (from, to) -> roles that may perform the transition (admin always may)
 TRANSITIONS: dict[tuple[str, str], set[Role]] = {
     (S.REQUESTED.value, S.WORKING.value): {Role.WAREHOUSE},
@@ -25,11 +30,11 @@ TRANSITIONS: dict[tuple[str, str], set[Role]] = {
     # sent→counting happens when the count transfer is prepared (app-driven);
     # counting→done happens when Odoo validation is detected (or the manual
     # fallback closes a simulated one) — floor owns both.
-    (S.SENT.value, S.COUNTING.value): {Role.WAREHOUSE, Role.SHOPPE_FLOOR},
-    (S.COUNTING.value, S.DONE.value): {Role.SHOPPE_FLOOR},
-    (S.SENT.value, S.DONE.value): {Role.SHOPPE_FLOOR},  # manual close, no count picking
-    (S.REQUESTED.value, S.CANCELLED.value): {Role.WAREHOUSE, Role.SHOPPE_FLOOR},
-    (S.WORKING.value, S.CANCELLED.value): {Role.WAREHOUSE, Role.SHOPPE_FLOOR},
+    (S.SENT.value, S.COUNTING.value): {Role.WAREHOUSE, *FLOOR_ROLES},
+    (S.COUNTING.value, S.DONE.value): set(FLOOR_ROLES),
+    (S.SENT.value, S.DONE.value): set(FLOOR_ROLES),  # manual close, no count picking
+    (S.REQUESTED.value, S.CANCELLED.value): {Role.WAREHOUSE, *FLOOR_ROLES},
+    (S.WORKING.value, S.CANCELLED.value): {Role.WAREHOUSE, *FLOOR_ROLES},
 }
 
 ACTIVE_STATUSES = (

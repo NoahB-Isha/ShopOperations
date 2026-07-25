@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { useAdminStatus, useCanary, useSetFlag, useTriggerSync } from "../../api/hooks";
+import { Link } from "react-router-dom";
+import {
+  useAdminStatus,
+  useCanary,
+  useRebuildSalesHistory,
+  useSetFlag,
+  useTriggerSync,
+} from "../../api/hooks";
 import type {
   CanaryResult,
   DomainSync,
@@ -55,7 +62,39 @@ function SyncCard({ domain, d }: { domain: string; d: DomainSync }) {
       >
         Sync now
       </Button>
+      {domain === "sales" && <RebuildSalesButton />}
     </Card>
+  );
+}
+
+function RebuildSalesButton() {
+  const rebuild = useRebuildSalesHistory();
+  const toast = useToast();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      loading={rebuild.isPending}
+      onClick={() => {
+        if (
+          !window.confirm(
+            "Re-pull the FULL sales window from Odoo (the one deliberate heavy query)? " +
+              "This fills channel splits, revenue amounts, and order/customer metrics " +
+              "for months synced before those existed.",
+          )
+        )
+          return;
+        rebuild.mutate(undefined, {
+          onSuccess: (r) =>
+            r.status === "success"
+              ? toast.success(`Sales history rebuilt — ${r.rows.toLocaleString()} monthly rows.`)
+              : toast.error(r.error || "Rebuild failed — see sync status."),
+          onError: (e) => toast.error(e.message),
+        });
+      }}
+    >
+      Rebuild history…
+    </Button>
   );
 }
 
@@ -144,7 +183,8 @@ function CanaryCard() {
 
 function ChannelRow({ name, c }: { name: string; c: NotifyChannelOut }) {
   const chip = !c.configured ? (
-    <Badge tone="neutral">not configured</Badge>
+    // WhatsApp is deliberately paused for now — don't dress "off" as a fault
+    <Badge tone="neutral">{name === "whatsapp" ? "on hold" : "not configured"}</Badge>
   ) : !c.live ? (
     <Badge tone="gold" title={c.gate ?? undefined}>simulating · {c.gate}</Badge>
   ) : c.connected ? (
@@ -157,7 +197,9 @@ function ChannelRow({ name, c }: { name: string; c: NotifyChannelOut }) {
       <div className="min-w-0">
         <div className="text-[13.5px] font-semibold capitalize">{name}</div>
         <div className="truncate text-[12px] text-ink-faint">
-          {c.detail || (c.configured ? "ok" : name === "whatsapp" ? "set WHATSAPP_BRIDGE_URL" : "set SMTP_HOST")}
+          {!c.configured && name === "whatsapp"
+            ? "paused for now — email carries notifications"
+            : c.detail || (c.configured ? "ok" : "set SMTP_HOST")}
           {c.consecutive_failures > 0 && ` · ${c.consecutive_failures} failure(s) in a row`}
         </div>
       </div>
@@ -182,8 +224,8 @@ function NotificationsCard({ n }: { n: NotificationsStatusOut }) {
         )}
       </div>
       <p className="mb-3 text-[13px] text-ink-faint">
-        WhatsApp first (skubot's bridge), email as the automatic fallback. Gated sends are
-        recorded as simulated — nothing silently pretends to deliver.
+        WhatsApp is on hold for now — email is the delivery channel. Gated sends are
+        recorded as simulated; nothing silently pretends to deliver.
       </p>
       <div className="flex flex-col gap-3">
         <ChannelRow name="whatsapp" c={n.whatsapp} />
@@ -207,6 +249,11 @@ export function StatusPage() {
       <PageHeader
         title="Status"
         subtitle="Sync freshness, write safety, and the paper trail — the honest view."
+        actions={
+          <Link to="/audit">
+            <Button variant="outlined">Audit log →</Button>
+          </Link>
+        }
       />
 
       {data.odoo_auth_failed && (

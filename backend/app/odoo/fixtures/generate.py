@@ -49,6 +49,13 @@ PICKING_TYPES = [
     {"id": 7, "name": "III: Delivery Orders", "code": "outgoing"},
 ]
 
+# POS configs shaped like production (verified live 2026-07-21): the campus
+# floor config, one config per city center, and campus one-offs. The sales
+# sync classifies channels from these names.
+FLOOR_CONFIG = [2, "III Floor"]
+SNACK_CONFIG = [60, "III-Snack"]
+CENTER_CONFIGS = {city: [40 + i, city] for i, city in enumerate(CITY_CENTERS)}
+
 # (category, sku prefix, monthly velocity, (min price, max price), share of catalog)
 CATEGORIES = [
     ("Copper", "CA", 55, (18, 90), 0.10),
@@ -185,52 +192,156 @@ def generate_fixtures(
             quants.append(_quant(qid, p, 13, "III/Stock/III-FLOOR-STAGING", float(rng.randint(1, 24))))
 
     # ------------------------------------------------------------- sales
-    # One synthetic order per channel per month, holding one line per selling
-    # product — same monthly aggregates as real line-level data, tiny footprint.
+    # Orders shaped like production: many small orders per month per config,
+    # ~96% with a customer on file (a loyal core reorders month after month —
+    # loyalty metrics need repeat behavior), tax-in line amounts, and header
+    # amount_total = sum of the order's lines.
     pos_orders, pos_lines, sale_orders, sale_lines = [], [], [], []
     sellers = [p for p in products if rng.random() < 0.62 and p["active"]]
     line_id = 1
-    # months 1..N-1 as one synthetic order each; the CURRENT month comes from
-    # the daily orders below so restock math sees realistic per-day quantities
+    order_amounts: dict[tuple[str, int], float] = {}  # (model, oid) -> running total
+
+    LOYAL = list(range(7001, 7091))  # regulars, reorder most months
+    CASUAL = list(range(7091, 7401))
+
+    def _partner(walk_in_rate: float = 0.04):
+        r = rng.random()
+        if r < walk_in_rate:
+            return False  # walk-in, no customer on file
+        pid = rng.choice(LOYAL) if r < 0.62 else rng.choice(CASUAL)
+        return [pid, f"Partner {pid}"]
+
+    def _pos_line(oid: int, oname: str, product: dict, qty: float) -> None:
+        nonlocal line_id
+        line_id += 1
+        amount = round(qty * product["list_price"], 2)
+        order_amounts[("pos", oid)] = order_amounts.get(("pos", oid), 0.0) + amount
+        pos_lines.append(
+            {
+                "id": line_id,
+                "order_id": [oid, oname],
+                "product_id": [product["id"], product["display_name"]],
+                "qty": qty,
+                "price_subtotal_incl": amount,
+            }
+        )
+
+    def _sale_line(oid: int, oname: str, product: dict, qty: float) -> None:
+        nonlocal line_id
+        line_id += 1
+        amount = round(qty * product["list_price"], 2)
+        order_amounts[("sale", oid)] = order_amounts.get(("sale", oid), 0.0) + amount
+        sale_lines.append(
+            {
+                "id": line_id,
+                "order_id": [oid, oname],
+                "product_id": [product["id"], product["display_name"]],
+                "product_uom_qty": qty,
+                "price_total": amount,
+            }
+        )
+
+    # months 1..N-1 as synthetic orders; the CURRENT month comes from the
+    # daily orders below so restock math sees realistic per-day quantities
+    FLOOR_ORDERS_PER_MONTH = 12
+    ONLINE_ORDERS_PER_MONTH = 8
     for m_back in range(1, months):
         total = now.year * 12 + (now.month - 1) - m_back
         y, mo = total // 12, total % 12 + 1
         stamp = f"{y}-{mo:02d}-15 12:00:00"
-        pos_oid, sale_oid = 5000 + m_back, 8000 + m_back
-        pos_orders.append({"id": pos_oid, "name": f"III/POS/{y}{mo:02d}", "date_order": stamp, "state": "done"})
-        sale_orders.append({"id": sale_oid, "name": f"S{y}{mo:02d}", "date_order": stamp, "state": "sale"})
-        for p in sellers:
+        floor_name = f"III/POS/{y}{mo:02d}"
+        floor_oids = []
+        for j in range(FLOOR_ORDERS_PER_MONTH):
+            oid = 5000 + m_back * 40 + j
+            floor_oids.append(oid)
+            pos_orders.append({"id": oid, "name": f"{floor_name}-{j:02d}", "date_order": stamp,
+                               "state": "done", "config_id": FLOOR_CONFIG,
+                               "partner_id": _partner()})
+        snack_oid = 42000 + m_back
+        pos_orders.append({"id": snack_oid, "name": f"SNACK/{y}{mo:02d}", "date_order": stamp,
+                           "state": "done", "config_id": SNACK_CONFIG,
+                           "partner_id": _partner(walk_in_rate=0.3)})
+        sale_name = f"S{y}{mo:02d}"
+        sale_oids = []
+        for j in range(ONLINE_ORDERS_PER_MONTH):
+            oid = 8000 + m_back * 20 + j
+            sale_oids.append(oid)
+            sale_orders.append({"id": oid, "name": f"{sale_name}-{j:02d}", "date_order": stamp,
+                                "state": "sale", "partner_id": _partner(walk_in_rate=0.0)})
+        center_orders_this_month: dict[str, int] = {}
+        floor_i = online_i = 0
+        for idx, p in enumerate(sellers):
             monthly = p["_velocity"] * _seasonality(p["_category"], mo) * rng.uniform(0.5, 1.5)
             pos_qty = round(monthly * rng.uniform(0.45, 0.75))
             online_qty = round(monthly * rng.uniform(0.2, 0.5))
-            ref = [p["id"], p["display_name"]]
             if pos_qty > 0:
-                line_id += 1
-                pos_lines.append({"id": line_id, "order_id": [pos_oid, f"III/POS/{y}{mo:02d}"], "product_id": ref, "qty": pos_qty})
+                # ~a fifth of POS movement happens at one rotating city center;
+                # snacks also sell at the campus snack counter
+                center_qty = round(pos_qty * rng.uniform(0.12, 0.28))
+                snack_qty = round(pos_qty * 0.3) if p["_category"] == "Snacks" else 0
+                floor_qty = max(0, pos_qty - center_qty - snack_qty)
+                if floor_qty > 0:
+                    oid = floor_oids[floor_i % len(floor_oids)]
+                    floor_i += 1
+                    _pos_line(oid, floor_name, p, floor_qty)
+                if center_qty > 0:
+                    city = CITY_CENTERS[(idx + m_back) % len(CITY_CENTERS)]
+                    coid = center_orders_this_month.get(city)
+                    if coid is None:
+                        coid = 20000 + m_back * 20 + CITY_CENTERS.index(city)
+                        center_orders_this_month[city] = coid
+                        pos_orders.append(
+                            {"id": coid, "name": f"{city.upper()[:6]}/{y}{mo:02d}",
+                             "date_order": stamp, "state": "done",
+                             "config_id": CENTER_CONFIGS[city],
+                             "partner_id": _partner(walk_in_rate=0.15)}
+                        )
+                    _pos_line(coid, f"{city.upper()[:6]}/{y}{mo:02d}", p, center_qty)
+                if snack_qty > 0:
+                    _pos_line(snack_oid, f"SNACK/{y}{mo:02d}", p, snack_qty)
             if online_qty > 0:
-                line_id += 1
-                sale_lines.append({"id": line_id, "order_id": [sale_oid, f"S{y}{mo:02d}"], "product_id": ref, "product_uom_qty": online_qty})
+                oid = sale_oids[online_i % len(sale_oids)]
+                online_i += 1
+                _sale_line(oid, sale_name, p, online_qty)
 
     # ---- recent DAILY pos orders (restock lists live off yesterday's sales)
     floor_sellers = [p for p in sellers if rng.random() < 0.25][:120]
     for days_back in range(12, 0, -1):
         day = now - timedelta(days=days_back)
-        oid = 7000 + days_back
         stamp = day.strftime("%Y-%m-%d 15:00:00")
-        pos_orders.append(
-            {"id": oid, "name": f"III/POS/D{days_back:02d}", "date_order": stamp, "state": "done"}
-        )
+        day_oids = []
+        for j in range(4):  # a handful of tickets per day, like a real register
+            oid = 7000 + days_back * 10 + j
+            day_oids.append(oid)
+            pos_orders.append(
+                {"id": oid, "name": f"III/POS/D{days_back:02d}-{j}", "date_order": stamp,
+                 "state": "done", "config_id": FLOOR_CONFIG, "partner_id": _partner()}
+            )
+        di = 0
         for p in floor_sellers:
             if rng.random() < 0.45:  # not everything sells every day
-                line_id += 1
-                pos_lines.append(
-                    {
-                        "id": line_id,
-                        "order_id": [oid, f"III/POS/D{days_back:02d}"],
-                        "product_id": [p["id"], p["display_name"]],
-                        "qty": rng.choice([1, 1, 1, 2, 2, 3, 4, 5, 6]),
-                    }
+                oid = day_oids[di % len(day_oids)]
+                di += 1
+                _pos_line(oid, f"III/POS/D{days_back:02d}", p, rng.choice([1, 1, 1, 2, 2, 3, 4, 5, 6]))
+        # a couple of city centers ring up sales most days too, so the
+        # current month has center activity for the dashboard
+        if days_back <= 6:
+            for ci, city in enumerate(CITY_CENTERS[:2 + days_back % 2]):
+                coid = 30000 + days_back * 20 + ci
+                pos_orders.append(
+                    {"id": coid, "name": f"{city.upper()[:6]}/D{days_back:02d}",
+                     "date_order": stamp, "state": "done", "config_id": CENTER_CONFIGS[city],
+                     "partner_id": _partner(walk_in_rate=0.15)}
                 )
+                for p in floor_sellers[ci * 10:(ci * 10) + 8]:
+                    if rng.random() < 0.5:
+                        _pos_line(coid, f"{city.upper()[:6]}/D{days_back:02d}", p, rng.choice([1, 1, 2, 3]))
+
+    # header totals = the sum of each order's lines (like production)
+    for o in pos_orders:
+        o["amount_total"] = round(order_amounts.get(("pos", o["id"]), 0.0), 2)
+    for o in sale_orders:
+        o["amount_total"] = round(order_amounts.get(("sale", o["id"]), 0.0), 2)
 
     # ------------------------------------------------------------- incoming
     incoming: list[dict] = []
@@ -263,10 +374,10 @@ def generate_fixtures(
                        "date", "state", "location_id", "location_dest_id", "picking_id",
                        "picking_code"],
         "stock.picking.type": ["id", "name", "code"],
-        "pos.order": ["id", "name", "date_order", "state"],
-        "pos.order.line": ["id", "order_id", "product_id", "qty"],
-        "sale.order": ["id", "name", "date_order", "state"],
-        "sale.order.line": ["id", "order_id", "product_id", "product_uom_qty"],
+        "pos.order": ["id", "name", "date_order", "state", "config_id", "partner_id", "amount_total"],
+        "pos.order.line": ["id", "order_id", "product_id", "qty", "price_subtotal_incl"],
+        "sale.order": ["id", "name", "date_order", "state", "partner_id", "amount_total"],
+        "sale.order.line": ["id", "order_id", "product_id", "product_uom_qty", "price_total"],
     }
 
     files = {

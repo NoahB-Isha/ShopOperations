@@ -100,14 +100,51 @@ class OdooSimulator:
         limit: int | None = None,
         offset: int = 0,
         order: str | None = None,
+        context: dict | None = None,
     ) -> list[dict]:
-        rows = [r for r in self._rows(model) if self._match(model, r, domain or [])]
+        # qty_available reads (the time-machine backfill's as-of query) are
+        # computed from the quant table; the simulator has no move ledger, so
+        # any `to_date` serves CURRENT state — documented, good enough for
+        # demos and tests.
+        if model == "product.product" and any(
+            isinstance(t, list | tuple) and t and t[0] == "qty_available" for t in (domain or [])
+        ):
+            rows = self._qty_available_rows(context)
+            rows = [r for r in rows if self._match(model, r, domain or [])]
+        else:
+            rows = [r for r in self._rows(model) if self._match(model, r, domain or [])]
         rows = self._order(rows, order)
         rows = rows[offset : offset + limit if limit else None]
         if not fields:
             return [dict(r) for r in rows]
         keep = set(fields) | {"id"}
         return [{k: r.get(k, False) for k in keep} for r in rows]
+
+    def _qty_available_rows(self, context: dict | None) -> list[dict]:
+        """Per-product on-hand from stock.quant, optionally scoped to the
+        `location` context (subtree, like Odoo)."""
+        loc_id = (context or {}).get("location")
+        loc_names = {
+            r.get("id"): str(r.get("complete_name") or "") for r in self._rows("stock.location")
+        }
+        root_name = loc_names.get(loc_id, "")
+        totals: dict[int, float] = {}
+        for q in self._rows("stock.quant"):
+            if loc_id:
+                q_loc = q.get("location_id")
+                q_id = self._m2o_id(q_loc)
+                q_name = loc_names.get(q_id) or (
+                    str(q_loc[1]) if isinstance(q_loc, list | tuple) and len(q_loc) == 2 else ""
+                )
+                if not (
+                    q_id == loc_id
+                    or (root_name and (q_name == root_name or q_name.startswith(root_name + "/")))
+                ):
+                    continue
+            pid = self._m2o_id(q.get("product_id"))
+            if isinstance(pid, int):
+                totals[pid] = totals.get(pid, 0.0) + float(q.get("quantity") or 0.0)
+        return [{"id": pid, "qty_available": qty} for pid, qty in totals.items()]
 
     def _read(self, model: str, ids: list[int], fields: list[str] | None = None) -> list[dict]:
         ids = ids if isinstance(ids, list) else [ids]
@@ -120,7 +157,9 @@ class OdooSimulator:
     def _search(self, model: str, domain: list | None = None, **kw) -> list[int]:
         return [r["id"] for r in self._search_read(model, domain, fields=["id"], **kw)]
 
-    def _search_count(self, model: str, domain: list | None = None) -> int:
+    def _search_count(
+        self, model: str, domain: list | None = None, context: dict | None = None
+    ) -> int:
         return len([r for r in self._rows(model) if self._match(model, r, domain or [])])
 
     def _fields_get(self, model: str, **kw) -> dict[str, dict]:

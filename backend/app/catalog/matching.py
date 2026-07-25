@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Product
+from ..models import Product, not_blacklisted
 
 MAX_ROWS = 5000
 
@@ -140,7 +140,7 @@ def match_products(db: Session, rows: list[list[str]]) -> MatchReport:
     if not data_rows:
         return report
 
-    products = db.execute(select(Product)).scalars().all()
+    products = db.execute(select(Product).where(not_blacklisted())).scalars().all()
     by_sku: dict[str, Product] = {}
     by_barcode: dict[str, Product] = {}
     by_name: dict[str, Product] = {}

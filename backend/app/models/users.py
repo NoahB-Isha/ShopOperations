@@ -22,6 +22,9 @@ class Role(str, enum.Enum):
     ADMIN = "admin"
     WAREHOUSE = "warehouse"
     SHOPPE_FLOOR = "shoppe_floor"
+    # Rotating floor volunteers: the shoppe_floor views minus the ability to
+    # create (or edit the lines of) transfer requests.
+    FLOOR_ROTATING = "floor_rotating"
     ZONE_COORDINATOR = "zone_coordinator"
     CENTER_ORDERER = "center_orderer"
     DEPT_LIAISON = "dept_liaison"
@@ -32,7 +35,7 @@ class Role(str, enum.Enum):
 # pointed at the "III Departments" zone and its department pseudo-centers.
 ZONE_SCOPED_ROLES = {Role.ZONE_COORDINATOR, Role.DEPT_LIAISON}
 CENTER_SCOPED_ROLES = {Role.CENTER_ORDERER, Role.DEPT_ORDERER}
-SEE_EVERYTHING_ROLES = {Role.ADMIN, Role.WAREHOUSE, Role.SHOPPE_FLOOR}
+SEE_EVERYTHING_ROLES = {Role.ADMIN, Role.WAREHOUSE, Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING}
 
 
 class ZoneKind(str, enum.Enum):

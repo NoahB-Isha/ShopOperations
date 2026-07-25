@@ -6,7 +6,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.models import FloorOosMark, IncomingMove, OdooLocation, Role, StockLevel
+from app.models import (
+    FloorOosMark,
+    IncomingMove,
+    OdooLocation,
+    Role,
+    SalesDaily,
+    StockLevel,
+    StockSnapshot,
+)
 from app.odoo.simulator import OdooSimulator
 from sqlalchemy import select
 
@@ -51,6 +59,38 @@ def test_list_shows_computed_zeros_with_incoming_label(client, db):
     # scoped: orderers can't see the floor board
     orderer = login(client, "orderer@test.io")
     assert client.get("/api/v1/oos", headers=orderer).status_code == 403
+
+
+def test_board_catches_zeros_without_a_floor_row(client, db):
+    """The live-stack bug: Odoo vacuums zero quants, so sold-out products
+    often have NO floor stock row — they must still make the board when
+    they're floor-relevant (recent Shoppe sales or floor history)."""
+    _setup(db)
+    today = date.today()
+    sold_out = mk_product(db, "AY0000000801", "Neem Powder", odoo_id=801)
+    was_stocked = mk_product(db, "HL0000000802", "Brass Lamp", odoo_id=802)
+    mk_product(db, "GJ0000000803", "Gold Pendant", odoo_id=803)  # never floor-relevant
+    meals = mk_product(db, "SN0000000804", "Campus Meal", odoo_id=804)
+    meals.restock_exclude = True
+    db.add_all(
+        [
+            # no floor StockLevel rows for any of these four
+            SalesDaily(product_id=sold_out.id, day=today - timedelta(days=2),
+                       channel="shoppe", units=4),
+            StockSnapshot(snapshot_date=today - timedelta(days=10),
+                          product_id=was_stocked.id, location_key="floor", qty=6),
+            SalesDaily(product_id=meals.id, day=today - timedelta(days=1),
+                       channel="shoppe", units=30),
+        ]
+    )
+    db.commit()
+    floor = login(client, "floor@test.io")
+    items = {i["sku"]: i for i in client.get("/api/v1/oos", headers=floor).json()}
+    assert "AY0000000801" in items  # sold recently, nothing on the floor now
+    assert items["AY0000000801"]["floor_qty"] == 0.0
+    assert "HL0000000802" in items  # had floor stock in history
+    assert "GJ0000000803" not in items  # never floor-relevant — not noise
+    assert "SN0000000804" not in items  # non-retail POS item stays off
 
 
 def test_mark_with_phantom_stock_renders_simulated_reduction(client, db):

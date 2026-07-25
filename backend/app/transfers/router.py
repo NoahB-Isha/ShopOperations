@@ -40,7 +40,9 @@ from ..models import (
 from . import service
 from .flow import ACTIVE_STATUSES, InvalidTransition, NotAllowedError, check_transition
 
-PARTICIPANTS = (Role.SHOPPE_FLOOR, Role.WAREHOUSE)
+# floor_rotating participates in the flow (viewing, counting, closing) but
+# cannot create requests or edit lines — those endpoints stay SHOPPE_FLOOR.
+PARTICIPANTS = (Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE)
 S = TransferRequestStatus
 
 router = APIRouter(

@@ -38,6 +38,7 @@ class ProductOut(BaseModel):
     case_size: int
     dept_orderable: bool
     restock_exclude: bool
+    blacklisted: bool
     tags: list[TagOut]
     stock: dict[str, float]
     odoo_url: str | None = None
@@ -74,6 +75,7 @@ def _product_out(p: Product, stock: dict[str, float], settings: Settings) -> Pro
         case_size=p.case_size,
         dept_orderable=p.dept_orderable,
         restock_exclude=p.restock_exclude,
+        blacklisted=p.blacklisted,
         tags=[TagOut(tag=t.tag, expires_on=t.expires_on) for t in p.tags],
         stock=stock,
         odoo_url=odoo_record_url(settings, "product.product", p.odoo_product_id)
@@ -99,6 +101,7 @@ def list_products(
     source: str = "",
     include_inactive: bool = False,
     dept_orderable: bool | None = None,
+    blacklisted: bool | None = None,
     sort: str = "name",
     dir: str = "asc",
     page: int = Query(1, ge=1),
@@ -110,6 +113,9 @@ def list_products(
     q = select(Product).options(selectinload(Product.tags))
     if not include_inactive:
         q = q.where(Product.is_active.is_(True))
+    # default: blacklisted items are invisible; blacklisted=true is the
+    # Settings-page manager view of what's currently hidden
+    q = q.where(Product.blacklisted.is_(True if blacklisted else False))
     if search:
         needle = f"%{search.strip()}%"
         q = q.where(
@@ -231,6 +237,7 @@ class ProductPatchIn(BaseModel):
     case_size: int | None = Field(None, ge=1, le=10000)
     dept_orderable: bool | None = None
     restock_exclude: bool | None = None
+    blacklisted: bool | None = None
     # manual items only:
     name: str | None = None
     category: str | None = None
@@ -257,6 +264,8 @@ def update_product(
         p.dept_orderable = body.dept_orderable
     if body.restock_exclude is not None:
         p.restock_exclude = body.restock_exclude
+    if body.blacklisted is not None:
+        p.blacklisted = body.blacklisted
     synced_fields = {"name": body.name, "category": body.category,
                      "retail_price": body.retail_price, "is_active": body.is_active}
     touched_synced = {k: v for k, v in synced_fields.items() if v is not None}

@@ -1,20 +1,24 @@
-/* The floor's out-of-stock board — and the data-cleanup tool.
+/* The out-of-stock page. Three scopes (the old Availability page's filter,
+   merged in here):
 
-   Two honest sources: products Odoo already shows at zero on the floor, and
-   products the team MARKED out because the shelf is empty whatever Odoo
-   says. A mark with phantom stock renders a draft "USA-III: Inventory Adj
-   Reduction" picking removing that quantity — a human validates it in Odoo. */
+   - Floor (default for floor roles): the actionable board — Odoo's floor
+     zeros plus items the team MARKED out; marking renders the draft
+     "USA-III: Inventory Adj Reduction" picking a human validates in Odoo.
+   - Everywhere / Warehouse: the org-wide OOS lists over the stock snapshot,
+     read-only, with "last in stock" and incoming labels. */
 import { useMemo, useState } from "react";
 import {
+  useAvailabilityOos,
   useMarkOos,
   useOosList,
   useRestockOosMark,
   useUnmarkOos,
   type OosRestockResult,
 } from "../../api/hooks";
-import type { OosItemOut } from "../../api/types";
+import { useAuth } from "../../auth/AuthContext";
+import type { AvailabilityItemOut, OosItemOut } from "../../api/types";
 import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Textarea, useToast } from "../../design";
-import { OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
+import { LowCountHint, OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
 
 function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [picked, setPicked] = useState<PickedLine | null>(null);
@@ -269,8 +273,52 @@ function BackInStockDialog({
   );
 }
 
+const SCOPES = [
+  { key: "floor", label: "Floor" },
+  { key: "org", label: "Everywhere" },
+  { key: "bwhse", label: "Warehouse" },
+] as const;
+type Scope = (typeof SCOPES)[number]["key"];
+
+/** Read-only row for the org / warehouse scopes (snapshot lists). */
+function ScopeRow({ item }: { item: AvailabilityItemOut }) {
+  return (
+    <li className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-medium">{item.name}</div>
+          <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
+            <span className="font-mono">{productCode(item.barcode, item.sku)}</span> · floor{" "}
+            {fmtQty(item.floor_qty)} · whse {fmtQty(item.bwhse_qty)}
+            <LowCountHint qty={item.bwhse_qty} /> · {item.incoming_label}
+          </div>
+        </div>
+        <span className="shrink-0 text-right text-[11.5px] text-on-surface-variant">
+          {item.last_in_stock_on ? (
+            <>
+              last in stock
+              <br />
+              {item.last_in_stock_on}
+            </>
+          ) : (
+            "no stock history yet"
+          )}
+        </span>
+      </div>
+    </li>
+  );
+}
+
 export function OutOfStockPage() {
+  const { roles } = useAuth();
+  const isFloorRole = roles.has("shoppe_floor") || roles.has("floor_rotating");
+  // floor folk land on their board; warehouse on their shelves; admin org-wide
+  const [scope, setScope] = useState<Scope>(
+    isFloorRole ? "floor" : roles.has("warehouse") ? "bwhse" : "org",
+  );
+  const boardMode = scope === "floor";
   const { data: items, isLoading } = useOosList();
+  const scoped = useAvailabilityOos(scope, !boardMode);
   const [markOpen, setMarkOpen] = useState(false);
   // page-level: the list refetch removes the row (and would unmount a dialog
   // nested inside it) the moment the mark is gone — the dialog outlives that
@@ -289,15 +337,57 @@ export function OutOfStockPage() {
     );
   }, [items, search]);
 
+  const scopedVisible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = scoped.data ?? [];
+    if (!q) return rows;
+    return rows.filter(
+      (i) =>
+        i.name.toLowerCase().includes(q) ||
+        i.sku.toLowerCase().includes(q) ||
+        i.barcode.toLowerCase().includes(q) ||
+        i.category.toLowerCase().includes(q),
+    );
+  }, [scoped.data, search]);
+
+  const loading = boardMode ? isLoading : scoped.isLoading;
+  const empty = boardMode ? !items?.length : !scoped.data?.length;
+
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Out of stock"
-        subtitle="What the floor is out of — Odoo's zeros plus anything the team marked. Marking renders the draft reduction that cleans up phantom counts."
+        subtitle={
+          boardMode
+            ? "What the floor is out of — Odoo's zeros plus anything the team marked. Marking renders the draft reduction that cleans up phantom counts."
+            : scope === "bwhse"
+              ? "Nothing left at the warehouse — floor stock doesn't hide a warehouse-out."
+              : "Fully out everywhere — warehouse, floor, and staging together."
+        }
         actions={
-          <Button onClick={() => setMarkOpen(true)}>Mark item out of stock</Button>
+          boardMode && (
+            <Button onClick={() => setMarkOpen(true)}>Mark item out of stock</Button>
+          )
         }
       />
+      <div className="mb-3 flex gap-1 rounded-full bg-surface-container p-1" role="tablist">
+        {SCOPES.map((s) => (
+          <button
+            key={s.key}
+            role="tab"
+            aria-selected={scope === s.key}
+            data-testid={`scope-${s.key}`}
+            onClick={() => setScope(s.key)}
+            className={`flex h-9 grow items-center justify-center rounded-full text-[13px] font-semibold transition-colors ${
+              scope === s.key
+                ? "bg-secondary-container text-on-secondary-container"
+                : "text-on-surface-variant hover:bg-on-surface/8"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -305,27 +395,43 @@ export function OutOfStockPage() {
         aria-label="Search out-of-stock items"
         className="mb-3 w-full"
       />
-      {isLoading ? (
+      {loading ? (
         <div className="grid place-items-center py-24">
           <Spinner size={24} />
         </div>
-      ) : !items?.length ? (
+      ) : empty ? (
         <EmptyState
           title="Nothing's out"
-          hint="Products land here when Odoo shows zero on the floor, or when the team marks an empty shelf."
+          hint={
+            boardMode
+              ? "Products land here when Odoo shows zero on the floor, or when the team marks an empty shelf."
+              : "Nothing is fully out of stock in this scope. 🎉"
+          }
         />
-      ) : visible.length === 0 ? (
+      ) : boardMode ? (
+        visible.length === 0 ? (
+          <div className="py-16 text-center text-sm text-on-surface-variant">
+            Nothing here matches “{search.trim()}”.
+          </div>
+        ) : (
+          <ul className="stagger-children flex flex-col gap-2 pb-8">
+            {visible.map((item) => (
+              <OosRow
+                key={`${item.product_id}-${item.mark?.id ?? "z"}`}
+                item={item}
+                onBackInStock={() => setRestockTarget(item)}
+              />
+            ))}
+          </ul>
+        )
+      ) : scopedVisible.length === 0 ? (
         <div className="py-16 text-center text-sm text-on-surface-variant">
           Nothing here matches “{search.trim()}”.
         </div>
       ) : (
         <ul className="stagger-children flex flex-col gap-2 pb-8">
-          {visible.map((item) => (
-            <OosRow
-              key={`${item.product_id}-${item.mark?.id ?? "z"}`}
-              item={item}
-              onBackInStock={() => setRestockTarget(item)}
-            />
+          {scopedVisible.map((item) => (
+            <ScopeRow key={item.product_id} item={item} />
           ))}
         </ul>
       )}

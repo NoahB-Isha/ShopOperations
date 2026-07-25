@@ -34,7 +34,7 @@ from .engine import BACK_LIST, FLOOR_LIST, back_list, floor_list, fold_floor_res
 router = APIRouter(
     prefix="/restock",
     tags=["restock"],
-    dependencies=[Depends(require_roles(Role.SHOPPE_FLOOR, Role.WAREHOUSE))],
+    dependencies=[Depends(require_roles(Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE))],
 )
 
 
@@ -202,7 +202,7 @@ class ResetOut(BaseModel):
 def reset_floor_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.WAREHOUSE)),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE)),
 ) -> ResetOut:
     """'The floor is fully stocked': wipe the checklist, zero the counters,
     and give today amnesty — counting resumes with tomorrow's sales. For the
@@ -225,7 +225,7 @@ def check_floor_line(
     line_id: int,
     body: CheckIn,
     db: Session = Depends(get_db),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.WAREHOUSE)),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE)),
 ) -> FloorItemOut:
     line = db.get(RestockLine, line_id)
     if line is None or line.list_type != FLOOR_LIST:
@@ -260,7 +260,7 @@ def check_back_item(
     product_id: int,
     body: BackCheckIn,
     db: Session = Depends(get_db),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.WAREHOUSE)),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE)),
 ) -> dict:
     if db.get(Product, product_id) is None:
         raise HTTPException(404, "Product not found.")

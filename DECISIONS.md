@@ -261,3 +261,156 @@ download and the matched SKUs as the authoritative candidate set). Catalogs (né
 UI rebrand only, schema names unchanged) can be born from any spreadsheet via the shared
 matcher (`app/catalog/matching.py`): SKU/barcode/name in any combination, quantities ignored,
 ambiguity surfaces as unmatched rather than a wrong guess.
+
+**2026-07-22 — POS channels are split by pos.config at sync time** *(Phase 5)*
+A live read of `pos.config` (53 records) settled it: city centers ring up real POS sales in
+Odoo under per-center configs, alongside 'III Floor' and campus one-offs (Snack, Events,
+Tent…). The sales sync now classifies every POS order into shoppe / city_center /
+campus_other by normalized config↔center name match (`sales_channel_aliases` AppSetting as
+the admin override; unmatched → campus_other, never a guess), and captures tax-in line
+revenue (`amount`) alongside units. Pre-split rows keep channel `pos` + NULL amount until an
+admin triggers the one deliberate re-backfill (`POST /admin/sync/sales/rebuild`); dashboards
+estimate NULL amounts at current retail and disclose the estimated share rather than mixing
+them silently. Corollary bug-fix: floor restock now counts only Shoppe channels — center POS
+sales had been inflating the floor accumulator. Rejected: deriving "city centers" from
+app-side transfer (sell-in) records — real sell-through exists in Odoo, so use it.
+
+**2026-07-22 — Stock history is captured going forward, not reconstructed** *(Phase 5)*
+The time machine's past view replays `stock_snapshots` rows the stock sync appends daily
+(last sync of the day wins; zero rows skipped; `stock_snapshot_days` marks coverage so
+"absent on a covered day" honestly means zero). Reconstructing backwards from sales/moves was
+rejected — transfers and manual Odoo adjustments make it a guess, and the app never guesses
+inventory. Consequence: history begins the day Phase 5 ships; the confidence indicator says
+so. The future view runs the ordering engine's own recurrence in units (`_project_moh` is
+scale-free) over `snapshots_for_products`, so the time machine and the India review table can
+never disagree — a parity test locks it.
+
+**2026-07-22 — Digests ride the notification outbox; the bot gets an API key** *(Phase 5)*
+Availability digests are Notification rows via a new generic `enqueue_email` (email-only,
+no order attached) — retries, backoff, and the admin's honest send log come free, and the
+kind-level `availability_digest_live` flag (ships OFF) pre-marks rows SIMULATED at enqueue so
+a flag flip can't unleash a backlog (`last_sent_on` stamps even simulated sends). skubot's
+read-only endpoints live under `/api/v1/bot/*` behind an `X-API-Key` == `SKUBOT_API_KEY`
+check (blank = 503) — machine auth kept deliberately separate from user sessions; Phase 6
+builds on this surface. Chart series colors are app-level `--chart-1..4` tokens validated
+with the dataviz six-checks against both surface modes, identical across the four light
+palettes so a theme switch never repaints a learned channel color.
+
+**2026-07-24 — Order & customer metrics come from order headers** *(Phase 5.x)*
+The dashboard's "sell more to existing customers" questions (order-size trends, buyer
+counts, loyalty) needed order-level facts the line-item snapshot can't answer. The sales
+sync's existing parent-order fetch now also reads `partner_id` + `amount_total` (verified
+live: ~96% of POS orders and 100% of online orders carry a partner — the registers attach
+customers), rolled up into `sales_orders_monthly` plus a `customer_first_seen` memory
+(partner×channel → first order date) so new-vs-returning stays stable across incremental
+windows and full rebuilds converge. Only partner ids are stored — never names or contact
+details. Honesty rules: walk-ins count as orders but never customers; distinct-customer
+counts are monthly (no partner dimension exists to dedupe a quarter); the returning share
+is quoted for the latest complete month so a half-month never reads as churn.
+
+**2026-07-24 — Reconstructed history is allowed; guessed history still isn't** *(Phase 5.x)*
+Amends 2026-07-22: the time machine may now backfill the past — because Odoo itself can
+compute on-hand as of any date from its move ledger (`qty_available` under a
+`to_date`+`location` context, verified live). That's real data, not the sales-walk guess
+the original decision rejected, so the rule stands refined: live-captured days are ground
+truth and never overwritten; reconstructed days are admin-requested, worker-paced (one
+weekly date per loop pass — each is a heavy as-of computation for Odoo), marked
+`source='reconstructed'`, capped below "high" confidence, and labeled in the UI.
+
+**2026-07-24 — The warp is a real displacement wave, budgeted to stay smooth** *(Phase 5.x)*
+The time machine's 4th-wall moment is an SVG feDisplacementMap shockwave riding a
+canvas-built lens map from the user's pointer position (nav entry and every time-jump).
+Three perf rules make it shippable: the filter region is clamped to the viewport (filtering
+the whole document height per frame was the observed lag), the lens map is pre-built and
+pre-warmed at mount so the first wave doesn't stutter, and the wavefront rings carry no
+backdrop-filter. Reduced-motion skips it entirely; a failsafe timer un-bends the page if
+rAF stalls. Era typography switches the whole panel (typewriter past / Orbitron future) so
+non-today stock can never be mistaken for live counts.
+
+**2026-07-24 — The warp moved to WebGL; raw shader, no engine** *(Phase 5.x)*
+The SVG feDisplacementMap warp was CPU-bound by construction (the browser re-rasterizes
+the filtered DOM layer every frame) and stayed laggy after every SVG-side optimization.
+v3 distorts a pre-captured viewport snapshot (html2canvas-pro, taken during idle before
+any warp can fire — on nav-link hover and after settled renders) in a raw-WebGL fragment
+shader on an overlay canvas: one triangle, one texture, trivially smooth, and the wave
+doubles as a mask over the data swap on time-jumps. Three.js/PixiJS were rejected as ~30×
+the code we need for one effect; html2canvas-pro over html2canvas because Tailwind v4
+emits oklch()/color-mix() the original can't parse. Degradation ladder: stale/no snapshot
+→ rings only; no WebGL → rings only; reduced-motion → nothing.
+
+**2026-07-24 — Warp v4: instant compositor feedback + a worker-rendered wave** *(Phase 5.x)*
+v3's WebGL wave was smooth in isolation but started late and hitched in practice: it was
+driven by main-thread rAF, fired after the route effect, and the time-machine mount (a
+1,277-row table) blocked both. v4 splits the effect by thread: a compositor-only pop+rings
+(transform/opacity WAAPI) spawns synchronously inside the nav click's capture phase —
+visible feedback in the same tick, unstoppable by React — while the refraction wave renders
+in a worker on an OffscreenCanvas from an ImageBitmap pre-decoded at capture time, so the
+whole fire path is synchronous and the wave plays THROUGH the mount instead of after it.
+Slider warps commit on pointerup rather than waiting out the debounce. The rings double as
+the graceful floor when no snapshot/WebGL exists; reduced-motion still gets nothing.
+
+**2026-07-24 — The warp's duration is adaptive: it ends when the page is ready** *(Phase 5.x)*
+A fixed-length wave could finish while the destination was still mounting, breaking the
+illusion. The timeline (shared `warpWave.ts`, unit-tested) now has three phases: expand
+(~1.3s, punchier amplitude/fringe plus a magnifier "suction" inside the bubble), HOLD (a
+standing shimmer while the destination renders — the time machine signals `settleWarp()`
+after its data paints, via double-rAF), and release (+ a settle-pop ring). A ~5s cap plus
+main-thread failsafes mean a page that never settles still ends the wave honestly. Probes
+in the embedded browser pane are time-dilated by throttling — trust the unit tests and a
+hand on a real screen for timing.
+
+**2026-07-24 — The warp is an entrance, not a scrubbing companion** *(Phase 5.x)*
+Noah's call after hands-on use: firing the shockwave on every slider/date jump broke the
+scrubbing experience — the effect stays reserved for entering the time machine (quirk in
+safe places, not between an operator and their data). The slider/date fireWarp +
+recapture call sites are commented (not deleted) in TimeMachinePage for easy re-enable;
+settleWarp wiring remains because it releases the entry wave. Bonus of disabling the
+recapture: no more idle html2canvas work after every jump.
+
+**2026-07-25 — Pre-deploy refinement round: the app sheds its scaffolding** *(Phase 5.y)*
+Noah's between-prompts list before the first hosted test deployment. The through-line:
+demo-era surfaces out, operator conveniences in. (1) The Availability page duplicated the
+OOS and Coming-Soon pages — deleted; its Everywhere/Floor/Warehouse scope filter moved
+onto the Out-of-stock page (floor scope = the actionable board, other scopes = read-only
+snapshot lists; no category filter by request), and its incoming-shipments list finally
+became the real warehouse /incoming page (retiring the last "Phase 2b" stub). (2) The
+email digest was removed ENTIRELY — model+table dropped (migration a4e9d27c81b3), worker
+loop, endpoints, flag, UI. (3) The Themes top-bar menu and page were replaced by a
+/settings page for every role (palette picker for all; blacklist manager + Styleguide /
+Palette-lab links for admins — those two left the nav, routes now admin-only). (4) Audit
+log left the nav; it's a button on Status. (5) WhatsApp is ON HOLD — code stays, status
+page says "on hold" instead of dressing an unconfigured bridge as a fault.
+
+**2026-07-25 — Product blacklist: hidden app-wide, managed in Settings** *(Phase 5.y)*
+Odoo's product list is full of non-shop noise (mortgages, solar panels, FBA fee lines,
+rental houses) that polluted every list and report. `products.blacklisted` +
+`not_blacklisted()` (the query-side twin, same pattern as `not_clothing()`) now filters
+EVERY user-facing surface: catalog default, restock engine, OOS board + org lists,
+center-order menus, ordering candidates + upload pools, spreadsheet matcher, time
+machine, and the reports product-join (`_grouped`). Order-header metrics (AOV/orders)
+have no product dimension and can't exclude — documented, not pretended. The one place
+blacklisted items still appear is the Settings manager itself (products?blacklisted=true)
+so they can be restored. Odoo is never touched.
+
+**2026-07-25 — floor_rotating: a role for rotating volunteers** *(Phase 5.y)*
+Identical to shoppe_floor everywhere (restock, OOS board actions, transfer viewing +
+counting/closing transitions) EXCEPT creating transfer requests or editing their lines —
+those endpoints stay shoppe_floor-only, and the UI entry points already keyed off
+shoppe_floor so they hide automatically. Added to SEE_EVERYTHING_ROLES and the transfers
+flow's FLOOR_ROLES; the role column is a plain string so no schema change.
+
+**2026-07-25 — Admin notices: a bulletin board, not a notification channel** *(Phase 5.y)*
+The "little inbox" is deliberately NOT wired into the notify outbox: admins post,
+everyone sees a bell badge, opening marks read (per-user rows). No email, no WhatsApp,
+no retries — announcements don't need delivery semantics, and keeping them out of the
+outbox means the gate ladder stays a write/send concern only.
+
+**2026-07-25 — Demo data cleared by script, not by nuke** *(Phase 5.y)*
+`python -m app.seeds.clear_demo` (dry-run default, `--apply` to execute) removed 15,053
+flow rows from the shared stack — transfers, center orders, POs, notifications, restock
+state, seed+e2e catalogs, the seed vendor — while keeping users (demo logins are the dev
+door), products, real synced history, settings, flags, and (always) the Odoo write audit
+log. Draft pickings testing left in Odoo are Odoo's to clean; the audit log lists them.
+Deploy guide for the hosted test round: docs/DEPLOY_VERCEL_SUPABASE.md — Vercel serves
+only the static frontend (VITE_API_BASE now points the client at a remote API); the
+backend+worker need an always-on host; Supabase is plain Postgres.

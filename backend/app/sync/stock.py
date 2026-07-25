@@ -10,6 +10,8 @@ pull can never leave a half-written table — the last good snapshot survives.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +22,8 @@ from ..models import (
     OdooLocation,
     Product,
     StockLevel,
+    StockSnapshot,
+    StockSnapshotDay,
     SyncState,
     utcnow,
 )
@@ -112,9 +116,45 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     for (product_id, key), qty in totals.items():
         db.add(StockLevel(product_id=product_id, location_key=key, qty=qty, captured_at=now))
 
+    _capture_history(db, settings, totals, now)
+
     center_stats = _map_center_locations(db, conn)
     state.extra = {**(state.extra or {}), "unknown_product_quants": unknown, **center_stats}
     return len(totals)
+
+
+def _capture_history(
+    db: Session, settings: Settings, totals: dict[tuple[int, str], float], now: datetime
+) -> None:
+    """Append today's totals to the stock history (the time machine's past
+    view). Re-running within a day replaces that day — the last sync wins.
+    Zero/negative rows are skipped; the StockSnapshotDay row marks the day as
+    covered regardless, so 'absent on a covered day' honestly means zero."""
+    today = now.date()
+    db.execute(delete(StockSnapshot).where(StockSnapshot.snapshot_date == today))
+    kept = 0
+    for (product_id, key), qty in totals.items():
+        if qty <= 0:
+            continue
+        db.add(
+            StockSnapshot(
+                snapshot_date=today,
+                product_id=product_id,
+                location_key=key,
+                qty=qty,
+                captured_at=now,
+            )
+        )
+        kept += 1
+    day = db.get(StockSnapshotDay, today)
+    if day is None:
+        db.add(StockSnapshotDay(snapshot_date=today, captured_at=now, rows=kept))
+    else:
+        day.captured_at = now
+        day.rows = kept
+    floor_date = today - timedelta(days=settings.stock_snapshot_retention_days)
+    db.execute(delete(StockSnapshot).where(StockSnapshot.snapshot_date < floor_date))
+    db.execute(delete(StockSnapshotDay).where(StockSnapshotDay.snapshot_date < floor_date))
 
 
 def _map_center_locations(db: Session, conn: OdooConnection) -> dict:

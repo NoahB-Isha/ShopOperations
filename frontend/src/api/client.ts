@@ -1,5 +1,10 @@
 const TOKEN_KEY = "ilops_token";
 
+/** API origin. Same-origin by default (the dev proxy / on-box deploys);
+ *  set VITE_API_BASE when the frontend is hosted elsewhere (e.g. Vercel)
+ *  and the backend lives on its own domain. */
+const API_BASE: string = import.meta.env.VITE_API_BASE || window.location.origin;
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -21,7 +26,7 @@ export async function api<T>(
   path: string,
   options: { method?: string; body?: unknown; params?: Record<string, string | number | boolean | undefined> } = {},
 ): Promise<T> {
-  const url = new URL(`/api/v1${path}`, window.location.origin);
+  const url = new URL(`/api/v1${path}`, API_BASE);
   for (const [k, v] of Object.entries(options.params ?? {})) {
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
@@ -59,7 +64,7 @@ export async function api<T>(
 /** Multipart request (file uploads) — same auth/error handling as api(). */
 export async function apiUpload<T>(path: string, form: FormData, method = "POST"): Promise<T> {
   const token = getToken();
-  const resp = await fetch(new URL(`/api/v1${path}`, window.location.origin), {
+  const resp = await fetch(new URL(`/api/v1${path}`, API_BASE), {
     method,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
@@ -87,7 +92,7 @@ export async function apiUpload<T>(path: string, form: FormData, method = "POST"
  *  link (tokens never ride in URLs). */
 export async function apiDownload(path: string, fallbackName: string): Promise<void> {
   const token = getToken();
-  const resp = await fetch(new URL(`/api/v1${path}`, window.location.origin), {
+  const resp = await fetch(new URL(`/api/v1${path}`, API_BASE), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!resp.ok) throw new ApiError(resp.status, `download failed (${resp.status})`);

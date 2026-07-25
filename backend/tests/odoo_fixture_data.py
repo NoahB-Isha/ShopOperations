@@ -74,25 +74,50 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     ]
 
     pos_orders = [
-        {"id": 5001, "name": "III/POS/PREV", "date_order": prev, "state": "done"},
-        {"id": 5002, "name": "III/POS/CUR", "date_order": cur, "state": "done"},
-        {"id": 5003, "name": "III/POS/DRAFT", "date_order": cur, "state": "draft"},  # excluded
+        # campus floor (Shoppe), a city-center config, and a campus one-off —
+        # the sales sync classifies channels from config_id. Partner 9001
+        # orders in BOTH months (returning customer); the Austin order is a
+        # walk-in (no partner — counts as an order, not a customer).
+        {"id": 5001, "name": "III/POS/PREV", "date_order": prev, "state": "done",
+         "config_id": [2, "III Floor"], "partner_id": [9001, "Priya R"], "amount_total": 346.0},
+        {"id": 5002, "name": "III/POS/CUR", "date_order": cur, "state": "done",
+         "config_id": [2, "III Floor"], "partner_id": [9001, "Priya R"], "amount_total": 210.0},
+        {"id": 5003, "name": "III/POS/DRAFT", "date_order": cur, "state": "draft",  # excluded
+         "config_id": [2, "III Floor"], "partner_id": False, "amount_total": 3366.0},
+        {"id": 5004, "name": "AUSTIN/PREV", "date_order": prev, "state": "done",
+         "config_id": [22, "Austin"], "partner_id": False, "amount_total": 72.0},
+        {"id": 5005, "name": "SNACK/CUR", "date_order": cur, "state": "done",
+         "config_id": [60, "III-Snack"], "partner_id": [9002, "Arun K"], "amount_total": 45.0},
     ]
     pos_lines = [
-        {"id": 1, "order_id": [5001, "III/POS/PREV"], "product_id": [201, "Copper"], "qty": 7},
-        {"id": 2, "order_id": [5002, "III/POS/CUR"], "product_id": [201, "Copper"], "qty": 5},
-        {"id": 3, "order_id": [5001, "III/POS/PREV"], "product_id": [203, "Incense"], "qty": 12},
-        {"id": 4, "order_id": [5003, "III/POS/DRAFT"], "product_id": [201, "Copper"], "qty": 99},
-        {"id": 5, "order_id": [5002, "III/POS/CUR"], "product_id": [999, "Ghost"], "qty": 4},
+        {"id": 1, "order_id": [5001, "III/POS/PREV"], "product_id": [201, "Copper"], "qty": 7,
+         "price_subtotal_incl": 238.0},
+        {"id": 2, "order_id": [5002, "III/POS/CUR"], "product_id": [201, "Copper"], "qty": 5,
+         "price_subtotal_incl": 170.0},
+        {"id": 3, "order_id": [5001, "III/POS/PREV"], "product_id": [203, "Incense"], "qty": 12,
+         "price_subtotal_incl": 108.0},
+        {"id": 4, "order_id": [5003, "III/POS/DRAFT"], "product_id": [201, "Copper"], "qty": 99,
+         "price_subtotal_incl": 3366.0},
+        {"id": 5, "order_id": [5002, "III/POS/CUR"], "product_id": [999, "Ghost"], "qty": 4,
+         "price_subtotal_incl": 40.0},
+        {"id": 6, "order_id": [5004, "AUSTIN/PREV"], "product_id": [202, "Mala"], "qty": 3,
+         "price_subtotal_incl": 72.0},
+        {"id": 7, "order_id": [5005, "SNACK/CUR"], "product_id": [204, "Chips"], "qty": 10,
+         "price_subtotal_incl": 45.0},
     ]
     sale_orders = [
-        {"id": 8001, "name": "S-PREV", "date_order": prev, "state": "sale"},
-        {"id": 8002, "name": "S-CANCEL", "date_order": cur, "state": "cancel"},  # excluded
+        {"id": 8001, "name": "S-PREV", "date_order": prev, "state": "sale",
+         "partner_id": [9003, "Maya S"], "amount_total": 156.0},
+        {"id": 8002, "name": "S-CANCEL", "date_order": cur, "state": "cancel",  # excluded
+         "partner_id": [9003, "Maya S"], "amount_total": 300.0},
     ]
     sale_lines = [
-        {"id": 1, "order_id": [8001, "S-PREV"], "product_id": [201, "Copper"], "product_uom_qty": 3},
-        {"id": 2, "order_id": [8001, "S-PREV"], "product_id": [205, "Toothpaste"], "product_uom_qty": 9},
-        {"id": 3, "order_id": [8002, "S-CANCEL"], "product_id": [205, "Toothpaste"], "product_uom_qty": 50},
+        {"id": 1, "order_id": [8001, "S-PREV"], "product_id": [201, "Copper"], "product_uom_qty": 3,
+         "price_total": 102.0},
+        {"id": 2, "order_id": [8001, "S-PREV"], "product_id": [205, "Toothpaste"], "product_uom_qty": 9,
+         "price_total": 54.0},
+        {"id": 3, "order_id": [8002, "S-CANCEL"], "product_id": [205, "Toothpaste"], "product_uom_qty": 50,
+         "price_total": 300.0},
     ]
 
     incoming = [
@@ -118,10 +143,10 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
                        "date", "state", "location_id", "location_dest_id", "picking_id",
                        "picking_code"],
         "stock.picking.type": ["id", "name", "code", "default_location_src_id", "default_location_dest_id"],
-        "pos.order": ["id", "name", "date_order", "state"],
-        "pos.order.line": ["id", "order_id", "product_id", "qty"],
-        "sale.order": ["id", "name", "date_order", "state"],
-        "sale.order.line": ["id", "order_id", "product_id", "product_uom_qty"],
+        "pos.order": ["id", "name", "date_order", "state", "config_id", "partner_id", "amount_total"],
+        "pos.order.line": ["id", "order_id", "product_id", "qty", "price_subtotal_incl"],
+        "sale.order": ["id", "name", "date_order", "state", "partner_id", "amount_total"],
+        "sale.order.line": ["id", "order_id", "product_id", "product_uom_qty", "price_total"],
     }
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -151,17 +176,39 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
             ("IN0000000777", "staging"): 4.0,
             ("US-SN0001", "bwhse"): 300.0,
         },
+        # channels assume a Center named "Austin" exists in the app DB (the
+        # sales test seeds it); without one the Austin config would honestly
+        # land in campus_other
         "expected_sales": {
-            ("CA0023000009", py, pm, "pos"): 7.0,
-            ("CA0023000009", cy, cm, "pos"): 5.0,
-            ("IN0000000777", py, pm, "pos"): 12.0,
+            ("CA0023000009", py, pm, "shoppe"): 7.0,
+            ("CA0023000009", cy, cm, "shoppe"): 5.0,
+            ("IN0000000777", py, pm, "shoppe"): 12.0,
+            ("RU0000000005", py, pm, "city_center"): 3.0,
+            ("US-SN0001", cy, cm, "campus_other"): 10.0,
             ("CA0023000009", py, pm, "online"): 3.0,
             ("OC0000000042", py, pm, "online"): 9.0,
         },
+        "expected_amounts": {
+            ("CA0023000009", py, pm, "shoppe"): 238.0,
+            ("RU0000000005", py, pm, "city_center"): 72.0,
+            ("CA0023000009", py, pm, "online"): 102.0,
+        },
+        "expected_center_sales": {("Austin", py, pm): (3.0, 72.0)},
+        # (y, m, channel) -> (orders, amount, with_customer, distinct, new, returning)
+        # partner 9001 buys in both months → RETURNING in the current month
+        "expected_orders": {
+            (py, pm, "shoppe"): (1, 346.0, 1, 1, 1, 0),
+            (cy, cm, "shoppe"): (1, 210.0, 1, 1, 0, 1),
+            (py, pm, "city_center"): (1, 72.0, 0, 0, 0, 0),
+            (cy, cm, "campus_other"): (1, 45.0, 1, 1, 1, 0),
+            (py, pm, "online"): (1, 156.0, 1, 1, 1, 0),
+        },
         "expected_sales_daily": {
-            ("CA0023000009", f"{py}-{pm:02d}-15", "pos"): 7.0,
-            ("CA0023000009", f"{cy}-{cm:02d}-05", "pos"): 5.0,
-            ("IN0000000777", f"{py}-{pm:02d}-15", "pos"): 12.0,
+            ("CA0023000009", f"{py}-{pm:02d}-15", "shoppe"): 7.0,
+            ("CA0023000009", f"{cy}-{cm:02d}-05", "shoppe"): 5.0,
+            ("IN0000000777", f"{py}-{pm:02d}-15", "shoppe"): 12.0,
+            ("RU0000000005", f"{py}-{pm:02d}-15", "city_center"): 3.0,
+            ("US-SN0001", f"{cy}-{cm:02d}-05", "campus_other"): 10.0,
             ("CA0023000009", f"{py}-{pm:02d}-15", "online"): 3.0,
             ("OC0000000042", f"{py}-{pm:02d}-15", "online"): 9.0,
         },

@@ -9,7 +9,7 @@ a human validates it in Odoo; the app adjusts nothing itself.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,12 +21,16 @@ from ..center_orders.catalog import expected_back_label, incoming_by_product
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import (
+    SHOPPE_CHANNELS,
     FloorOosMark,
     OdooWriteOutcome,
     Product,
     Role,
+    SalesDaily,
     StockLevel,
+    StockSnapshot,
     User,
+    not_blacklisted,
     utcnow,
 )
 from ..odoo.connection import get_connection
@@ -34,11 +38,21 @@ from ..odoo.errors import OdooError, OdooWriteError
 from ..odoo.operations import new_reference
 from ..odoo.writer import OdooWriter
 
+# Floor + rotating volunteers own the board and its actions; warehouse (and
+# admin) can view the list — the page's Everywhere/Warehouse scopes matter to
+# them too.
+BOARD_ACTORS = (Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING)
+
 router = APIRouter(
     prefix="/oos",
     tags=["oos"],
-    dependencies=[Depends(require_roles(Role.SHOPPE_FLOOR))],
+    dependencies=[Depends(require_roles(*BOARD_ACTORS, Role.WAREHOUSE))],
 )
+
+# What makes a product "floor-relevant" for the computed-zeros board: Shoppe
+# sales inside this window, or floor stock at any point in this history window.
+RELEVANT_SALES_DAYS = 30
+RELEVANT_HISTORY_DAYS = 60
 
 
 # ------------------------------------------------------------------ schemas
@@ -127,10 +141,18 @@ def _item(
 @router.get("", response_model=list[OosItemOut])
 def list_oos(
     db: Session = Depends(get_db),
-    _: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+    _: AuthedUser = Depends(require_roles(*BOARD_ACTORS, Role.WAREHOUSE)),
 ) -> list[OosItemOut]:
-    """Marked products first (newest on top), then everything Odoo already
-    shows at zero on the floor."""
+    """Marked products first (newest on top), then every FLOOR-RELEVANT
+    product Odoo shows at zero on the floor.
+
+    "Floor-relevant" matters: Odoo vacuums zero quants, so a product that
+    sold out yesterday often has NO floor stock row at all — the old
+    row-must-exist query silently dropped exactly the items the team most
+    needs to see (the live board was 20 rows while thousands of products
+    existed). A product belongs on this board when it has a floor stock row
+    today, floor snapshot history, or recent Shoppe sales — and its floor
+    quantity is zero-or-missing. Non-retail POS items stay off."""
     today = utcnow().date()
     marks = db.scalars(
         select(FloorOosMark)
@@ -140,17 +162,58 @@ def list_oos(
     ).all()
     marked_pids = {m.product_id for m in marks}
 
-    zero_rows = db.execute(
-        select(StockLevel.product_id)
-        .join(Product, Product.id == StockLevel.product_id)
-        .where(
-            StockLevel.location_key == "floor",
-            StockLevel.qty <= 0,
-            Product.is_active.is_(True),
-            Product.is_stock_tracked.is_(True),
+    floor_qty: dict[int, float] = {
+        pid: float(qty or 0)
+        for pid, qty in db.execute(
+            select(StockLevel.product_id, StockLevel.qty).where(
+                StockLevel.location_key == "floor"
+            )
+        )
+    }
+    relevant: set[int] = set(floor_qty)
+    # sold at the Shoppe recently → belongs on the floor
+    sales_floor_date = today - timedelta(days=RELEVANT_SALES_DAYS)
+    relevant.update(
+        pid
+        for (pid,) in db.execute(
+            select(SalesDaily.product_id)
+            .where(
+                SalesDaily.channel.in_(SHOPPE_CHANNELS),
+                SalesDaily.day >= sales_floor_date,
+            )
+            .distinct()
         )
     )
-    zero_pids = {pid for (pid,) in zero_rows} - marked_pids
+    # had floor stock in recent history → belongs on the floor
+    history_floor_date = today - timedelta(days=RELEVANT_HISTORY_DAYS)
+    relevant.update(
+        pid
+        for (pid,) in db.execute(
+            select(StockSnapshot.product_id)
+            .where(
+                StockSnapshot.location_key == "floor",
+                StockSnapshot.snapshot_date >= history_floor_date,
+                StockSnapshot.qty > 0,
+            )
+            .distinct()
+        )
+    )
+
+    eligible = {
+        pid
+        for (pid,) in db.execute(
+            select(Product.id).where(
+                Product.id.in_(relevant or {-1}),
+                Product.is_active.is_(True),
+                Product.is_stock_tracked.is_(True),
+                Product.restock_exclude.is_(False),
+                not_blacklisted(),
+            )
+        )
+    }
+    zero_pids = {
+        pid for pid in eligible if floor_qty.get(pid, 0.0) <= 0
+    } - marked_pids
 
     pids = marked_pids | zero_pids
     stock = _stock_pairs(db, pids)
@@ -162,6 +225,8 @@ def list_oos(
     items: list[OosItemOut] = []
     for m in marks:
         p = products.get(m.product_id) or m.product
+        if p.blacklisted:  # blacklisted items show nowhere, marks included
+            continue
         items.append(_item(db, p, stock.get(p.id, {}), incoming.get(p.id, []), today, m))
     computed = [
         _item(db, products[pid], stock.get(pid, {}), incoming.get(pid, []), today, None)
@@ -182,7 +247,7 @@ def mark_out_of_stock(
     body: MarkIn,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+    authed: AuthedUser = Depends(require_roles(*BOARD_ACTORS)),
 ) -> OosItemOut:
     """'This shelf is actually empty.' Renders the draft reduction for
     whatever quantity Odoo still claims; with nothing to remove it's pure
@@ -279,7 +344,7 @@ def unmark(
     mark_id: int,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+    authed: AuthedUser = Depends(require_roles(*BOARD_ACTORS)),
 ) -> None:
     """Marked by mistake: plain undo, no stock adjustment."""
     mark = db.get(FloorOosMark, mark_id)
@@ -315,7 +380,7 @@ def back_in_stock(
     body: RestockIn,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+    authed: AuthedUser = Depends(require_roles(*BOARD_ACTORS)),
 ) -> RestockOut:
     """The shelf has stock again. With a counted quantity, renders the draft
     that reconciles Odoo to the count — "USA-III: Inventory Adj  Adding Qty"

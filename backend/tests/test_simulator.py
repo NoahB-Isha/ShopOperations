@@ -23,7 +23,9 @@ def test_dotted_domain_via_relation(sim):
     rows = sim.search_read(
         "pos.order.line", [["order_id.state", "in", ["paid", "done", "invoiced"]]], ["qty"]
     )
-    assert {r["id"] for r in rows} == {1, 2, 3, 5}  # draft order's line excluded
+    # every line on a confirmed order (incl. the Austin + Snack configs);
+    # only the draft order's line (4) is excluded
+    assert {r["id"] for r in rows} == {1, 2, 3, 5, 6, 7}
 
 
 def test_or_domains_rejected_loudly(sim):

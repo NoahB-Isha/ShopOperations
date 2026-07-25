@@ -32,6 +32,16 @@ import type {
   CatalogImportResultOut,
   ProductListMetaOut,
   VendorProductOut,
+  AvailabilityItemOut,
+  AvailabilityMetaOut,
+  BreakdownOut,
+  InboxOut,
+  NoticeOut,
+  NarrativeOut,
+  QaOut,
+  SalesOverviewOut,
+  TimeMachineBoundsOut,
+  TimeMachineViewOut,
 } from "./types";
 
 // ------------------------------------------------------------------ catalog
@@ -43,6 +53,7 @@ export interface ProductQuery {
   sort: string;
   dir: "asc" | "desc";
   include_inactive?: boolean;
+  blacklisted?: boolean;
 }
 
 export function useProducts(q: ProductQuery) {
@@ -861,6 +872,165 @@ export function useRemoveVendorProduct() {
       qc.invalidateQueries({ queryKey: ["vendor-products"] });
       qc.invalidateQueries({ queryKey: ["vendor-suggestions"] });
       qc.invalidateQueries({ queryKey: ["vendors"] });
+    },
+  });
+}
+
+// ------------------------------------------------- phase 5: reporting
+export function useSalesOverview(period: string, scope = "all") {
+  return useQuery({
+    queryKey: ["reports-sales", period, scope],
+    queryFn: () => api<SalesOverviewOut>("/reports/sales", { params: { period, scope } }),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+export function useBreakdown(period: string, dim: string, scope = "all") {
+  return useQuery({
+    queryKey: ["reports-breakdown", period, dim, scope],
+    queryFn: () =>
+      api<BreakdownOut>("/reports/breakdown", { params: { period, dim, scope, limit: 500 } }),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+export function useNarrative(period: string) {
+  return useQuery({
+    queryKey: ["reports-narrative", period],
+    queryFn: () => api<NarrativeOut>("/reports/narrative", { params: { period } }),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRefreshNarrative() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (period: string) =>
+      api<NarrativeOut>("/reports/narrative", { params: { period, refresh: true } }),
+    onSuccess: (data, period) => qc.setQueryData(["reports-narrative", period], data),
+  });
+}
+
+export function useAskQuestion() {
+  return useMutation({
+    mutationFn: (body: { question: string; period: string }) =>
+      api<QaOut>("/reports/qa", { method: "POST", body }),
+  });
+}
+
+// ---------------------------------------------- phase 5: time machine
+export function useTimeMachineBounds() {
+  return useQuery({
+    queryKey: ["time-machine-bounds"],
+    queryFn: () => api<TimeMachineBoundsOut>("/time-machine/bounds"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useTimeMachine(date: string | null, category: string) {
+  return useQuery({
+    queryKey: ["time-machine", date, category],
+    queryFn: () =>
+      api<TimeMachineViewOut>("/time-machine", {
+        params: { date: date!, ...(category ? { category } : {}) },
+      }),
+    enabled: date !== null,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------- phase 5: availability
+export function useAvailabilityMeta() {
+  return useQuery({
+    queryKey: ["availability-meta"],
+    queryFn: () => api<AvailabilityMetaOut>("/availability/meta"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useAvailabilityOos(scope: string, enabled = true) {
+  return useQuery({
+    queryKey: ["availability-oos", scope],
+    queryFn: () => api<AvailabilityItemOut[]>("/availability/oos", { params: { scope } }),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+export function useAvailabilityComingSoon(within_days: number | null) {
+  return useQuery({
+    queryKey: ["availability-coming-soon", within_days],
+    queryFn: () =>
+      api<AvailabilityItemOut[]>("/availability/coming-soon", {
+        params: { ...(within_days ? { within_days } : {}) },
+      }),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+// ------------------------------------------------------- notices inbox
+export function useNotices() {
+  return useQuery({
+    queryKey: ["notices"],
+    queryFn: () => api<InboxOut>("/notices"),
+    staleTime: 30_000,
+    refetchInterval: 90_000, // the unread badge stays roughly current
+  });
+}
+
+export function useMarkNoticesRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<InboxOut>("/notices/read", { method: "POST" }),
+    onSuccess: (inbox) => qc.setQueryData(["notices"], inbox),
+  });
+}
+
+export function usePostNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { title: string; body: string }) =>
+      api<NoticeOut>("/notices", { method: "POST", body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notices"] }),
+  });
+}
+
+export function useDeleteNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<void>(`/notices/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notices"] }),
+  });
+}
+
+export function useStartHistoryBackfill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (weeks?: number) =>
+      api<{ queued: number; requested_weeks: number; note: string }>(
+        "/admin/time-machine/backfill",
+        { method: "POST", body: weeks ? { weeks } : {} },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["time-machine-bounds"] }),
+  });
+}
+
+export function useRebuildSalesHistory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<{ status: string; rows: number; error: string }>("/admin/sync/sales/rebuild", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      qc.invalidateQueries({ queryKey: ["reports-sales"] });
+      qc.invalidateQueries({ queryKey: ["reports-breakdown"] });
     },
   });
 }

@@ -11,9 +11,10 @@ Idempotent — safe to re-run.
 """
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
 from ..center_orders.reasonability import assess_order
@@ -45,6 +46,8 @@ from ..models import (
     RoleAssignment,
     SalesMonthly,
     StockLevel,
+    StockSnapshot,
+    StockSnapshotDay,
     TagName,
     TransferEvent,
     TransferEventKind,
@@ -739,6 +742,58 @@ def seed_phase4_flows(db: Session) -> None:
     print(f"  phase 4: {reply_note}")
 
 
+def seed_phase5_flows(db: Session) -> None:
+    """Phase 5: a demo needs a PAST — the stock sync only captures history
+    going forward, so synthesize ~90 days of plausible snapshot history by
+    walking each stock bucket backward from today's levels (deterministic
+    RNG). Two days are deliberately missing (an 'Odoo outage weekend') so the
+    time machine's nearest-day confidence shows up in demos."""
+    today = utcnow().date()
+    existing_days = db.scalar(select(func.count()).select_from(StockSnapshotDay)) or 0
+    if existing_days > 1:
+        print(f"  phase5: snapshot history already present ({existing_days} days) — skipping")
+    else:
+        rng = random.Random(75)
+        days_back = 90
+        gap_days = {today - timedelta(days=33), today - timedelta(days=34)}
+        levels = db.execute(
+            select(StockLevel.product_id, StockLevel.location_key, StockLevel.qty)
+        ).all()
+        rows: list[dict] = []
+        now = utcnow()
+        for pid, key, qty in levels:
+            q = float(qty or 0)
+            for d in range(1, days_back + 1):
+                day = today - timedelta(days=d)
+                # yesterday = today + sold − received: quiet depletion with the
+                # occasional receipt (stock was lower before it landed)
+                q += rng.choice((0, 0, 0, 0, 1, 1, 2)) if q < 400 else rng.choice((0, 1, 2, 3, 5))
+                if rng.random() < 0.012:
+                    q = max(0.0, q - rng.choice((24.0, 48.0, 96.0)))
+                if q > 0 and day not in gap_days:
+                    rows.append(
+                        {
+                            "snapshot_date": day,
+                            "product_id": pid,
+                            "location_key": key,
+                            "qty": round(q, 1),
+                            "captured_at": now,
+                        }
+                    )
+        for i in range(0, len(rows), 5000):
+            db.execute(insert(StockSnapshot), rows[i : i + 5000])
+        day_counts: dict = {}
+        for r in rows:
+            day_counts[r["snapshot_date"]] = day_counts.get(r["snapshot_date"], 0) + 1
+        for d in range(1, days_back + 1):
+            day = today - timedelta(days=d)
+            if day in gap_days or db.get(StockSnapshotDay, day) is not None:
+                continue
+            db.add(StockSnapshotDay(snapshot_date=day, captured_at=now, rows=day_counts.get(day, 0)))
+        db.commit()
+        print(f"  phase5: {len(rows)} history rows over {days_back} days (2-day gap left on purpose)")
+
+
 def replay_restock_folds(db: Session, days: int = 10) -> None:
     """Run the accumulator day by day over the recent sales history, exactly
     as if the old restock script had run every morning."""
@@ -783,6 +838,8 @@ def main() -> None:
         ensure_role(db, wh, Role.WAREHOUSE)
         floor = get_or_create_user(db, f"floor@{DEMO_DOMAIN}", "Demo Shoppe Floor")
         ensure_role(db, floor, Role.SHOPPE_FLOOR)
+        rotating = get_or_create_user(db, f"rotating@{DEMO_DOMAIN}", "Demo Floor (Rotating)")
+        ensure_role(db, rotating, Role.FLOOR_ROTATING)
 
         zone1 = db.scalar(select(Zone).where(Zone.name.ilike("Zone 1%")))
         coord = get_or_create_user(db, f"coordinator@{DEMO_DOMAIN}", "Demo Coordinator (Lili)")
@@ -802,7 +859,10 @@ def main() -> None:
             ensure_role(db, dept_orderer, Role.DEPT_ORDERER, center_id=kitchen.id)
 
         db.commit()
-        print("  users: 7 demo logins (admin, warehouse, floor, coordinator, orderer, liaison, kitchen)")
+        print(
+            "  users: 8 demo logins (admin, warehouse, floor, rotating, coordinator, "
+            "orderer, liaison, kitchen)"
+        )
 
         # 5. sync everything (fixture simulator unless real ODOO_* creds are set)
         print(f"\n  syncing all domains ({settings.odoo_mode} mode)…")
@@ -820,6 +880,9 @@ def main() -> None:
         # 8. phase-4 flows: India ordering, vendor, analogy, reply proposals
         seed_phase4_flows(db)
 
+        # 9. phase-5: snapshot history for the time machine + digest subs
+        seed_phase5_flows(db)
+
         n_products = db.scalar(select(func.count()).select_from(Product))
         print(f"\nDone. {n_products} products in the catalog.")
         print("\nLog in at the web UI with any of these (dev mode shows the code on screen):")
@@ -827,6 +890,7 @@ def main() -> None:
             ("Admin", f"admin@{DEMO_DOMAIN}"),
             ("Warehouse", f"warehouse@{DEMO_DOMAIN}"),
             ("Shoppe floor", f"floor@{DEMO_DOMAIN}"),
+            ("Floor (rotating)", f"rotating@{DEMO_DOMAIN}"),
             ("Zone coordinator", f"coordinator@{DEMO_DOMAIN}"),
             ("Center orderer", f"orderer@{DEMO_DOMAIN}"),
             ("Dept liaison", f"liaison@{DEMO_DOMAIN}"),

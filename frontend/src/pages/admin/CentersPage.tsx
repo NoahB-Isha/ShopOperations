@@ -46,12 +46,20 @@ export function CentersPage() {
         header: "Center",
         sortable: true,
         render: (c) => (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="font-medium">{c.name}</span>
             {c.shared_product_group && (
               <Badge tone="copper" title={`Shares a product set (${c.shared_product_group})`}>
                 shared set
               </Badge>
+            )}
+            {/* phones hide the Follow-up column — keep the signal as a dot */}
+            {c.needs_followup && (
+              <span
+                aria-label="Needs follow-up"
+                title={c.followup_reasons.map((r) => REASON_LABELS[r] ?? r).join(", ")}
+                className="h-2 w-2 shrink-0 rounded-full bg-gold sm:hidden"
+              />
             )}
           </div>
         ),
@@ -87,9 +95,12 @@ export function CentersPage() {
       {
         key: "followup",
         header: "Follow-up",
+        hideBelow: "sm",
         render: (c) =>
           c.needs_followup ? (
-            <span className="flex flex-wrap gap-1">
+            // bounded width: long reason badges wrap instead of stretching
+            // the table into horizontal scroll
+            <span className="flex max-w-56 flex-wrap gap-1">
               {c.followup_reasons.map((r) => (
                 <Badge key={r} tone="gold" title={REASON_LABELS[r] ?? r}>
                   {REASON_LABELS[r] ?? r}

@@ -10,17 +10,22 @@ from . import __version__
 from .admin.system_router import router as admin_system_router
 from .admin.users_router import router as admin_users_router
 from .auth.router import router as auth_router
+from .availability.bot import router as bot_router
+from .availability.router import router as availability_router
 from .catalog.router import router as catalog_router
 from .center_orders.router import router as center_orders_router
 from .centers.router import router as centers_router
 from .config import get_settings
 from .health import router as health_router
+from .notices.router import router as notices_router
 from .odoo.errors import OdooWriteError
 from .odoo.writer import WriterValidationError
 from .oos.router import router as oos_router
 from .ordering.router import router as ordering_router
 from .orders.router import router as orders_router
+from .reporting.router import router as reports_router
 from .restock.router import router as restock_router
+from .timemachine.router import router as timemachine_router
 from .transfers.router import adjustments_router
 from .transfers.router import router as transfers_router
 
@@ -54,8 +59,13 @@ def create_app() -> FastAPI:
         center_orders_router,
         restock_router,
         oos_router,
+        notices_router,
         transfers_router,
         adjustments_router,
+        availability_router,
+        bot_router,
+        timemachine_router,
+        reports_router,
         admin_users_router,
         admin_system_router,
     ):

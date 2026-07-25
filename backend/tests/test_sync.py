@@ -1,6 +1,22 @@
 from __future__ import annotations
 
-from app.models import IncomingMove, Product, SalesDaily, SalesMonthly, StockLevel, SyncState
+from datetime import timedelta
+
+from app.models import (
+    Center,
+    CustomerFirstSeen,
+    IncomingMove,
+    Product,
+    SalesCenterMonthly,
+    SalesDaily,
+    SalesMonthly,
+    SalesOrdersMonthly,
+    StockLevel,
+    StockSnapshot,
+    StockSnapshotDay,
+    SyncState,
+    utcnow,
+)
 from app.odoo.simulator import OdooSimulator
 from app.sync.runner import run_all, run_domain
 from sqlalchemy import select
@@ -59,6 +75,46 @@ def test_stock_sync_aggregates_by_location(db, settings_env):
     assert got == settings_env._test_expectations["expected_stock"]
 
 
+def test_stock_sync_captures_daily_history(db, settings_env):
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+
+    today = utcnow().date()
+    day = db.get(StockSnapshotDay, today)
+    assert day is not None and day.rows > 0
+
+    skus = {p.id: p.global_sku for p in db.scalars(select(Product))}
+    history = {
+        (skus[s.product_id], s.location_key): s.qty
+        for s in db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == today))
+    }
+    # history mirrors the live snapshot (zero rows aren't stored)
+    assert history == {
+        k: v for k, v in settings_env._test_expectations["expected_stock"].items() if v > 0
+    }
+
+    # same-day re-run replaces rather than duplicates; old days are pruned
+    stale = today - timedelta(days=settings_env.stock_snapshot_retention_days + 5)
+    db.add(StockSnapshotDay(snapshot_date=stale, rows=1))
+    db.add(
+        StockSnapshot(
+            snapshot_date=stale,
+            product_id=next(iter(skus)),
+            location_key="bwhse",
+            qty=1,
+        )
+    )
+    db.commit()
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+    days = db.scalars(select(StockSnapshotDay.snapshot_date)).all()
+    assert days == [today]
+    count_today = len(
+        db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == today)).all()
+    )
+    assert count_today == len(history)
+
+
 def test_stock_sync_failure_keeps_last_snapshot(db, settings_env):
     sim = _sim(settings_env)
     run_domain(db, settings_env, "products", conn=sim, trigger="manual")
@@ -82,6 +138,9 @@ def test_stock_sync_failure_keeps_last_snapshot(db, settings_env):
 def test_sales_sync_backfill_then_incremental(db, settings_env):
     sim = _sim(settings_env)
     run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    # channel classification matches pos.config names against centers
+    db.add(Center(name="Austin", city="Austin"))
+    db.commit()
     run = run_domain(db, settings_env, "sales", conn=sim, trigger="manual")
     assert run.status == "success", run.error
 
@@ -92,15 +151,51 @@ def test_sales_sync_backfill_then_incremental(db, settings_env):
     }
     assert got == settings_env._test_expectations["expected_sales"]
 
+    amounts = {
+        (skus[r.product_id], r.year, r.month, r.channel): r.amount
+        for r in db.scalars(select(SalesMonthly))
+    }
+    for key, amount in settings_env._test_expectations["expected_amounts"].items():
+        assert amounts[key] == amount
+
+    centers = {
+        (r.config_name, r.year, r.month): (r.units, r.amount)
+        for r in db.scalars(select(SalesCenterMonthly))
+    }
+    assert centers == settings_env._test_expectations["expected_center_sales"]
+    austin = db.scalar(select(SalesCenterMonthly))
+    assert austin.center_id == db.scalar(select(Center.id).where(Center.name == "Austin"))
+
     daily = {
         (skus[r.product_id], r.day.isoformat(), r.channel): r.units
         for r in db.scalars(select(SalesDaily))
     }
     assert daily == settings_env._test_expectations["expected_sales_daily"]
 
+    orders = {
+        (r.year, r.month, r.channel): (
+            r.orders, r.amount, r.orders_with_customer,
+            r.distinct_customers, r.new_customers, r.returning_customers,
+        )
+        for r in db.scalars(select(SalesOrdersMonthly))
+    }
+    assert orders == settings_env._test_expectations["expected_orders"]
+    first_seen = {
+        (r.partner_id, r.channel): r.first_order_on
+        for r in db.scalars(select(CustomerFirstSeen))
+    }
+    prev_y, prev_m = settings_env._test_expectations["months"]["previous"]
+    assert first_seen[(9001, "shoppe")].month == prev_m  # loyalty anchored to first order
+    assert (9003, "online") in first_seen
+
     state = db.get(SyncState, "sales")
     assert state.extra.get("backfill_done_at")
     assert "backfill" in state.extra.get("last_window", "")
+    assert state.extra.get("pos_config_channels") == {
+        "III Floor": "shoppe",
+        "Austin": "city_center",
+        "III-Snack": "campus_other",
+    }
 
     # second run is a small incremental, and stays idempotent
     run = run_domain(db, settings_env, "sales", conn=sim, trigger="manual")
@@ -112,6 +207,16 @@ def test_sales_sync_backfill_then_incremental(db, settings_env):
         for r in db.scalars(select(SalesMonthly))
     }
     assert got2 == got
+    orders2 = {
+        (r.year, r.month, r.channel): (
+            r.orders, r.amount, r.orders_with_customer,
+            r.distinct_customers, r.new_customers, r.returning_customers,
+        )
+        for r in db.scalars(select(SalesOrdersMonthly))
+    }
+    # the incremental window replays current+previous month; the returning
+    # split must not drift (first_seen memory keeps it stable)
+    assert orders2 == orders
 
 
 def test_incoming_sync_excludes_done_moves(db, settings_env):

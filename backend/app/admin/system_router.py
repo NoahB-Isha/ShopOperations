@@ -10,13 +10,21 @@ from ..auth.deps import AuthedUser, require_roles
 from ..centers.importer import run_import
 from ..config import Settings, get_settings
 from ..db import get_db
-from ..models import SYNC_DOMAINS, FeatureFlag, OdooWriteAudit, Role
+from ..ingestion.sources import registry_status
+from ..models import (
+    SYNC_DOMAINS,
+    FeatureFlag,
+    OdooWriteAudit,
+    Role,
+    SyncState,
+)
 from ..notify import service as notify_service
 from ..odoo.canary import run_canary_create_internal_transfer
 from ..odoo.connection import get_connection
 from ..odoo.contract import check_contract
 from ..sync.runner import run_all, run_domain
 from ..sync.status import domain_statuses, health_payload, recent_runs
+from ..timemachine.backfill import backfill_state, request_backfill
 
 router = APIRouter(
     prefix="/admin",
@@ -28,6 +36,7 @@ router = APIRouter(
 @router.get("/status")
 def status(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
     flags = db.scalars(select(FeatureFlag)).all()
+    tm_backfill = backfill_state(db)
     return {
         **health_payload(db, settings),
         "auth_mode": settings.auth_mode,
@@ -37,6 +46,12 @@ def status(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
         "flags": [
             {"key": f.key, "enabled": f.enabled, "description": f.description} for f in flags
         ],
+        "ingestion_sources": registry_status(),
+        "timemachine_backfill": {
+            "pending": len(tm_backfill.get("pending") or []),
+            "done": tm_backfill.get("done", 0),
+            "last_processed": tm_backfill.get("last_processed"),
+        },
     }
 
 
@@ -44,6 +59,46 @@ def status(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
 def list_notifications(limit: int = 50, db: Session = Depends(get_db)) -> list[dict]:
     """The outbox, newest first — who was (or would have been) told what."""
     return notify_service.recent_notifications(db, limit)
+
+
+@router.post("/sync/sales/rebuild")  # BEFORE /sync/{domain} — route order matters
+def rebuild_sales_history(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Clear the backfill marker and re-pull the full sales window NOW —
+    the one heavy query, run deliberately. This is how pre-Phase-5 rows get
+    their channel split and revenue amounts. Explicit admin action only."""
+    state = db.get(SyncState, "sales")
+    if state is not None:
+        extra = dict(state.extra or {})
+        extra.pop("backfill_done_at", None)
+        extra.pop("prev_month_synced_on", None)
+        state.extra = extra
+        db.commit()
+    run = run_domain(db, settings, "sales", trigger="manual")
+    return {"domain": run.domain, "status": run.status, "rows": run.rows, "error": run.error}
+
+
+class BackfillIn(BaseModel):
+    weeks: int | None = None  # default = settings.timemachine_backfill_weeks
+
+
+@router.post("/time-machine/backfill")
+def start_history_backfill(
+    body: BackfillIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Queue weekly stock-history reconstruction from Odoo's move ledger.
+    The worker processes one date per loop pass (polite pacing); days the
+    live capture already covers are never overwritten."""
+    state = request_backfill(db, settings, body.weeks)
+    return {
+        "queued": len(state["pending"]),
+        "requested_weeks": state["requested_weeks"],
+        "note": "the worker reconstructs one date per pass — watch progress on this page",
+    }
 
 
 @router.post("/sync/{domain}")

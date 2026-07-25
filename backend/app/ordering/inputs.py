@@ -53,6 +53,7 @@ from ..models import (
     StockLevel,
     Vendor,
     VendorKind,
+    not_blacklisted,
     not_clothing,
     utcnow,
 )
@@ -141,6 +142,7 @@ def import_candidates(db: Session, restrict_skus: set[str] | None = None) -> lis
                 Product.is_stock_tracked.is_(True),
                 Product.ordering_exclude.is_(False),
                 not_clothing(),
+                not_blacklisted(),
             )
             .order_by(Product.category, Product.name)
         )
@@ -409,7 +411,9 @@ def build_bundle_from_workbook(
     ws = wb["SEA"]
     by_sku = {
         p.global_sku: p
-        for p in db.execute(select(Product).options(selectinload(Product.tags)))
+        for p in db.execute(
+            select(Product).options(selectinload(Product.tags)).where(not_blacklisted())
+        )
         .scalars()
         .all()
     }
@@ -502,7 +506,9 @@ def build_bundle_from_sales_csv(
 
     by_sku = {
         p.global_sku: p
-        for p in db.execute(select(Product).options(selectinload(Product.tags)))
+        for p in db.execute(
+            select(Product).options(selectinload(Product.tags)).where(not_blacklisted())
+        )
         .scalars()
         .all()
     }

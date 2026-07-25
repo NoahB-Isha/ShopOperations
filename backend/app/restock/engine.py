@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import (
+    SHOPPE_CHANNELS,
     Product,
     RestockAccum,
     RestockCheckoff,
@@ -48,10 +49,13 @@ from ..models import (
     RestockLine,
     SalesDaily,
     StockLevel,
+    not_blacklisted,
     utcnow,
 )
 
-POS = "pos"
+# Floor restock counts SHOPPE-floor POS sales only: city-center and campus
+# event POS sales don't deplete the floor. Legacy pre-split 'pos' rows count
+# as Shoppe until a sales re-backfill reclassifies them.
 FLOOR_LIST = "floor"
 BACK_LIST = "back"
 
@@ -78,6 +82,7 @@ def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
                 Product.is_stock_tracked.is_(True),
                 # non-retail POS items (campus meals, prasadam…) never restock
                 Product.restock_exclude.is_(False),
+                not_blacklisted(),
             )
         )
     }
@@ -89,7 +94,7 @@ def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
     while day <= yesterday:
         rows = db.execute(
             select(SalesDaily.product_id, SalesDaily.units).where(
-                SalesDaily.day == day, SalesDaily.channel == POS
+                SalesDaily.day == day, SalesDaily.channel.in_(SHOPPE_CHANNELS)
             )
         )
         for product_id, units in rows:
@@ -185,7 +190,11 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
         pid: float(units or 0)
         for pid, units in db.execute(
             select(SalesDaily.product_id, func.sum(SalesDaily.units))
-            .where(SalesDaily.channel == POS, SalesDaily.day >= since, SalesDaily.day < today)
+            .where(
+                SalesDaily.channel.in_(SHOPPE_CHANNELS),
+                SalesDaily.day >= since,
+                SalesDaily.day < today,
+            )
             .group_by(SalesDaily.product_id)
         )
     }
@@ -208,6 +217,7 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
                 Product.is_active.is_(True),
                 Product.is_stock_tracked.is_(True),
                 Product.restock_exclude.is_(False),
+                not_blacklisted(),
             )
         )
     }

@@ -231,3 +231,142 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   /ordering/vendors/{id}/products (POST upserts moq; one vendor per product, 409
   otherwise); VendorsPage = contacts + ProductPicker roster mgmt, ordering lives on the
   Domestic tab.
+- Phase 5 modules (same build-on-never-around rule): **sales channels split at sync**
+  (`app/sync/sales.py`): every pos.order is classified by its pos.config name (verified
+  live 2026-07-21 — 53 configs: 'III Floor' + one per city center + campus one-offs) into
+  `shoppe` / `city_center` / `campus_other`; online stays `online`; center matching is
+  normalized-name vs the centers table with the `sales_channel_aliases` AppSetting
+  ({config name: channel}) as the admin escape hatch, and unmatched configs land in
+  campus_other honestly (per-config map in sync_state.extra.pos_config_channels). Rows
+  written pre-split keep channel `pos` (displayed as Shoppe-legacy) and amounts NULL until
+  an admin runs POST /admin/sync/sales/rebuild (declared BEFORE /sync/{domain}; clears the
+  backfill marker → one deliberate heavy re-pull). Line revenue is captured tax-in
+  (pos `price_subtotal_incl`, online `price_total`) into `amount` columns; the dashboard
+  estimates NULL-amount rows at units × current retail and reports `estimated_share` —
+  never silently. RESTOCK now counts `SHOPPE_CHANNELS` = (shoppe, pos-legacy) only —
+  center/campus POS sales no longer inflate floor restock. `sales_center_monthly` =
+  config-level center rollup (units+amount, no product dim) feeding the centers panel +
+  Q&A. **Stock history**: every stock sync appends the day's totals to `stock_snapshots`
+  (+`stock_snapshot_days` coverage markers — absent product on a covered day = genuinely
+  zero; zero rows aren't stored), same-day re-runs replace, retention
+  `stock_snapshot_retention_days` (730). The seed synthesizes ~90 days with a deliberate
+  2-day gap. **Time machine** (`app/timemachine/`): past = nearest covered day ≤ target
+  w/ gap-honest confidence; TODAY = live StockLevel; future (≤ rules.horizon months) =
+  `snapshots_for_products` + `_project_moh` run in UNITS (scale-free — the parity test
+  `test_future_view_matches_engine_projection` locks it to the engine, never re-derive).
+  **Availability** (`app/availability/`): org OOS (scope org|bwhse|floor; excludes
+  restock_exclude noise; `last_in_stock_on` from history) + Coming Soon (pending
+  IncomingMove, soonest-first, `within_days`) reusing center_orders.catalog labels; digest
+  = DigestSubscription rows (one email covers a subscriber's kinds, daily/Mon-weekly,
+  hour gate `availability_digest_hour_utc`, last_sent_on stamps even simulated sends) →
+  `notify.enqueue_email` (generic email-only outbox row; kind-level flag
+  `availability_digest_live` ships OFF → rows pre-marked SIMULATED at enqueue, channel
+  ladder still applies when on) → worker `_run_digests` every 10 min. **Bot API**
+  (`/api/v1/bot/*`): X-API-Key == SKUBOT_API_KEY (blank = 503, compare_digest), read-only
+  oos/coming-soon/health for skubot (phase 6 grows it — keep it read-only). **Reports**
+  (`app/reporting/`): monthly aggregates only (`queries.resolve_period` presets; the
+  (year,month) packed BETWEEN filter), breakdown dims category|product|channel|center;
+  narrative + Q&A follow the inline-anthropic pattern (json-schema output, heuristic
+  fallback when no key, source labeled model-id-or-'heuristic', cache per (period,
+  facts-hash) in the `reports_narrative_cache` AppSetting). Frontend: /reports (admin),
+  /time-machine (admin+warehouse), /availability (admin+warehouse+floor); chart series
+  colors are the `--chart-1..4` tokens in tokens.css — validated (dataviz six checks)
+  light+dark, fixed identity order shoppe/online/city_center/campus_other, and the
+  chart's Table toggle is the contrast-relief channel: keep it. `app/ingestion/sources.py`
+  = Amazon/Canada STUBS (interfaces + registry only, surfaced on /admin/status) — don't
+  build them, extend `ExternalSalesSource` when the day comes. Migration `d1a7c9f42e10`
+  (additive). E2E phase5.spec.ts is read-only except a digest subscription it removes;
+  the digest test user is floor@ BECAUSE warehouse@'s weekly subscription is seeded demo
+  data.
+- Phase 5.x feedback round (2026-07-24, same build-on rule): **order/customer metrics**
+  — the sales sync's parent-order fetch also captures `partner_id` + `amount_total`
+  (~96% of POS orders and 100% of online carry a partner, verified live 2026-07-23) into
+  `sales_orders_monthly` (orders, header amount, loyalty split per y/m/channel) +
+  `customer_first_seen` (partner_id×channel → earliest order date, append-only min —
+  the memory that keeps new-vs-returning stable across incremental windows; ONLY partner
+  ids, never contact details). Reports: `SCOPE_CHANNELS` tabs (all | in_person =
+  shoppe+pos-legacy+campus_other | online | city_center) thread through
+  overview/breakdown; `orders_summary` returns AOV/orders/new-customers (period-exact via
+  first_seen) + returning share of the latest COMPLETE month (never a half-month);
+  distinct-customer counts are per-month only — the rollup has no partner dim to dedupe
+  across months, don't pretend otherwise. Frontend /reports: scope tabs, CategoryBars /
+  TrendLine / CustomersBars in chartBits (single-hue = the scope's channel token; new-vs-
+  returning is emphasis form: returning wears the hue, new wears gray). **Time machine
+  past on live**: bounds open `timemachine_min_past_days` (90) back even with zero
+  history; `app/timemachine/backfill.py` reconstructs WEEKLY history from Odoo's own move
+  ledger (product.product `qty_available` under a `to_date`+`location` context — verified
+  live 2026-07-23; REAL data, not a guess) — admin queues it (POST
+  /admin/time-machine/backfill or the TM-page button), the worker processes ONE date per
+  loop pass, days get `stock_snapshot_days.source='reconstructed'` and the past view says
+  so (never confidence "high"); live-captured days are never overwritten. The simulator
+  computes qty_available from its quant table (any as-of date serves current state —
+  documented). **Warp**: shell/warpFx.tsx + warpWorker.ts = the 4th-wall shockwave. v4
+  latency chain, each stage covering the next: (1) compositor-only pop+rings (WAAPI
+  transform/opacity ONLY — width/height animation relayouts and hitches) spawn
+  SYNCHRONOUSLY inside the nav click's capture listener, BEFORE the router mounts the
+  1,277-row page; (2) the GPU wave — raw WebGL, no Three/Pixi, one fullscreen-triangle
+  refraction shader — renders in a WORKER on an OffscreenCanvas, immune to main-thread
+  blocks, fed by a viewport snapshot PRE-CAPTURED during idle with html2canvas-pro
+  (nav-link hover, settled TM renders, scroll/resize invalidate; stock html2canvas chokes
+  on Tailwind v4's oklch/color-mix) whose ImageBitmap is pre-decoded at capture so the
+  fire-path postMessage is synchronous too; (3) the wave's duration is ADAPTIVE (shared timeline in
+  shell/warpWave.ts, unit-tested): expand ~1.3s → HOLD as a shimmering front while the
+  destination renders → release+fade only after TimeMachinePage calls settleWarp()
+  post-paint (double-rAF on settled view.data), capped at ~5s so it can never hang — the
+  animation always outlives the loading, and the page beneath never moved. Amplitude/
+  fringe/rim live in warpWave.WAVE + the FRAG shaders (kept in lockstep in warpFx AND
+  warpWorker). Slider commits fire on pointerup (the 250ms debounce only smooths
+  key/wheel streams — waiting after a deliberate gesture read as lag) but slider/date
+  jumps NO LONGER WARP — Noah cut them 07-24 (broke scrubbing); the fireWarp +
+  requestWarpCapture call sites are COMMENTED in TimeMachinePage for easy re-enable.
+  ENTRY is the only warp; settleWarp stays wired (it releases the entry wave).
+  Flip handling: bitmaps bake imageOrientation:"flipY" (worker sets UNPACK_FLIP_Y for
+  unflipped fallbacks; main-thread fallback path flips at upload) — miss it and the page
+  renders mirrored. History: SVG feDisplacementMap (v1/2) was CPU-bound; main-thread-rAF
+  WebGL (v3) froze during mounts — don't go back to either. Ladder: no OffscreenCanvas →
+  main-thread GL; no snapshot/WebGL → rings only; reduced-motion → nothing. Failsafes
+  always un-stick the overlay; `window.__warpFx` = DEV console handle (HMR can split it
+  from the mounted component — hard-reload before trusting probes; probes must read
+  synchronously after click(), timers are blocked by the very mount they'd measure). Era type: `.tm-era-past`/`
+  .tm-era-future` switch the WHOLE panel (Special Elite typewriter past / Orbitron future,
+  imported via @fontsource in main.tsx — install in the frontend container too, node_modules
+  is a volume). **Floor OOS board**: computed zeros are floor-RELEVANT products (floor row ∪
+  shoppe sales last 30d ∪ floor snapshot history last 60d, minus restock_exclude) with
+  floor qty ≤ 0 OR NO row — Odoo vacuums zero quants, so the old row-required query showed
+  20 items while ~294 were actually out. StatusPage sales card gained "Rebuild history…"
+  (the one deliberate heavy re-pull; fills channels+amounts+order metrics for pre-split
+  months — run once after deploying this round). Migration `f3c8e21b7a54` (additive).
+  Deploy note: backend/worker are BUILT images (no source mount) — `docker compose build
+  backend worker && up -d` to land backend changes; the frontend container mounts source
+  (HMR).
+- Phase 5.y pre-deploy refinements (2026-07-25, same build-on rule): **Availability page
+  + email digest are GONE** — digest model/worker-loop/endpoints/flag deleted, table
+  dropped (migration `a4e9d27c81b3`; the availability router keeps only /oos,
+  /coming-soon, /meta{freshness} for the merged UI + bot). /out-of-stock now carries the
+  scope chips (Floor = the actionable mark board; Everywhere/Warehouse = read-only
+  `availability/oos?scope=` lists; roles land on their own scope) and warehouse /incoming
+  is the REAL inbound-shipments list (was the last stub page). **Blacklist**:
+  `products.blacklisted` + `not_blacklisted()` (twin of `not_clothing()`) filters every
+  user-facing list/report/flow — catalog default (param `blacklisted=true` = the
+  manager's view), restock engine, OOS board incl. marks, center-order menus, ordering
+  candidates + upload by_sku pools, matcher, time machine, reports `_grouped`; header
+  metrics (AOV/orders) have no product dim and can't exclude. **/settings** (all roles,
+  top-bar gear replaced the palette menu): palette picker for everyone; admins get the
+  blacklist manager + Styleguide/Palette-lab links (both left the nav, routes admin-only;
+  TimeMachinePage's category filter moved to /products/facets). **Notices inbox**
+  (`app/notices/`, bell in both top bars): admin posts, per-user read rows, read-all on
+  open — deliberately NOT the notify outbox. **floor_rotating** role = shoppe_floor minus
+  create/edit-lines on transfer requests (router keeps those SHOPPE_FLOOR-only;
+  transfers/flow.py FLOOR_ROLES covers transitions; in SEE_EVERYTHING_ROLES; UI entry
+  points already keyed off shoppe_floor). Audit log: nav→Status-page button. WhatsApp ON
+  HOLD (code intact; status page says "on hold", email carries notifications).
+  Purchasing: header icon is a real gear (Icons.gear — the old inline SVG was a sun), the
+  product-list strip lives INSIDE the settings dialog, domestic Quick-order hides
+  Cover/Suggested below sm (no page scroll at 375px). Centers table: follow-up column
+  hideBelow sm + max-w-56 badge wrap (the 181px badge column was the mobile overflow); a
+  gold dot on the name carries the signal on phones. `app.seeds.clear_demo` (dry-run
+  default / --apply) wiped 15,053 demo-flow rows on the shared stack 07-25 — keeps users,
+  products, synced history, flags, audit; rotating@demo user added via admin API.
+  VITE_API_BASE now points the client at a remote API (Vercel guide:
+  docs/DEPLOY_VERCEL_SUPABASE.md + frontend/vercel.json — backend/worker CANNOT run on
+  Vercel, they need an always-on host). e2e phase5.spec is now fully read-only.

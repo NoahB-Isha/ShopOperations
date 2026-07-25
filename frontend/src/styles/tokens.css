@@ -559,3 +559,94 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- dataviz series tokens ---------------------------------
+   Fixed categorical order (color follows the entity, never rank):
+   1 Shoppe · 2 Online · 3 City centers · 4 Campus other.
+   Both sets validated (lightness band, chroma, CVD ΔE, contrast)
+   against the app surfaces — light #fdf1e5 / dark #131523. The
+   two light-mode hues below 3:1 contrast are covered by the
+   chart's table view + tooltips (relief rule). Same values in
+   every light palette so a chart never repaints across themes. */
+:root {
+  --chart-1: #eb6834;
+  --chart-2: #2a78d6;
+  --chart-3: #1baf7a;
+  --chart-4: #4a3aa7;
+}
+@media (prefers-color-scheme: dark) {
+  :root,
+  :root[data-palette] {
+    --chart-1: #d95926;
+    --chart-2: #3987e5;
+    --chart-3: #199e70;
+    --chart-4: #9085e9;
+  }
+}
+
+/* ---- time-machine warp: the sanctioned 4th-wall moment --------
+   A shockwave rips out from wherever the user clicked: an SVG
+   displacement filter (see shell/warpFx.tsx) bends the whole page
+   around the wavefront while these glassy rings ride it. JS checks
+   prefers-reduced-motion before firing; these styles are inert
+   without it. */
+.tm-ripple-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow: hidden;
+  pointer-events: none;
+}
+.tm-ring {
+  position: absolute;
+  border-radius: 9999px;
+  border: 2px solid var(--color-primary);
+  transform: translate(-50%, -50%);
+  /* compositor-only motion: JS animates transform/opacity exclusively —
+     width/height/border animation would relayout on the main thread and
+     hitch exactly when the route mounts. Size is set inline per wave. */
+  will-change: transform, opacity;
+  box-shadow: 0 0 18px -6px currentColor;
+}
+.tm-dot {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  box-shadow: 0 0 22px -2px var(--color-primary);
+}
+
+/* ---- time-machine era type: the "you are not in today" signal --
+   Past views read like typewritten stock cards; future projections
+   read like a sci-fi console. Only the data (dates + quantities)
+   changes face — chrome stays Inter for legibility. */
+:root {
+  --font-retro: "Special Elite", "Courier New", monospace;
+  --font-futura: "Orbitron", "Inter Variable", sans-serif;
+}
+/* the WHOLE panel changes era, including the display type — the loud,
+   unmissable "this is not today's stock" signal */
+.tm-era-past,
+.tm-era-past .display-l,
+.tm-era-past .headline,
+.tm-era-past .title-l,
+.tm-era-past .title-m,
+.tm-era-past .label-caps {
+  font-family: var(--font-retro);
+  letter-spacing: 0.01em;
+}
+.tm-era-future,
+.tm-era-future .display-l,
+.tm-era-future .headline,
+.tm-era-future .title-l,
+.tm-era-future .title-m,
+.tm-era-future .label-caps {
+  font-family: var(--font-futura);
+  letter-spacing: 0.04em;
+}
+.tm-era-future .display-l {
+  font-weight: 700;
+}

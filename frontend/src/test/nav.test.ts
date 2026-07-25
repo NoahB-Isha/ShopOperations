@@ -9,10 +9,27 @@ test("each role sees its own nav", () => {
     "Incoming",
     "Transfers",
     "Coming soon",
+    "Out of stock",
+    "Time machine",
     "Adjustments",
-    "Catalog",
+    "All SKUs",
   ]);
-  expect(navForRoles(new Set(["admin"])).map((i) => i.path)).toContain("/styleguide");
+  const adminPaths = navForRoles(new Set(["admin"])).map((i) => i.path);
+  expect(adminPaths).toContain("/reports");
+  expect(adminPaths).toContain("/time-machine");
+  expect(adminPaths).toContain("/out-of-stock");
+  // moved off the menu: audit lives on Status, design pages in Settings,
+  // the availability page merged into Out of stock
+  expect(adminPaths).not.toContain("/styleguide");
+  expect(adminPaths).not.toContain("/palette-lab");
+  expect(adminPaths).not.toContain("/audit");
+  expect(adminPaths).not.toContain("/availability");
+});
+
+test("floor_rotating mirrors the floor nav (creation is gated in-page)", () => {
+  const floor = navForRoles(new Set(["shoppe_floor"])).map((i) => i.path);
+  const rotating = navForRoles(new Set(["floor_rotating"])).map((i) => i.path);
+  expect(rotating).toEqual(floor);
 });
 
 test("multi-role users get a deduped union", () => {

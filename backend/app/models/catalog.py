@@ -67,6 +67,10 @@ class Product(Base, TimestampMixin):
     # Non-retail POS items (campus meals, prasadam…) sell through the same
     # registers but never belong on the Shoppe restock lists.
     restock_exclude: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Admin blacklist: hidden from every list, report, and flow app-wide
+    # (stale Odoo entries, items irrelevant to shop operations). Managed on
+    # the Settings page; query-side twin: `not_blacklisted()`.
+    blacklisted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     # --- ordering (phase 4; app-managed, workbook-sourced where Odoo lacks) ---
     hsn_code: Mapped[str] = mapped_column(String(20), default="")  # customs code
@@ -94,6 +98,13 @@ def not_clothing():
     """The SQL predicate matching `Product.is_clothing == False` — use it in
     every query that feeds an ordering flow."""
     return ~Product.category.ilike("%clothing%")
+
+
+def not_blacklisted():
+    """The SQL predicate every user-facing product list, report aggregation,
+    and ordering flow must carry — blacklisted items exist only on the admin
+    Settings page (where the blacklist is managed) and in raw Odoo."""
+    return Product.blacklisted.is_(False)
 
 
 class ProductTag(Base):

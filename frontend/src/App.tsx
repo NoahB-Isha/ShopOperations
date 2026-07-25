@@ -7,9 +7,9 @@ import { Spinner, ToastProvider } from "./design";
 import { homeForRoles } from "./nav";
 import { AppShell } from "./shell/AppShell";
 import { CatalogPage } from "./pages/CatalogPage";
-import { ComingSoon } from "./pages/ComingSoon";
 import { MyCentersPage } from "./pages/MyCentersPage";
 import { PaletteLabPage } from "./pages/PaletteLabPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { StyleguidePage } from "./pages/StyleguidePage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { CentersPage } from "./pages/admin/CentersPage";
@@ -25,6 +25,8 @@ import { PlaceOrderPage } from "./pages/orders/PlaceOrderPage";
 import { PurchaseOrderPage } from "./pages/purchasing/PurchaseOrderPage";
 import { PurchasingPage } from "./pages/purchasing/PurchasingPage";
 import { VendorsPage } from "./pages/purchasing/VendorsPage";
+import { ReportsPage } from "./pages/reports/ReportsPage";
+import { TimeMachinePage } from "./pages/reports/TimeMachinePage";
 import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
@@ -32,6 +34,7 @@ import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
 import { TransferRequestsPage } from "./pages/transfers/TransferRequestsPage";
 import { AdjustmentsPage } from "./pages/warehouse/AdjustmentsPage";
+import { IncomingPage } from "./pages/warehouse/IncomingPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -87,8 +90,12 @@ export default function App() {
               <Route path="/catalog" element={
                 <Protected title="All SKUs"><CatalogPage /></Protected>
               } />
+              <Route path="/settings" element={
+                <Protected title="Settings"><SettingsPage /></Protected>
+              } />
+              {/* design pages: out of the nav, linked from admin Settings */}
               <Route path="/styleguide" element={
-                <Protected title="Styleguide"><StyleguidePage /></Protected>
+                <Protected title="Styleguide" roles={["admin"]}><StyleguidePage /></Protected>
               } />
               <Route path="/palette-lab" element={
                 <Protected title="Palette lab" roles={["admin"]}><PaletteLabPage /></Protected>
@@ -121,6 +128,14 @@ export default function App() {
               } />
               <Route path="/purchasing/:id" element={
                 <Protected title="Purchase order" roles={["admin"]}><PurchaseOrderPage /></Protected>
+              } />
+              <Route path="/reports" element={
+                <Protected title="Sales" roles={["admin"]}><ReportsPage /></Protected>
+              } />
+              <Route path="/time-machine" element={
+                <Protected title="Time machine" roles={["admin", "warehouse"]}>
+                  <TimeMachinePage />
+                </Protected>
               } />
 
               {/* coordinator / liaison */}
@@ -166,7 +181,7 @@ export default function App() {
               {/* warehouse */}
               <Route path="/incoming" element={
                 <Protected title="Incoming" roles={["warehouse"]}>
-                  <ComingSoon what="Incoming shipments" phase="Phase 2b" />
+                  <IncomingPage />
                 </Protected>
               } />
               <Route path="/transfers" element={
@@ -180,34 +195,35 @@ export default function App() {
                 </Protected>
               } />
 
-              {/* shoppe floor + warehouse shared flow */}
+              {/* shoppe floor (+ rotating) + warehouse shared flow */}
               <Route path="/restock" element={
-                <Protected title="Restock" roles={["shoppe_floor", "warehouse"]}>
+                <Protected title="Restock" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <RestockPage />
                 </Protected>
               } />
               <Route path="/transfer-requests" element={
-                <Protected title="Transfer requests" roles={["shoppe_floor", "warehouse"]}>
+                <Protected title="Transfer requests" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <TransferRequestsPage />
                 </Protected>
               } />
+              {/* creating requests is shoppe_floor only — rotating can't */}
               <Route path="/transfer-requests/new" element={
                 <Protected title="Request stock" roles={["shoppe_floor"]}>
                   <NewTransferRequestPage />
                 </Protected>
               } />
               <Route path="/coming-soon" element={
-                <Protected title="Coming soon" roles={["shoppe_floor", "warehouse"]}>
+                <Protected title="Coming soon" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <ComingSoonPage />
                 </Protected>
               } />
               <Route path="/out-of-stock" element={
-                <Protected title="Out of stock" roles={["shoppe_floor"]}>
+                <Protected title="Out of stock" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <OutOfStockPage />
                 </Protected>
               } />
               <Route path="/transfer-requests/:id" element={
-                <Protected title="Transfer request" roles={["shoppe_floor", "warehouse"]}>
+                <Protected title="Transfer request" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <TransferRequestDetailPage />
                 </Protected>
               } />

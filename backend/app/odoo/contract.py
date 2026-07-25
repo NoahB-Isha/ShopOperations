@@ -21,10 +21,13 @@ CONTRACT: dict[str, list[str]] = {
                    "description_picking"],
     "stock.picking": ["origin", "state", "location_id", "location_dest_id", "picking_type_id"],
     "stock.picking.type": ["code", "name"],
-    "pos.order": ["date_order", "state"],
-    "pos.order.line": ["product_id", "qty", "order_id"],
-    "sale.order": ["date_order", "state"],
-    "sale.order.line": ["product_id", "product_uom_qty", "order_id"],
+    # config_id + the price fields drive channel classification and revenue
+    # capture (verified live 2026-07-21); partner_id + amount_total drive the
+    # order/customer metrics (verified live 2026-07-23)
+    "pos.order": ["date_order", "state", "config_id", "partner_id", "amount_total"],
+    "pos.order.line": ["product_id", "qty", "order_id", "price_subtotal_incl"],
+    "sale.order": ["date_order", "state", "partner_id", "amount_total"],
+    "sale.order.line": ["product_id", "product_uom_qty", "order_id", "price_total"],
 }
 
 

@@ -18,6 +18,7 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
   warehouse: "Warehouse",
   shoppe_floor: "Shoppe floor",
+  floor_rotating: "Floor (rotating — no transfer creation)",
   zone_coordinator: "Zone coordinator",
   center_orderer: "Center orderer",
   dept_liaison: "Dept liaison",

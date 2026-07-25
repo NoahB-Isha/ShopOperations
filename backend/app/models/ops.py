@@ -269,8 +269,10 @@ class SalesDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     day: Mapped[date] = mapped_column(Date, index=True)
-    channel: Mapped[str] = mapped_column(String(20))  # pos | online
+    channel: Mapped[str] = mapped_column(String(20))  # SalesChannel value
     units: Mapped[float] = mapped_column(Float, default=0)
+    # gross revenue (tax-in); NULL on rows synced before amount capture
+    amount: Mapped[float | None] = mapped_column(Float)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
