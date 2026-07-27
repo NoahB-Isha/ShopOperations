@@ -219,6 +219,95 @@ def test_sales_sync_backfill_then_incremental(db, settings_env):
     assert orders2 == orders
 
 
+def test_detect_house_partners_thresholds():
+    """Register house accounts = dominant share AND a real order floor."""
+    from app.sync.sales import detect_house_partners
+
+    partner_orders = {
+        (110992, "shoppe"): 990,  # the register default — 99% of the channel
+        (24711, "shoppe"): 10,  # a real person occasionally attached
+        (9003, "online"): 40,  # a loyal human, well under dominance
+    }
+    channel_orders = {"shoppe": 1000, "online": 2000}
+    assert detect_house_partners(partner_orders, channel_orders) == {(110992, "shoppe")}
+    # the floor keeps tiny windows honest: 4 of 10 orders is 40% share but
+    # 4 orders is no register
+    assert (
+        detect_house_partners({(7, "shoppe"): 4}, {"shoppe": 10}) == set()
+    )
+    assert detect_house_partners(
+        {(7, "shoppe"): 4}, {"shoppe": 10}, min_orders=2, min_share=0.3
+    ) == {(7, "shoppe")}
+
+
+def test_monthly_house_partners_volume_rule():
+    """A register default attached to only SOME of its orders never wins on
+    share — but no person places 25+ orders in a month."""
+    from app.sync.sales import monthly_house_partners
+
+    bucket = {
+        # the LA-POS pattern: ~50 attached orders in a 1,500-order month
+        (2026, 6, "campus_other"): {"orders": 1500, "partner_orders": {110994: 50, 7: 3}},
+        (2026, 6, "online"): {"orders": 2000, "partner_orders": {9003: 4}},
+    }
+    assert monthly_house_partners(bucket) == {(110994, "campus_other")}
+    assert monthly_house_partners(bucket, min_monthly=4) == {
+        (110994, "campus_other"),
+        (9003, "online"),
+    }
+
+
+def test_house_partners_excluded_from_customer_metrics(db, settings_env, monkeypatch):
+    """With thresholds lowered to fixture scale, dominant partners drop out
+    of every customer metric (orders still count), the first-seen memory is
+    scrubbed, and the detection is remembered in sync_state."""
+    import app.sync.sales as sales_mod
+
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    db.add(Center(name="Austin", city="Austin"))
+    db.commit()
+
+    # fixture scale: partner 9001 has 2 of 3 shoppe orders (67% — the house
+    # account); 9002 and 9003 have one order each (under the floor → people)
+    monkeypatch.setattr(sales_mod, "HOUSE_PARTNER_MIN_ORDERS", 2)
+    monkeypatch.setattr(sales_mod, "HOUSE_PARTNER_MIN_SHARE", 0.5)
+    run = run_domain(db, settings_env, "sales", conn=sim, trigger="manual")
+    assert run.status == "success", run.error
+
+    first_seen = {(r.partner_id, r.channel) for r in db.scalars(select(CustomerFirstSeen))}
+    assert (9001, "shoppe") not in first_seen  # house account scrubbed
+    assert (9002, "campus_other") in first_seen  # under the floor → a person
+    assert (9003, "online") in first_seen
+
+    rows = {
+        (r.year, r.month, r.channel): r for r in db.scalars(select(SalesOrdersMonthly))
+    }
+    exp = settings_env._test_expectations["expected_orders"]
+    for key, (orders, amount, _wc, _dc, _new, _ret) in exp.items():
+        assert rows[key].orders == orders  # orders/revenue never change
+        assert rows[key].amount == amount
+    shoppe_rows = [r for r in rows.values() if r.channel == "shoppe"]
+    assert all(
+        r.orders_with_customer == 0 and r.distinct_customers == 0 for r in shoppe_rows
+    )
+
+    state = db.get(SyncState, "sales")
+    remembered = {tuple(p) for p in state.extra.get("house_partners", [])}
+    assert (9001, "shoppe") in remembered
+
+    # back at REAL thresholds an incremental window can't re-detect — the
+    # memory keeps the exclusion in force
+    monkeypatch.setattr(sales_mod, "HOUSE_PARTNER_MIN_ORDERS", 50)
+    monkeypatch.setattr(sales_mod, "HOUSE_PARTNER_MIN_SHARE", 0.30)
+    run = run_domain(db, settings_env, "sales", conn=sim, trigger="manual")
+    assert run.status == "success", run.error
+    first_seen = {(r.partner_id, r.channel) for r in db.scalars(select(CustomerFirstSeen))}
+    assert (9001, "shoppe") not in first_seen
+    state = db.get(SyncState, "sales")
+    assert (9001, "shoppe") in {tuple(p) for p in state.extra.get("house_partners", [])}
+
+
 def test_incoming_sync_excludes_done_moves(db, settings_env):
     sim = _sim(settings_env)
     run_domain(db, settings_env, "products", conn=sim, trigger="manual")
@@ -231,6 +320,43 @@ def test_incoming_sync_excludes_done_moves(db, settings_env):
 
 def test_run_all_order_and_states(db, settings_env):
     runs = run_all(db, settings_env, trigger="manual")
-    assert [r.domain for r in runs] == ["products", "stock", "sales", "incoming"]
+    # transfers runs LAST — it needs the locations the stock sync maps
+    assert [r.domain for r in runs] == ["products", "stock", "sales", "incoming", "transfers"]
     assert all(r.status == "success" for r in runs), [r.error for r in runs]
     assert all(r.source == "fixture" for r in runs)
+
+
+def test_transfers_sync_discovers_native_staging_pickings(db, settings_env):
+    """Inbound transfer discovery: pending staging-bound pickings (drafts
+    included) snapshot their lines; done pickings and app-placed pickings
+    never land; re-sync replaces."""
+    from app.models import StagingInboundMove, TransferRequest
+
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")  # maps locations
+    run = run_domain(db, settings_env, "transfers", conn=sim, trigger="manual")
+    assert run.status == "success", run.error
+
+    by_odoo_pid = {
+        p.odoo_product_id: p for p in db.scalars(select(Product)) if p.odoo_product_id
+    }
+    rows = db.scalars(select(StagingInboundMove)).all()
+    got = {(by_odoo_pid[203].id, 24.0), (by_odoo_pid[201].id, 6.0)}
+    assert {(r.product_id, r.qty) for r in rows} == got
+    assert all(r.picking_name == "WH/INT/NATIVE1" for r in rows)  # done twin excluded
+    assert all(r.picking_state == "assigned" for r in rows)
+    assert all(r.expected_date is not None for r in rows)
+
+    state = db.get(SyncState, "transfers")
+    assert state.extra.get("native_pickings") == 1
+
+    # an app-placed request claims that picking -> it must drop out (no
+    # double counting between the board and the discovery snapshot)
+    db.add(TransferRequest(status="requested", odoo_picking_id=7001))
+    db.commit()
+    run = run_domain(db, settings_env, "transfers", conn=sim, trigger="manual")
+    assert run.status == "success", run.error
+    assert db.scalars(select(StagingInboundMove)).all() == []
+    state = db.get(SyncState, "transfers")
+    assert state.extra.get("app_pickings_excluded") == 1

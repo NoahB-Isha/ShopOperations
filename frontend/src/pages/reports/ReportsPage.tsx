@@ -24,7 +24,6 @@ import {
   fmtPct,
   SCOPE_COLOR,
   StackedChannelBars,
-  TrendLine,
 } from "./chartBits";
 
 const PERIODS = [
@@ -242,16 +241,30 @@ export function ReportsPage() {
             <Card>
               <h2 className="title-l mb-1 text-on-surface">Order size</h2>
               <p className="mb-3 text-[13px] text-on-surface-variant">
-                average order value by month
+                average order value across the period
               </p>
-              <TrendLine
-                points={(orders?.series ?? []).map((s) => ({
-                  month: s.month,
-                  value: s.aov,
-                  hint: `${s.orders.toLocaleString()} orders · ${fmtMoneyFull(s.amount)}`,
-                }))}
-                color={scopeColor}
-              />
+              <div className="flex min-h-44 flex-col items-center justify-center gap-2 py-4">
+                <div className="display text-6xl leading-none text-on-surface">
+                  {ot?.aov != null ? `$${ot.aov.toFixed(2)}` : "—"}
+                </div>
+                <div className="text-[13px] text-on-surface-variant">
+                  {(ot?.orders ?? 0).toLocaleString()} orders · {fmtMoneyFull(ot?.amount ?? 0)} total
+                </div>
+                <div className="flex items-center gap-2 text-[12.5px] text-on-surface-variant">
+                  <Badge
+                    tone={
+                      ot?.aov_delta_pct == null
+                        ? "outline"
+                        : ot.aov_delta_pct >= 0
+                          ? "forest"
+                          : "danger"
+                    }
+                  >
+                    {fmtPct(ot?.aov_delta_pct ?? null)} vs prior period
+                  </Badge>
+                  {ot?.prior_aov != null && <span>was ${ot.prior_aov.toFixed(2)}</span>}
+                </div>
+              </div>
             </Card>
           </div>
 

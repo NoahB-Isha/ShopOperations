@@ -414,3 +414,89 @@ log. Draft pickings testing left in Odoo are Odoo's to clean; the audit log list
 Deploy guide for the hosted test round: docs/DEPLOY_VERCEL_SUPABASE.md — Vercel serves
 only the static frontend (VITE_API_BASE now points the client at a remote API); the
 backend+worker need an always-on host; Supabase is plain Postgres.
+
+**2026-07-26 — The blacklist sweep: never-stocked + "-USA" duplicates, previewed** *(Phase 5.y)*
+Hand-blacklisting 2,000+ junk entries wasn't going to happen, so Settings gained a
+re-runnable admin sweep (POST /products/blacklist/sweep): rule A = active Odoo products
+with no stock snapshot ever and nothing on hand now (2,157 on live — never-stocked
+sarees, donation/fee lines, rentals), rule B = "USA" in the name or a "-USA" SKU suffix
+(114 stale duplicate entries — matched case-sensitively in Python so SQLite tests and
+Postgres agree and "Usable" never matches). IL-Service is a hard exception (a real
+service item with no stock by nature); manual items are exempt from rule A by source.
+Always preview-first in the UI; everything stays restorable. Applied on live 07-26:
+2,267 blacklisted, 1,648 active products remain — the actual shop catalog.
+
+**2026-07-26 — Customer metrics count people, not registers** *(Phase 5.y)*
+Noah flagged new-vs-returning as "off". Diagnosis on live data: POS registers attribute
+walk-in orders to per-register HOUSE partners — 'Isha Life USA - III FLOOR POS' held
+~99% of Shoppe orders (1 "distinct customer"/month, always "returning"), the LA
+register's account rode ~50–130 campus orders/month, so "96% of orders have a customer"
+was a fiction. Fix in the sales sync (three pure detectors, thresholds test-tunable):
+channel dominance (≥50 orders AND ≥30% share), per-register dominance (same test per
+pos config — low-volume registers never dominate their aggregated channel), and monthly
+volume (≥25 orders by one partner in one month is a register, not a person). Detections
+are remembered in sync_state.extra['house_partners'] so tiny hourly windows can't
+forget, house rows are scrubbed from customer_first_seen (the period-exact "new
+customers" count reads that table), and their orders still count as ORDERS — walk-ins
+are sales, not customers. Full rebuild re-ran 07-26: in-person channels now honestly
+show ~0 identified customers; online (~1,900 real people/month, ~55/45 new/returning)
+is the loyalty signal. Known-customer share fell from a bogus 96% to a truthful ~24%.
+
+**2026-07-26 — Reports: order size is a number; pickers stay open for multi-add** *(Phase 5.y)*
+The AOV month-line said little that the number doesn't — the Order size card is now the
+period average, large ($62.22-style display type), with orders/total/prior context; the
+trend chart is gone by request. And every search-to-add surface (ProductPicker: catalogs,
+transfer requests, vendor rosters — plus the Settings blacklist search) keeps its results
+open after a pick so several items go in from one search; picked rows just flip to
+disabled. The old clear-on-pick forced a retype per item.
+
+**2026-07-26 — Clothing is curatable on catalogs; out-of-scope survives only in purchasing** *(Phase 5.y)*
+Noah's bug report ("saree"/"kurta" return nothing when building a catalog) revealed the
+phase-2 reading of the brief was too broad: the catalog editor's picker, the order-lists
+API, and the center-menu builder all hard-excluded clothing. His direction supersedes it —
+catalogs are hand-curated menus, so if an admin deliberately adds a kurta, centers may
+order it (transfers move any stock). The exclusion remains where the brief aimed it: the
+India engine's candidate pool, forecast-analogy pools, and the vendor roster picker never
+offer clothing. One test now locks BOTH sides of the line.
+
+**2026-07-26 — Sweep rule tightened: never-stocked must also mean never-SOLD** *(Phase 5.y)*
+The first sweep treated "no stock history + nothing on hand" as inert — wrong, because
+snapshot history is weekly and only ~6 months deep: fast movers sell out between
+snapshots, digital items never have stock at all. 1,308 items WITH sales (612 clothing,
+299 digital, 123 snacks…) were swept and have been restored (Noah's four manual
+blacklists preserved by name). The sweep now requires no sales_monthly rows too, so it
+only catches genuinely dead entries; sales-active junk (fee lines, rentals) is left to
+manual blacklisting — a human judgment the sweep shouldn't guess at.
+
+**2026-07-27 — Two-way transfer sync: Odoo is a first-class actor in the flow** *(Phase 5.y)*
+Noah's ask: transfers headed to floor staging should appear on coming-soon even when
+drafted directly in Odoo, and warehouse actions in Odoo on app-placed transfers should
+move the app workflow. Two halves, both built on existing foundations rather than a new
+integration style: (1) INBOUND — a fifth sync domain (`transfers`, 10-min cadence, one
+tiny search per run) snapshots pending staging-bound pickings into
+`staging_inbound_moves`; coming-soon unions them per product with a dashed "Odoo ·
+state" chip. App-placed pickings are excluded by id — no double counting. Validated or
+cancelled pickings drop out of the pending search, so arrival self-cleans the list.
+(2) OUTBOUND — the existing food-POS listener pattern (UI polls, GETs check Odoo,
+per-row throttle stamp) extended from count-validation to the placement picking:
+confirmed/assigned → working on it, done → sent → count transfer staged, cancel →
+cancelled, each with an "… in Odoo — synced" event. The warehouse can now live
+entirely in Odoo and the board stays truthful; role-gated app buttons remain for teams
+who prefer clicking here. Detection ran clean against live (0 pending pickings on a
+Sunday — honest empty, not an error).
+
+**2026-07-27 — The pallet is the unit of warehouse work, not the transfer** *(Phase 5.y)*
+Noah described the real process: outbound transfers are retargeted to III/Staging2 (a
+warehouse consolidation location, live id 2030), picked in batches, and ONE pallet
+transfer carries everything to III-FLORR-STAGING. The app now mirrors reality instead of
+fighting it. A validated picking's DESTINATION decides what "sent" means: to floor
+staging → count transfer immediately (the old path); to staging2 → the request waits
+("waiting for the pallet") and the count is deferred. The new Staging 2 page shows the
+consolidation point live (a deliberate on-demand read — it's an action screen) with one
+big button that renders the pallet as a single draft via the existing, already-canaried
+create_internal_transfer operation. Pallet validation in Odoo is the landing signal:
+every SENT request still waiting gets its count transfer prepared in that moment. The
+heuristic is honest about its grain — any request sent-and-waiting when a pallet lands
+is assumed to be on it; Odoo's own availability check on the count picking is the
+backstop for stragglers. staging2 stock counts as owned (org OOS, purchasing on-hand)
+but NOT as warehouse-sellable (bwhse scope) — it's committed to the floor.

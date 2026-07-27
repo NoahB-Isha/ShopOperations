@@ -35,6 +35,7 @@ import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDeta
 import { TransferRequestsPage } from "./pages/transfers/TransferRequestsPage";
 import { AdjustmentsPage } from "./pages/warehouse/AdjustmentsPage";
 import { IncomingPage } from "./pages/warehouse/IncomingPage";
+import { Staging2Page } from "./pages/warehouse/Staging2Page";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -192,6 +193,12 @@ export default function App() {
               <Route path="/adjustments" element={
                 <Protected title="Adjustments" roles={["warehouse"]}>
                   <AdjustmentsPage />
+                </Protected>
+              } />
+              {/* floor can look; only warehouse gets the send button */}
+              <Route path="/staging2" element={
+                <Protected title="Staging 2" roles={["warehouse", "shoppe_floor", "floor_rotating"]}>
+                  <Staging2Page />
                 </Protected>
               } />
 

@@ -5,10 +5,10 @@
    and reach the design pages (Styleguide, Palette lab) that left the nav. */
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { usePatchProduct, useProducts } from "../api/hooks";
-import type { ProductOut } from "../api/types";
+import { useBlacklistSweep, usePatchProduct, useProducts } from "../api/hooks";
+import type { BlacklistSweepOut, ProductOut } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Spinner, useToast } from "../design";
+import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, useToast } from "../design";
 import { PALETTES, currentPalette, setPalette } from "../theme";
 
 function AppearanceCard() {
@@ -104,6 +104,95 @@ function BlacklistRow({
   );
 }
 
+/** One-click cleanup: preview, then blacklist every never-stocked item and
+ *  every "-USA" duplicate. Re-runnable as new junk syncs in from Odoo. */
+function SweepBlock() {
+  const toast = useToast();
+  const sweep = useBlacklistSweep();
+  const [preview, setPreview] = useState<BlacklistSweepOut | null>(null);
+
+  const run = (apply: boolean) =>
+    sweep.mutate(apply, {
+      onSuccess: (out) => {
+        if (!apply) {
+          setPreview(out);
+          return;
+        }
+        setPreview(null);
+        toast.success(
+          out.total
+            ? `${out.total} item(s) blacklisted — they're gone from the whole app.`
+            : "Nothing left to sweep.",
+        );
+      },
+      onError: (e) => toast.error(e.message),
+    });
+
+  return (
+    <div className="mt-4 border-t border-outline-variant/60 pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="label-m text-on-surface-variant">Cleanup sweep</h3>
+          <p className="text-[12.5px] text-on-surface-variant">
+            Finds items that have never had stock <b>and never sold</b> (except IL-Service)
+            plus “- USA” duplicate entries. Preview first — nothing is hidden until you
+            confirm.
+          </p>
+        </div>
+        <Button variant="outlined" size="sm" loading={sweep.isPending && !preview} onClick={() => run(false)}>
+          Preview sweep…
+        </Button>
+      </div>
+      <Dialog
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        title="Blacklist sweep"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPreview(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!preview?.total || sweep.isPending}
+              loading={sweep.isPending}
+              onClick={() => run(true)}
+            >
+              Blacklist {preview?.total ?? 0} item(s)
+            </Button>
+          </div>
+        }
+      >
+        {preview && (
+          <div className="flex flex-col gap-3 text-[13.5px]">
+            <div className="flex flex-wrap gap-2">
+              <Badge tone="gold">{preview.no_stock_history} never stocked</Badge>
+              <Badge tone="gold">{preview.usa_items} “- USA” items</Badge>
+              <Badge tone="outline">{preview.total} total (overlap deduped)</Badge>
+            </div>
+            {preview.total === 0 ? (
+              <p className="text-on-surface-variant">Nothing matches the sweep rules — all clean.</p>
+            ) : (
+              <>
+                <p className="text-on-surface-variant">
+                  First {Math.min(preview.sample.length, 15)} of {preview.total}:
+                </p>
+                <ul className="max-h-56 list-disc overflow-y-auto pl-5 text-[13px] text-on-surface">
+                  {preview.sample.map((name, i) => (
+                    <li key={`${i}-${name}`}>{name}</li>
+                  ))}
+                </ul>
+                <p className="text-[12.5px] text-on-surface-variant">
+                  Everything stays restorable from the blacklist below. Odoo is untouched.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </Dialog>
+    </div>
+  );
+}
+
 function BlacklistCard() {
   const toast = useToast();
   const patch = usePatchProduct();
@@ -128,18 +217,18 @@ function BlacklistCard() {
     include_inactive: true,
   });
 
+  // the search stays open after adding so several matches can be
+  // blacklisted in a row — the added item just drops out of the results
   const setFlag = (p: ProductOut, value: boolean) =>
     patch.mutate(
       { id: p.id, blacklisted: value },
       {
-        onSuccess: () => {
+        onSuccess: () =>
           toast.success(
             value
               ? `“${p.name}” is hidden app-wide — lists, reports, ordering, everything.`
               : `“${p.name}” is visible again.`,
-          );
-          if (value) setSearch("");
-        },
+          ),
         onError: (e) => toast.error(e.message),
       },
     );
@@ -212,6 +301,7 @@ function BlacklistCard() {
           ))}
         </ul>
       )}
+      <SweepBlock />
     </Card>
   );
 }

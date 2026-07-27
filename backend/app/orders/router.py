@@ -255,13 +255,13 @@ class ImportResultOut(BaseModel):
 
 
 def _catalog_eligibility(product: Product) -> str:
-    """'' when the product can sit on a catalog, else the human reason."""
+    """'' when the product can sit on a catalog, else the human reason.
+    Clothing is allowed (Noah, 2026-07-26): catalogs are hand-curated menus —
+    the clothing exclusion survives only in the PURCHASING flows."""
     if not product.is_stock_tracked or not product.odoo_product_id:
         return "not tracked in Odoo"
     if not product.is_active:
         return "inactive"
-    if product.is_clothing:
-        return "clothing (out of scope)"
     return ""
 
 
@@ -383,12 +383,6 @@ def put_lines(
         if not product.is_active:
             raise HTTPException(
                 422, f"'{product.name}' is inactive — lists only carry live products."
-            )
-        if product.is_clothing:
-            raise HTTPException(
-                422,
-                f"'{product.name}' is clothing — clothing is out of scope for "
-                "ordering (project decision).",
             )
         validated.append(product)
     for old in list(ol.lines):

@@ -1,9 +1,11 @@
-"""The pre-deploy refinement round: admin notices inbox, the app-wide
-product blacklist, and the floor_rotating role (floor minus creating
-transfer requests)."""
+"""The pre-deploy refinement rounds: admin notices inbox, the app-wide
+product blacklist (+ the bulk cleanup sweep), and the floor_rotating role
+(floor minus creating transfer requests)."""
 from __future__ import annotations
 
-from app.models import Role, StockLevel
+from datetime import date, timedelta
+
+from app.models import Role, SalesMonthly, StockLevel, StockSnapshot
 
 from .util import login, mk_product, mk_user
 
@@ -95,6 +97,91 @@ def test_blacklist_hides_from_catalog_and_board(client, db):
     client.patch(f"/api/v1/products/{hide.id}", json={"blacklisted": False}, headers=admin)
     board = {i["sku"] for i in client.get("/api/v1/oos", headers=floor).json()}
     assert board == {"CA0000000001", "CA0000000002"}
+
+
+def test_blacklist_sweep_rules_and_exceptions(client, db):
+    _users(db)
+    today = date.today()
+    # never stocked, odoo-sourced → rule A
+    junk = mk_product(db, "FEE0000000001", "FBA Shipment Fee", odoo_id=411)
+    # has snapshot history → kept
+    stocked = mk_product(db, "CA0000000011", "Copper Bottle", odoo_id=412)
+    db.add(
+        StockSnapshot(
+            snapshot_date=today - timedelta(days=5),
+            product_id=stocked.id, location_key="bwhse", qty=12,
+        )
+    )
+    # currently stocked (no history rows) → kept
+    live = mk_product(db, "CA0000000012", "Copper Ring", odoo_id=413)
+    db.add(StockLevel(product_id=live.id, location_key="floor", qty=3))
+    # the explicit exception: no stock anywhere, still kept
+    mk_product(db, "IL-Service", "IL Service", odoo_id=414)
+    # manual items never sweep (rule A is odoo-only)
+    mk_product(db, "MAN-CUPS", "Compostable Cups", source="manual", stock_tracked=False)
+    # "-USA" duplicate → rule B even WITH stock
+    usa = mk_product(db, "BC0007200006-USA", "Bergamot Soap - USA", odoo_id=415)
+    db.add(StockLevel(product_id=usa.id, location_key="bwhse", qty=40))
+    db.add(
+        StockSnapshot(
+            snapshot_date=today - timedelta(days=5),
+            product_id=usa.id, location_key="bwhse", qty=40,
+        )
+    )
+    # lowercase 'usa' inside a word is NOT the USA suffix pattern — kept
+    # (but it has no stock, so rule A takes it: give it stock to isolate rule B)
+    usable = mk_product(db, "CA0000000013", "Usable Yoga Mat", odoo_id=416)
+    db.add(StockLevel(product_id=usable.id, location_key="bwhse", qty=9))
+    # SELLS but never lands on a snapshot (fast mover / thin stock) — a real
+    # trading item, never junk: the saree/kurta regression of 2026-07-26
+    saree = mk_product(db, "CA0000000015", "Devi Saree Teal", odoo_id=417)
+    db.add(SalesMonthly(product_id=saree.id, year=today.year, month=today.month,
+                        channel="shoppe", units=2))
+    db.commit()
+
+    admin = login(client, "admin@test.io")
+    floor = login(client, "floor@test.io")
+    assert client.post(
+        "/api/v1/products/blacklist/sweep", json={"apply": False}, headers=floor
+    ).status_code == 403
+
+    # preview: counts + sample, nothing changes
+    r = client.post(
+        "/api/v1/products/blacklist/sweep", json={"apply": False}, headers=admin
+    )
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["applied"] is False
+    assert out["no_stock_history"] == 1  # the fee line only
+    assert out["usa_items"] == 1
+    assert out["total"] == 2
+    assert "FBA Shipment Fee" in out["sample"] and "Bergamot Soap - USA" in out["sample"]
+    db.refresh(junk)
+    assert junk.blacklisted is False  # preview never writes
+
+    # apply, then verify exactly the two junk items are hidden
+    r = client.post(
+        "/api/v1/products/blacklist/sweep", json={"apply": True}, headers=admin
+    )
+    assert r.json()["applied"] is True and r.json()["total"] == 2
+    visible = {
+        p["global_sku"]
+        for p in client.get("/api/v1/products", headers=admin).json()["items"]
+    }
+    assert "FEE0000000001" not in visible and "BC0007200006-USA" not in visible
+    assert {
+        "CA0000000011",  # snapshot history
+        "CA0000000012",  # stocked now
+        "IL-Service",  # explicit exception
+        "CA0000000013",  # lowercase 'usa' is not USA
+        "CA0000000015",  # sells without ever snapshotting — real item
+    } <= visible
+
+    # re-running finds nothing new — the sweep is idempotent
+    r = client.post(
+        "/api/v1/products/blacklist/sweep", json={"apply": True}, headers=admin
+    )
+    assert r.json()["total"] == 0 and r.json()["applied"] is False
 
 
 # ------------------------------------------------------------ floor_rotating

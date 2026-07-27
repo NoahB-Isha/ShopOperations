@@ -29,7 +29,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, TimestampMixin, utcnow
+from .base import Base, JSONVariant, TimestampMixin, utcnow
 from .catalog import Product
 
 
@@ -165,6 +165,9 @@ class TransferRequest(Base, TimestampMixin):
     count_barcode_url: Mapped[str] = mapped_column(String(500), default="")
     # last time the app checked Odoo for the count picking's validation
     count_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # last time the app checked the OUTBOUND picking's state (the two-way
+    # sync listener: warehouse actions in Odoo drive the app workflow)
+    picking_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     lines: Mapped[list[TransferRequestLine]] = relationship(
         back_populates="request", cascade="all, delete-orphan", order_by="TransferRequestLine.id"
@@ -218,6 +221,36 @@ class TransferEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     request: Mapped[TransferRequest] = relationship(back_populates="events")
+
+
+class PalletTransfer(Base, TimestampMixin):
+    """One consolidated staging2 → floor-staging move (the warehouse's real
+    process: retarget transfers into III/Staging2, accumulate, send ONE
+    pallet). The app renders it as a draft picking from the staging2 page's
+    'Send all' button; a human validates in Odoo. Validation is the signal
+    that goods reached floor staging — SENT requests get their count
+    transfers prepared then."""
+
+    __tablename__ = "pallet_transfers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open|validated|cancelled
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+    picking_status: Mapped[str] = mapped_column(
+        String(12), default=OdooWriteOutcome.NONE.value
+    )
+    picking_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-PLT-…
+    picking_error: Mapped[str] = mapped_column(Text, default="")
+    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
+    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
+    odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
+
+    # what rode the pallet, frozen at render: [{product_id, sku, name, qty}]
+    lines: Mapped[list] = mapped_column(JSONVariant, default=list)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # poll throttle for the validation listener
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # --------------------------------------------------------- adjustments queue

@@ -66,6 +66,14 @@ export interface FacetsOut {
   total_active: number;
 }
 
+export interface BlacklistSweepOut {
+  no_stock_history: number;
+  usa_items: number;
+  total: number;
+  applied: boolean;
+  sample: string[];
+}
+
 export interface ZoneOut {
   id: number;
   name: string;
@@ -543,6 +551,37 @@ export interface ComingSoonItem {
   floor_qty: number;
   bwhse_qty: number;
   requests: { id: number; display_name: string; status: TransferStatus; qty: number }[];
+  // transfers made DIRECTLY in Odoo (drafts included), via the transfers sync
+  odoo_pickings: { picking_name: string; state: string; qty: number; expected_date: string | null }[];
+}
+
+export interface Staging2Item {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  qty: number;
+}
+
+export interface PalletOut {
+  id: number;
+  status: "open" | "validated" | "cancelled";
+  picking_status: "none" | "created" | "simulated" | "failed";
+  picking_name: string;
+  picking_url: string;
+  picking_error: string;
+  line_count: number;
+  total_units: number;
+  created_at: string;
+  validated_at: string | null;
+}
+
+export interface Staging2Out {
+  items: Staging2Item[];
+  total_units: number;
+  source: "live" | "snapshot" | "unmapped";
+  note: string;
+  pallets: PalletOut[];
 }
 
 export interface OosMarkOut {

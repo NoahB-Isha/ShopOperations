@@ -3,6 +3,7 @@ import { api, apiDownload, apiUpload } from "./client";
 import type {
   AdjustmentOut,
   AuditRow,
+  BlacklistSweepOut,
   CanaryResult,
   CenterOut,
   FacetsOut,
@@ -97,6 +98,17 @@ export function useCreateManualProduct() {
     mutationFn: (body: { name: string; global_sku?: string; category?: string; retail_price?: number }) =>
       api<ProductOut>("/products", { method: "POST", body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
+  });
+}
+
+export function useBlacklistSweep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (apply: boolean) =>
+      api<BlacklistSweepOut>("/products/blacklist/sweep", { method: "POST", body: { apply } }),
+    onSuccess: (_out, apply) => {
+      if (apply) qc.invalidateQueries({ queryKey: ["products"] });
+    },
   });
 }
 
@@ -493,6 +505,30 @@ export function useComingSoon() {
     queryKey: ["coming-soon"],
     queryFn: () => api<import("./types").ComingSoonItem[]>("/transfer-requests/coming-soon"),
     refetchInterval: BOARD_POLL_MS,
+  });
+}
+
+// ------------------------------------------------- staging2 pallet flow
+export function useStaging2() {
+  return useQuery({
+    queryKey: ["staging2"],
+    queryFn: () => api<import("./types").Staging2Out>("/transfer-requests/staging2"),
+    // the GET doubles as the pallet-validation listener — keep it warm
+    refetchInterval: 10_000,
+  });
+}
+
+export function useSendPallet() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<import("./types").Staging2Out>("/transfer-requests/staging2/send-all", {
+        method: "POST",
+      }),
+    onSuccess: (out) => {
+      qc.setQueryData(["staging2"], out);
+      qc.invalidateQueries({ queryKey: ["transfer-requests"] });
+    },
   });
 }
 

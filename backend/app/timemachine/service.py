@@ -366,7 +366,7 @@ def _bucket_items(
         if b is None and not (include_zero or q):
             continue
         b = b or {}
-        total = sum(b.get(k, 0.0) for k in ("bwhse", "floor", "staging"))
+        total = sum(b.get(k, 0.0) for k in ("bwhse", "floor", "staging", "staging2"))
         items.append(
             TimeMachineItem(
                 **_item_base(p),

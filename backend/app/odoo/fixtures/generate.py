@@ -26,6 +26,9 @@ LOCATIONS = [
     # warehouse bins — production stores most BWHSE stock in bins like these
     {"id": 17, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
     {"id": 18, "complete_name": "III/Stock/BWHSE/B/2/1/1", "usage": "internal"},
+    # the warehouse's pallet consolidation staging (live id 2030, a top-level
+    # sibling of III/Stock — verified 2026-07-27)
+    {"id": 19, "complete_name": "III/Staging2", "usage": "internal"},
     {"id": 30, "complete_name": "III/CityCenter", "usage": "view"},
 ]
 

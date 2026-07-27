@@ -44,6 +44,8 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 14, "complete_name": "III/Stock/III-FLOOR", "usage": "internal"},
         # warehouse bin: quants here must roll up into bwhse (subtree matching)
         {"id": 15, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
+        # the warehouse's consolidation staging (top-level sibling, like live)
+        {"id": 16, "complete_name": "III/Staging2", "usage": "internal"},
         # per-center locations: stock sync maps these to centers by leaf name
         {"id": 21, "complete_name": "III/CityCenter", "usage": "view"},
         {"id": 22, "complete_name": "III/CityCenter/Austin", "usage": "internal"},
@@ -71,6 +73,9 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         _q(6, 204, "Banana Chips", 12, "III/Stock/BWHSE", 300),
         _q(7, 999, "Ghost Product", 12, "III/Stock/BWHSE", 55),  # unknown -> skipped
         _q(8, 201, "Copper Water Bottle — 950ml", 15, "III/Stock/BWHSE/A/1/1/1", 30),  # bin
+        # picked into the warehouse's consolidation staging, pallet pending
+        _q(9, 202, "Rudraksha Mala — 5mm", 16, "III/Staging2", 15),
+        _q(10, 205, "Neem Toothpaste", 16, "III/Staging2", 36),
     ]
 
     pos_orders = [
@@ -132,13 +137,45 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
          "picking_id": [903, "III/IN/00903"], "picking_code": "incoming"},
     ]
 
+    # a transfer someone made DIRECTLY in Odoo, headed to floor staging —
+    # the transfers sync must discover it (and its done twin must not count)
+    native_pickings = [
+        {"id": 7001, "name": "WH/INT/NATIVE1", "origin": "", "state": "assigned",
+         "location_id": [12, "III/Stock/BWHSE"],
+         "location_dest_id": [13, "III/Stock/III-FLOOR STAGING"],
+         "picking_type_id": [5, "III: Internal Transfers"], "move_ids": [7101, 7102],
+         "note": "", "scheduled_date": f"{cy}-12-24 08:00:00"},
+        {"id": 7002, "name": "WH/INT/ARRIVED", "origin": "", "state": "done",
+         "location_id": [12, "III/Stock/BWHSE"],
+         "location_dest_id": [13, "III/Stock/III-FLOOR STAGING"],
+         "picking_type_id": [5, "III: Internal Transfers"], "move_ids": [7103],
+         "note": "", "scheduled_date": cur},
+    ]
+    native_moves = [
+        {"id": 7101, "description_picking": "", "product_id": [203, "Incense"],
+         "product_uom_qty": 24.0, "product_qty": 24.0, "date": cur, "state": "assigned",
+         "location_id": [12, "III/Stock/BWHSE"],
+         "location_dest_id": [13, "III/Stock/III-FLOOR STAGING"],
+         "picking_id": [7001, "WH/INT/NATIVE1"], "picking_code": "internal"},
+        {"id": 7102, "description_picking": "", "product_id": [201, "Copper"],
+         "product_uom_qty": 6.0, "product_qty": 6.0, "date": cur, "state": "assigned",
+         "location_id": [12, "III/Stock/BWHSE"],
+         "location_dest_id": [13, "III/Stock/III-FLOOR STAGING"],
+         "picking_id": [7001, "WH/INT/NATIVE1"], "picking_code": "internal"},
+        {"id": 7103, "description_picking": "", "product_id": [202, "Mala"],
+         "product_uom_qty": 5.0, "product_qty": 5.0, "date": cur, "state": "done",
+         "location_id": [12, "III/Stock/BWHSE"],
+         "location_dest_id": [13, "III/Stock/III-FLOOR STAGING"],
+         "picking_id": [7002, "WH/INT/ARRIVED"], "picking_code": "internal"},
+    ]
+
     schema = {
         "product.product": ["id", "default_code", "name", "display_name", "categ_id",
                             "standard_price", "list_price", "barcode", "sale_ok", "active"],
         "stock.location": ["id", "complete_name", "usage"],
         "stock.quant": ["id", "product_id", "location_id", "quantity"],
         "stock.picking": ["id", "name", "origin", "state", "location_id", "location_dest_id",
-                          "picking_type_id", "move_ids", "note"],
+                          "picking_type_id", "move_ids", "note", "scheduled_date"],
         "stock.move": ["id", "description_picking", "product_id", "product_uom_qty", "product_qty",
                        "date", "state", "location_id", "location_dest_id", "picking_id",
                        "picking_code"],
@@ -159,8 +196,8 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         "pos.order.line": pos_lines,
         "sale.order": sale_orders,
         "sale.order.line": sale_lines,
-        "stock.move": incoming,
-        "stock.picking": [],
+        "stock.move": incoming + native_moves,
+        "stock.picking": native_pickings,
     }
     for model, rows in files.items():
         (out_dir / f"{model}.json").write_text(json.dumps(rows, indent=1))
@@ -172,8 +209,10 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
             ("CA0023000009", "bwhse"): 150.0,  # 120 at the root + 30 in bin A/1/1/1
             ("CA0023000009", "floor"): 12.0,
             ("RU0000000005", "bwhse"): 40.0,
+            ("RU0000000005", "staging2"): 15.0,
             ("IN0000000777", "floor"): 6.0,
             ("IN0000000777", "staging"): 4.0,
+            ("OC0000000042", "staging2"): 36.0,
             ("US-SN0001", "bwhse"): 300.0,
         },
         # channels assume a Center named "Austin" exists in the app DB (the

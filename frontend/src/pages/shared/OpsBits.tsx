@@ -231,8 +231,9 @@ export function ProductPicker({
   onPick: (line: PickedLine) => void;
   pickedIds: Set<number>;
   placeholder?: string;
-  /** Ordering surfaces (order lists) never offer clothing — out of scope.
-   *  Stock flows (floor transfers) still move it, so this is opt-in. */
+  /** PURCHASING surfaces (vendor rosters) never offer clothing — out of
+   *  scope for buying. Catalogs and stock flows allow it, so this is
+   *  opt-in. */
   excludeClothing?: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -278,10 +279,11 @@ export function ProductPicker({
                   <button
                     type="button"
                     disabled={already}
-                    onClick={() => {
-                      onPick(toPicked(p));
-                      setSearch("");
-                    }}
+                    // the search stays open after a pick: multi-add flows
+                    // (catalogs, transfers, vendor rosters) add several items
+                    // from one search; the row just flips to "already picked".
+                    // Single-pick dialogs unmount the picker anyway.
+                    onClick={() => onPick(toPicked(p))}
                     className="state-layer flex w-full items-center justify-between gap-3 px-4
                       py-3 text-left disabled:opacity-45"
                   >

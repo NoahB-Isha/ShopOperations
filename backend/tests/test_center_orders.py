@@ -149,32 +149,38 @@ def test_catalog_is_the_granted_menu_with_oos_timeline(client, db):
     assert r.status_code == 403
 
 
-def test_clothing_is_excluded_from_every_ordering_surface(client, db):
-    """Project brief: clothing is out of scope for ordering. It can't be put
-    on an order list, and even a grandfathered list line never reaches the
-    center's menu or a placement."""
+def test_clothing_is_curatable_but_never_purchasable(client, db):
+    """Noah's 2026-07-26 call: catalogs are hand-curated menus — clothing
+    (sarees, kurtas) CAN be put on a list and ordered by centers. The
+    original out-of-scope rule survives only in PURCHASING (the India
+    engine's candidate pool)."""
+    from app.ordering.inputs import import_candidates
+
     s = _setup(db)
-    shirt = mk_product(db, "CL0000000001", "Kurta Shirt",
+    shirt = mk_product(db, "CL0023000001", "Kurta Shirt",
                        category="Isha Life USA / Clothing & Accessories", odoo_id=299)
-    # can't be curated onto a list…
+    db.add(StockLevel(product_id=shirt.id, location_key="bwhse", qty=8))
+    db.commit()
+    # curated onto a list…
     admin = login(client, "admin@test.io")
     r = client.put(
         f"/api/v1/order-lists/{s['starter'].id}/lines",
         json={"product_ids": [s["copper"].id, shirt.id]},
         headers=admin,
     )
-    assert r.status_code == 422 and "clothing" in r.json()["detail"].lower()
+    assert r.status_code == 200, r.text
 
-    # …and a line that predates the rule still never reaches the menu
-    db.add(OrderListLine(order_list_id=s["starter"].id, product_id=shirt.id, position=99))
-    db.commit()
+    # …it reaches the center's menu and can be placed
     orderer = login(client, "orderer@test.io")
     cat = client.get(
         f"/api/v1/center-orders/catalog?center_id={s['austin'].id}", headers=orderer
     ).json()
-    assert all(i["sku"] != "CL0000000001" for i in cat["items"])
+    assert any(i["sku"] == "CL0023000001" for i in cat["items"])
     r = _place(client, orderer, s["austin"].id, [{"product_id": shirt.id, "qty": 1}])
-    assert r.status_code == 422
+    assert r.status_code == 201, r.text
+
+    # …but the India purchasing engine still refuses clothing outright
+    assert shirt.id not in {p.id for p in import_candidates(db)}
 
 
 def test_dept_catalog_serves_dept_orderable_from_the_floor(client, db):

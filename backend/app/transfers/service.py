@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import (
     Adjustment,
+    OdooLocation,
     OdooWriteOutcome,
     TransferEvent,
     TransferEventKind,
@@ -199,6 +201,121 @@ def prepare_count_transfer(
             f"count transfer {result.record_name} ready — scan it in the barcode app",
             actor_user_id,
         )
+
+
+# --------------------------------------------------- outbound state listener
+# Odoo picking states that mean the warehouse has started on it
+_STARTED_STATES = ("waiting", "confirmed", "assigned")
+
+
+def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) -> bool:
+    """The two-way sync's OUTBOUND half: when the warehouse acts on an
+    app-placed picking IN ODOO (marks it to-do, validates it, cancels it),
+    the app workflow follows — no app clicks required.
+
+      confirmed/assigned  → working on it
+      done (validated)    → sent (qtys read back) → count transfer prepared
+      cancelled           → cancelled
+
+    Throttled per request like the count listener; safe on every UI refresh.
+    Returns True when the request just changed state."""
+    if (
+        req.status
+        not in (TransferRequestStatus.REQUESTED.value, TransferRequestStatus.WORKING.value)
+        or req.picking_status != OdooWriteOutcome.CREATED.value
+        or not req.odoo_picking_id
+    ):
+        return False
+    now = utcnow()
+    if req.picking_checked_at is not None:
+        checked = req.picking_checked_at
+        if checked.tzinfo is None:
+            checked = checked.replace(tzinfo=now.tzinfo)
+        if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
+            return False
+    req.picking_checked_at = now
+    db.commit()  # persist the throttle stamp even if the read below fails
+
+    try:
+        conn = get_connection(settings, read_only=True)
+        rows = conn.search_read(
+            "stock.picking",
+            [["id", "=", req.odoo_picking_id]],
+            ["state", "location_dest_id"],
+        )
+    except OdooError as e:
+        log.warning("outbound poll failed for request %s: %s", req.id, e)
+        return False
+    if not rows:
+        return False
+    state = str(rows[0].get("state") or "")
+
+    if state == "cancel":
+        req.status = TransferRequestStatus.CANCELLED.value
+        _event(
+            db, req, TransferEventKind.STATUS,
+            f"{req.odoo_picking_name} was cancelled in Odoo — synced",
+            status=req.status,
+        )
+        db.commit()
+        return True
+
+    if state in _STARTED_STATES and req.status == TransferRequestStatus.REQUESTED.value:
+        req.status = TransferRequestStatus.WORKING.value
+        _event(
+            db, req, TransferEventKind.STATUS,
+            f"warehouse started {req.odoo_picking_name} in Odoo ({state}) — synced",
+            status=req.status,
+        )
+        db.commit()
+        return True
+
+    if state == "done":
+        # same motion as the app's own "mark sent": read the warehouse's
+        # numbers back...
+        readback_note = refresh_sent_quantities(db, settings, req)
+        req.status = TransferRequestStatus.SENT.value
+        # ...but where did it actually GO? The warehouse's real process
+        # retargets transfers to III/Staging2 (their consolidation point)
+        # and later sends ONE pallet to floor staging. Goods at staging2
+        # aren't countable yet — the count waits for the pallet to land
+        # (poll_pallets stages it then).
+        dest_field = rows[0].get("location_dest_id")
+        dest_id = dest_field[0] if isinstance(dest_field, list) else dest_field
+        dest_name = (
+            str(dest_field[1]) if isinstance(dest_field, list) and len(dest_field) == 2 else ""
+        )
+        staging = db.scalar(select(OdooLocation).where(OdooLocation.key == "staging"))
+        at_floor_staging = staging is None or dest_id == staging.odoo_id
+        if at_floor_staging:
+            _event(
+                db, req, TransferEventKind.STATUS,
+                f"{req.odoo_picking_name} validated in Odoo — stock is at staging",
+                status=req.status,
+            )
+            _event(db, req, TransferEventKind.ODOO, readback_note)
+            prepare_count_transfer(db, settings, req, actor_user_id=None)
+            if req.count_status in (
+                OdooWriteOutcome.CREATED.value,
+                OdooWriteOutcome.SIMULATED.value,
+            ):
+                req.status = TransferRequestStatus.COUNTING.value
+                _event(
+                    db, req, TransferEventKind.STATUS,
+                    "ready to count", status=req.status,
+                )
+        else:
+            _event(
+                db, req, TransferEventKind.STATUS,
+                f"{req.odoo_picking_name} validated in Odoo to "
+                f"{dest_name or 'a warehouse staging location'} — waiting for the "
+                "pallet to floor staging; the count will be prepared when it lands",
+                status=req.status,
+            )
+            _event(db, req, TransferEventKind.ODOO, readback_note)
+        db.commit()
+        return True
+    return False
 
 
 # ------------------------------------------------------- validation listener

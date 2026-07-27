@@ -39,6 +39,7 @@ def test_full_canary_create_verify_unlink(db, live_env):
     """The full protocol against the simulator: create APP-TEST- draft with the
     feature flag OFF, read back draft state, verify deep link, unlink."""
     sim = _prepare(db, live_env)
+    baseline = sim.search_count("stock.picking", [])  # fixture's native pickings
     result = run_canary_create_internal_transfer(db, live_env, None, dry_run=False, conn=sim)
     assert result["ok"], result["steps"]
     names = [s["name"] for s in result["steps"]]
@@ -46,8 +47,8 @@ def test_full_canary_create_verify_unlink(db, live_env):
     assert all(s["ok"] for s in result["steps"])
     assert "stock.picking" in result["deep_link"]
 
-    # nothing left behind
-    assert sim.search_count("stock.picking", []) == 0
+    # nothing left behind beyond the fixture's native pickings
+    assert sim.search_count("stock.picking", []) == baseline
     # both writes audited, none dry
     audits = db.scalars(select(OdooWriteAudit).order_by(OdooWriteAudit.id)).all()
     ops = [(a.operation, a.dry_run, a.success) for a in audits]

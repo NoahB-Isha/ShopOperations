@@ -21,6 +21,7 @@ from .incoming import sync_incoming
 from .products import sync_products
 from .sales import sync_sales
 from .stock import sync_stock
+from .transfers import sync_transfers
 
 log = logging.getLogger("sync")
 
@@ -29,6 +30,7 @@ SYNCERS = {
     "stock": sync_stock,
     "sales": sync_sales,
     "incoming": sync_incoming,
+    "transfers": sync_transfers,
 }
 
 KEEP_RUNS = 500

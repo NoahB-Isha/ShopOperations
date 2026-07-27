@@ -28,6 +28,7 @@ from ..models import (
     OdooWriteOutcome,
     Product,
     Role,
+    StagingInboundMove,
     StockLevel,
     TransferEvent,
     TransferEventKind,
@@ -35,8 +36,10 @@ from ..models import (
     TransferRequestLine,
     TransferRequestStatus,
     User,
+    not_blacklisted,
     utcnow,
 )
+from . import pallet as pallet_service
 from . import service
 from .flow import ACTIVE_STATUSES, InvalidTransition, NotAllowedError, check_transition
 
@@ -378,12 +381,21 @@ def list_requests(
         q = q.where(TransferRequest.status.in_(wanted))
     requests = db.scalars(q).all()
 
-    # the board is the listener: check a few counting requests per refresh
+    # the board is the listener — a few polls per refresh, both directions:
+    # counting requests wait on the count validation; requested/working ones
+    # follow whatever the warehouse does to the picking in Odoo; open pallets
+    # flip waiting SENT requests to counting when they land
     polled = 0
     for req in requests:
-        if req.status == S.COUNTING.value and polled < 5:
+        if polled >= 8:
+            break
+        if req.status == S.COUNTING.value:
             polled += 1
             service.poll_count_validation(db, settings, req)
+        elif req.status in (S.REQUESTED.value, S.WORKING.value):
+            polled += 1
+            service.poll_outbound_status(db, settings, req)
+    pallet_service.poll_pallets(db, settings)
 
     names = _user_names(db, {r.created_by_id for r in requests})
     open_by_request: dict[int, int] = {}
@@ -422,6 +434,15 @@ class ComingSoonRequestRef(BaseModel):
     qty: float
 
 
+class ComingSoonPickingRef(BaseModel):
+    """A transfer someone made DIRECTLY in Odoo (drafts included)."""
+
+    picking_name: str
+    state: str
+    qty: float
+    expected_date: str | None
+
+
 class ComingSoonItemOut(BaseModel):
     product_id: int
     sku: str
@@ -432,6 +453,7 @@ class ComingSoonItemOut(BaseModel):
     floor_qty: float
     bwhse_qty: float
     requests: list[ComingSoonRequestRef]
+    odoo_pickings: list[ComingSoonPickingRef] = []
 
 
 # NOTE: declared before /{request_id} — the int route would otherwise
@@ -441,8 +463,10 @@ def coming_soon(
     db: Session = Depends(get_db),
     _: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> list[ComingSoonItemOut]:
-    """Every item on an ACTIVE transfer request, aggregated per product —
-    'already on its way to the floor', so nobody requests it twice."""
+    """Everything on its way to the floor, aggregated per product — items on
+    ACTIVE app requests plus staging-bound transfers made directly in Odoo
+    (the transfers sync discovers those, drafts included) — so nobody
+    requests something twice."""
     requests = db.scalars(
         select(TransferRequest)
         .options(selectinload(TransferRequest.lines).selectinload(TransferRequestLine.product))
@@ -452,22 +476,46 @@ def coming_soon(
     ).all()
 
     by_product: dict[int, dict] = {}
+
+    def entry_for(product: Product) -> dict:
+        return by_product.setdefault(
+            product.id,
+            {"product": product, "qty": 0.0, "requests": [], "odoo_pickings": []},
+        )
+
     for req in requests:
         for line in req.lines:
             qty = float(line.qty_sent) if line.qty_sent is not None else float(line.qty_requested)
             if qty <= 0:
                 continue
-            p = line.product
-            entry = by_product.setdefault(
-                line.product_id,
-                {"product": p, "qty": 0.0, "requests": []},
-            )
+            entry = entry_for(line.product)
             entry["qty"] += qty
             entry["requests"].append(
                 ComingSoonRequestRef(
                     id=req.id, display_name=req.display_name, status=req.status, qty=qty
                 )
             )
+
+    # Odoo-native staging-bound pickings (discovered by the transfers sync)
+    native_rows = db.execute(
+        select(StagingInboundMove, Product)
+        .join(Product, Product.id == StagingInboundMove.product_id)
+        .where(Product.is_active.is_(True), not_blacklisted())
+        .order_by(StagingInboundMove.picking_name)
+    ).all()
+    for move, product in native_rows:
+        entry = entry_for(product)
+        entry["qty"] += move.qty
+        entry["odoo_pickings"].append(
+            ComingSoonPickingRef(
+                picking_name=move.picking_name,
+                state=move.picking_state,
+                qty=move.qty,
+                expected_date=(
+                    move.expected_date.isoformat() if move.expected_date else None
+                ),
+            )
+        )
 
     stock = _stock_map(db, set(by_product.keys()))
     items = [
@@ -481,11 +529,108 @@ def coming_soon(
             floor_qty=stock.get(pid, {}).get("floor", 0.0),
             bwhse_qty=stock.get(pid, {}).get("bwhse", 0.0),
             requests=e["requests"],
+            odoo_pickings=e["odoo_pickings"],
         )
         for pid, e in by_product.items()
     ]
     items.sort(key=lambda i: (i.category or "~", i.name))
     return items
+
+
+class Staging2ItemOut(BaseModel):
+    product_id: int
+    sku: str
+    barcode: str
+    name: str
+    qty: float
+
+
+class PalletOut(BaseModel):
+    id: int
+    status: str  # open | validated | cancelled
+    picking_status: str  # none | created | simulated | failed
+    picking_name: str
+    picking_url: str
+    picking_error: str
+    line_count: int
+    total_units: float
+    created_at: datetime
+    validated_at: datetime | None
+
+
+class Staging2Out(BaseModel):
+    items: list[Staging2ItemOut]
+    total_units: float
+    source: str  # live | snapshot | unmapped
+    note: str
+    pallets: list[PalletOut]  # recent, newest first
+
+
+def _pallet_out(p) -> PalletOut:
+    lines = p.lines or []
+    return PalletOut(
+        id=p.id,
+        status=p.status,
+        picking_status=p.picking_status,
+        picking_name=p.odoo_picking_name,
+        picking_url=p.odoo_picking_url,
+        picking_error=p.picking_error,
+        line_count=len(lines),
+        total_units=round(sum(float(ln.get("qty") or 0) for ln in lines), 3),
+        created_at=p.created_at,
+        validated_at=p.validated_at,
+    )
+
+
+def _staging2_out(db: Session, settings: Settings) -> Staging2Out:
+    snapshot = pallet_service.staging2_snapshot(db, settings)
+    from ..models import PalletTransfer  # local: keep the top import block stable
+
+    pallets = db.scalars(
+        select(PalletTransfer).order_by(PalletTransfer.id.desc()).limit(10)
+    ).all()
+    return Staging2Out(
+        items=[
+            Staging2ItemOut(
+                product_id=i.product_id, sku=i.sku, barcode=i.barcode, name=i.name, qty=i.qty
+            )
+            for i in snapshot.items
+        ],
+        total_units=round(snapshot.total_units, 3),
+        source=snapshot.source,
+        note=snapshot.note,
+        pallets=[_pallet_out(p) for p in pallets],
+    )
+
+
+# NOTE: declared before /{request_id} — route order matters.
+@router.get("/staging2", response_model=Staging2Out)
+def staging2_view(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
+) -> Staging2Out:
+    """What's sitting in III/Staging2 (the warehouse's consolidation point)
+    right now, plus recent pallets. Live read when Odoo is reachable; this
+    GET is also the pallet-validation listener."""
+    pallet_service.poll_pallets(db, settings)
+    return _staging2_out(db, settings)
+
+
+@router.post("/staging2/send-all", response_model=Staging2Out)
+def staging2_send_all(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
+) -> Staging2Out:
+    """The big button: ONE draft pallet transfer moving everything in
+    staging2 to III-FLORR-STAGING. Draft only — validate it in Odoo (the
+    app prepares the floor's count transfers when it lands)."""
+    try:
+        pallet_service.create_pallet(db, settings, authed.id)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return _staging2_out(db, settings)
 
 
 @router.get("/{request_id}", response_model=RequestOut)
@@ -496,7 +641,10 @@ def get_request(
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    if service.poll_count_validation(db, settings, req):
+    # both listeners: Odoo-side warehouse actions and the count validation
+    if service.poll_outbound_status(db, settings, req) or service.poll_count_validation(
+        db, settings, req
+    ):
         req = _get_request(db, request_id)
     return _request_out(db, settings, req, authed)
 

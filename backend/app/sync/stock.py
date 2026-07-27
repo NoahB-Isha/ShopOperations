@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..models import (
     ODOO_LOCATION_NAMES,
+    OPTIONAL_LOCATION_KEYS,
     Center,
     OdooLocation,
     Product,
@@ -48,10 +49,11 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
         key = ODOO_LOCATION_NAMES[loc["complete_name"]]
         roots.setdefault(key, (loc["complete_name"], loc["id"]))
     missing = sorted(set(ODOO_LOCATION_NAMES.values()) - set(roots))
-    if missing:
+    missing_required = [k for k in missing if k not in OPTIONAL_LOCATION_KEYS]
+    if missing_required:
         raise RuntimeError(
-            f"Odoo locations not found for keys: {missing}. The location names may "
-            f"have changed — update ODOO_LOCATION_NAMES (looked for "
+            f"Odoo locations not found for keys: {missing_required}. The location "
+            f"names may have changed — update ODOO_LOCATION_NAMES (looked for "
             f"{sorted(ODOO_LOCATION_NAMES)})."
         )
 
@@ -119,7 +121,13 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     _capture_history(db, settings, totals, now)
 
     center_stats = _map_center_locations(db, conn)
-    state.extra = {**(state.extra or {}), "unknown_product_quants": unknown, **center_stats}
+    extra = {**(state.extra or {}), "unknown_product_quants": unknown, **center_stats}
+    missing_optional = [k for k in missing if k in OPTIONAL_LOCATION_KEYS]
+    if missing_optional:
+        extra["missing_optional_locations"] = missing_optional
+    else:
+        extra.pop("missing_optional_locations", None)
+    state.extra = extra
     return len(totals)
 
 

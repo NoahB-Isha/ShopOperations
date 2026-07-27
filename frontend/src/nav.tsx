@@ -83,6 +83,7 @@ const byRole: Record<string, NavItem[]> = {
   warehouse: [
     { path: "/incoming", label: "Incoming", icon: Icons.truck },
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
+    { path: "/staging2", label: "Staging 2", icon: Icons.box },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
     { path: "/time-machine", label: "Time machine", icon: Icons.timeMachine },

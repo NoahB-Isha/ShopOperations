@@ -39,7 +39,7 @@ from app.timemachine.backfill import backfill_state, process_next
 log = logging.getLogger("worker")
 
 # initial stagger (seconds) so domains don't stampede on first boot
-STAGGER = {"products": 0, "stock": 20, "sales": 40, "incoming": 60}
+STAGGER = {"products": 0, "stock": 20, "sales": 40, "incoming": 60, "transfers": 80}
 
 NOTIFY_SWEEP_SECONDS = 30  # outbox retries
 BRIDGE_PROBE_SECONDS = 60  # WhatsApp bridge health → admin status page

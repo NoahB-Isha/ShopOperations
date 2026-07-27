@@ -66,11 +66,12 @@ def test_kill_switch_forces_dry_run(db, live_env, monkeypatch):
     set_flag(db, FLAG, True)
 
     writer = OdooWriter(db, settings, conn=sim)
+    baseline = sim.search_count("stock.picking", [])  # fixture's native pickings
     result = writer.create_internal_transfer(
         source_key="bwhse", dest_key="floor", lines=[{"product_id": product.id, "qty": 3}]
     )
     assert result.dry_run and result.dry_run_reason == "kill_switch"
-    assert sim.search_count("stock.picking", []) == 0  # nothing written
+    assert sim.search_count("stock.picking", []) == baseline  # nothing written
     audit = db.scalars(select(OdooWriteAudit)).all()[-1]
     assert audit.dry_run and audit.dry_run_reason == "kill_switch" and audit.success
     assert audit.request_payload["origin"].startswith("ILAPP-XFER-")

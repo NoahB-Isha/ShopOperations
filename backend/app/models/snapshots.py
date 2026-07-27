@@ -23,13 +23,16 @@ class LocationKey(str, enum.Enum):
     BWHSE = "bwhse"
     FLOOR = "floor"
     STAGING = "staging"
+    # the warehouse's own consolidation point: transfers get retargeted here,
+    # accumulate, then ONE pallet transfer moves everything to floor staging
+    STAGING2 = "staging2"
 
 
 # Odoo complete_name -> app location key. Several spellings may map to one
 # key (production's staging is hyphenated; older fixtures used a space) — the
-# stock sync requires every KEY to resolve, not every name. Quants are matched
-# by SUBTREE: BWHSE keeps stock in bin sub-locations (III/Stock/BWHSE/A/1/1/1),
-# verified against the live instance 2026-07-10.
+# stock sync requires every REQUIRED key to resolve, not every name. Quants
+# are matched by SUBTREE: BWHSE keeps stock in bin sub-locations
+# (III/Stock/BWHSE/A/1/1/1), verified against the live instance 2026-07-10.
 ODOO_LOCATION_NAMES = {
     "III/Stock/BWHSE": LocationKey.BWHSE.value,
     "III/Stock/III-FLOOR": LocationKey.FLOOR.value,
@@ -39,7 +42,13 @@ ODOO_LOCATION_NAMES = {
     "III/Stock/III-FLORR-STAGING": LocationKey.STAGING.value,  # production (sic)
     "III/Stock/III-FLOOR-STAGING": LocationKey.STAGING.value,  # pre-07-17 production
     "III/Stock/III-FLOOR STAGING": LocationKey.STAGING.value,  # legacy fixtures
+    # warehouse consolidation staging (live id 2030, verified 2026-07-27)
+    "III/Staging2": LocationKey.STAGING2.value,
 }
+
+# Keys the sync tolerates missing (older fixture sets predate them); a
+# missing OPTIONAL key is noted in sync_state.extra instead of failing.
+OPTIONAL_LOCATION_KEYS = {LocationKey.STAGING2.value}
 
 
 class OdooLocation(Base):
@@ -127,7 +136,26 @@ class IncomingMove(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-SYNC_DOMAINS = ("products", "stock", "sales", "incoming")
+class StagingInboundMove(Base):
+    """Line-level snapshot of Odoo-NATIVE transfers headed to floor staging —
+    pickings a human created directly in Odoo (draft included), not through
+    the app. Feeds the coming-soon list so direct warehouse transfers count
+    as 'already on the way'. Replaced by every transfers sync; app-placed
+    requests are excluded here (they aggregate from transfer_requests)."""
+
+    __tablename__ = "staging_inbound_moves"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    odoo_picking_id: Mapped[int] = mapped_column(Integer, index=True)
+    picking_name: Mapped[str] = mapped_column(String(80), default="")
+    picking_state: Mapped[str] = mapped_column(String(20), default="")  # draft…assigned
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    qty: Mapped[float] = mapped_column(Float, default=0)
+    expected_date: Mapped[date | None] = mapped_column(Date)  # scheduled_date
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+SYNC_DOMAINS = ("products", "stock", "sales", "incoming", "transfers")
 
 
 class SyncRun(Base):

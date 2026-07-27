@@ -1,11 +1,20 @@
-/* Everything already on its way from the warehouse to the floor — every item
-   on an ACTIVE transfer request, totalled per product. The answer to "should
-   I request this?" before anyone requests it twice. */
+/* Everything already on its way from the warehouse to the floor, totalled
+   per product — items on ACTIVE transfer requests PLUS staging-bound
+   transfers someone made directly in Odoo (drafts included; the transfers
+   sync discovers those). The answer to "should I request this?" before
+   anyone requests it twice. */
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
-import { EmptyState, Input, PageHeader, Spinner } from "../../design";
+import { Badge, EmptyState, Input, PageHeader, Spinner } from "../../design";
 import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
+
+const PICKING_STATE_LABEL: Record<string, string> = {
+  draft: "draft",
+  waiting: "waiting",
+  confirmed: "to do",
+  assigned: "ready",
+};
 
 export function ComingSoonPage() {
   const { data: items, isLoading } = useComingSoon();
@@ -28,7 +37,7 @@ export function ComingSoonPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Coming soon"
-        subtitle="Already on an active transfer from the warehouse — no need to request it again."
+        subtitle="Already on its way from the warehouse — app requests and transfers made directly in Odoo alike. No need to request it again."
       />
       <Input
         value={search}
@@ -86,6 +95,20 @@ export function ComingSoonPage() {
                     {req.display_name} · {fmtQty(req.qty)}
                     <TransferStatusChip status={req.status} />
                   </button>
+                ))}
+                {(item.odoo_pickings ?? []).map((pick, i) => (
+                  <span
+                    key={`${item.product_id}-odoo-${i}`}
+                    className="flex items-center gap-1.5 rounded-full border border-dashed
+                      border-outline-variant px-2.5 py-1 text-[12px] font-medium
+                      text-on-surface-variant"
+                    title={`Made directly in Odoo${pick.expected_date ? ` · expected ${pick.expected_date}` : ""}`}
+                  >
+                    {pick.picking_name} · {fmtQty(pick.qty)}
+                    <Badge tone="tertiary">
+                      Odoo · {PICKING_STATE_LABEL[pick.state] ?? pick.state}
+                    </Badge>
+                  </span>
                 ))}
               </div>
             </li>

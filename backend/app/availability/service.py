@@ -106,7 +106,7 @@ def _scope_qty(buckets: dict[str, float], scope: str) -> float:
         return buckets.get("bwhse", 0.0)
     if scope == "floor":
         return buckets.get("floor", 0.0)
-    return sum(buckets.get(k, 0.0) for k in ("bwhse", "floor", "staging"))
+    return sum(buckets.get(k, 0.0) for k in ("bwhse", "floor", "staging", "staging2"))
 
 
 def oos_items(
@@ -231,7 +231,7 @@ def coming_soon_items(
             if (soonest - today).days > within_days:
                 continue
         b = buckets.get(pid, {})
-        total = sum(b.get(k, 0.0) for k in ("bwhse", "floor", "staging"))
+        total = sum(b.get(k, 0.0) for k in ("bwhse", "floor", "staging", "staging2"))
         items.append(
             AvailabilityItem(
                 product_id=pid,

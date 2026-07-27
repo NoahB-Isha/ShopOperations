@@ -210,9 +210,10 @@ function Editor({ ol }: { ol: OrderListOut }) {
         <div className="flex flex-col gap-5">
           <Card>
             <h3 className="headline mb-3 text-[16px]">Add products</h3>
+            {/* clothing IS searchable here (Noah, 2026-07-26) — catalogs are
+                hand-curated; only purchasing surfaces still exclude it */}
             <ProductPicker
               pickedIds={pickedIds}
-              excludeClothing
               onPick={(line) =>
                 mutate([
                   ...products,

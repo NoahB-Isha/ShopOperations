@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     sync_stock_minutes: int = 240
     sync_sales_minutes: int = 60
     sync_incoming_minutes: int = 240
+    # staging-bound pickings made directly in Odoo → coming-soon; short
+    # cadence because transfers move within the working day (one tiny
+    # search per run — still a polite client)
+    sync_transfers_minutes: int = 10
     sync_stale_factor: float = 2.0
     sales_backfill_months: int = 24
     sales_daily_retention_days: int = 60  # sales_daily keeps only this window
@@ -161,6 +165,7 @@ class Settings(BaseSettings):
             "stock": self.sync_stock_minutes,
             "sales": self.sync_sales_minutes,
             "incoming": self.sync_incoming_minutes,
+            "transfers": self.sync_transfers_minutes,
         }[domain]
 
 

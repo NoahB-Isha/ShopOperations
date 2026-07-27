@@ -31,7 +31,6 @@ from ..models import (
     Zone,
     ZoneKind,
     not_blacklisted,
-    not_clothing,
 )
 
 INCOMING_PENDING_STATES = {"assigned", "confirmed", "waiting", "partially_available"}
@@ -127,8 +126,9 @@ class CatalogItem:
 
 def orderable_product_ids(db: Session, center: Center) -> dict[int, list[str]]:
     """product_id -> names of the granted lists that carry it (dept-orderable
-    items map to the pseudo-list name 'Department items'). Clothing never
-    qualifies — out of scope for ordering, whatever a list says."""
+    items map to the pseudo-list name 'Department items'). Clothing is
+    allowed on catalogs (Noah, 2026-07-26 — hand-curated menus decide);
+    only the PURCHASING flows still exclude it."""
     out: dict[int, list[str]] = {}
     rows = db.execute(
         select(OrderListLine.product_id, OrderList.name)
@@ -138,7 +138,6 @@ def orderable_product_ids(db: Session, center: Center) -> dict[int, list[str]]:
         .where(
             OrderListCenter.center_id == center.id,
             OrderList.is_archived.is_(False),
-            not_clothing(),
             not_blacklisted(),
         )
         .order_by(OrderListLine.position)
@@ -152,7 +151,6 @@ def orderable_product_ids(db: Session, center: Center) -> dict[int, list[str]]:
             select(Product.id).where(
                 Product.dept_orderable.is_(True),
                 Product.is_active.is_(True),
-                not_clothing(),
                 not_blacklisted(),
             )
         )
@@ -208,9 +206,9 @@ def build_catalog(
                 Product.id.in_(by_product.keys()), Product.is_active.is_(True)
             )
         )
-        # defense in depth: clothing and blacklisted items stay out of the
-        # menu even if an old list line slipped one in
-        if not p.is_clothing and not p.blacklisted
+        # defense in depth: blacklisted items stay out of the menu even if
+        # an old list line slipped one in
+        if not p.blacklisted
     ]
     ids = {p.id for p in products}
     stock = stock_by_product(db, ids, source_key)

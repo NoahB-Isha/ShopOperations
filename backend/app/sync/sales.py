@@ -22,11 +22,15 @@ Amounts: line revenue is captured alongside units (pos: price_subtotal_incl,
 online: price_total — both tax-in). NULL amounts mean "row predates capture".
 
 Order headers feed `sales_orders_monthly` (order counts, header revenue, and
-the customer-loyalty split): ~96% of POS orders and 100% of online orders
-carry a partner on this instance (verified live 2026-07-23). Walk-ins count
-as orders but not customers. `customer_first_seen` remembers each partner's
-earliest order per channel so new-vs-returning stays correct across
-incremental windows; only partner ids are stored, never contact details.
+the customer-loyalty split). POS orders technically almost always carry a
+partner — but it's usually the register's own HOUSE account ('Isha Life USA
+- III FLOOR POS' holds ~99% of Shoppe orders; verified live 2026-07-25), not
+a person. Dominant partners are detected per channel (`detect_house_partners`)
+and excluded from every customer metric, so walk-ins count as orders, never
+as customers; online partners are real people. `customer_first_seen`
+remembers each partner's earliest order per channel so new-vs-returning
+stays correct across incremental windows; only partner ids are stored,
+never contact details.
 
 Cadence policy: ONE full backfill (24 months) at setup; afterwards hourly
 incrementals touch only the current month, and the previous month is
@@ -119,6 +123,59 @@ def _order_date(d: str) -> date | None:
         return None
 
 
+# Registers attribute walk-in POS orders to a per-register "house" partner
+# ('Isha Life USA - III FLOOR POS' carries ~99% of Shoppe orders; the LA
+# register has its own — verified live 2026-07-25). Those records are
+# registers, not people: they'd make every customer metric nonsense (1
+# "returning customer" per month, 96% "known customers"). A partner
+# dominating a group's window — a whole channel OR a single register, since
+# campus_other aggregates many registers — is treated as a house account and
+# excluded from customer metrics; detections are remembered in
+# sync_state.extra so small hourly windows stay honest.
+HOUSE_PARTNER_MIN_ORDERS = 50
+HOUSE_PARTNER_MIN_SHARE = 0.30
+# …and a register default that's only attached to SOME of its register's
+# orders never wins on share ('ISHA LIFE USA - LA POS': ~50–130 orders every
+# month, ~10% of its channel). No person places 25 orders in one month —
+# sustained monthly volume is a register, not a customer.
+HOUSE_PARTNER_MONTHLY_ORDERS = 25
+
+
+def detect_house_partners(
+    partner_orders: dict[tuple[int, str], int],
+    group_orders: dict[str, int],
+    min_orders: int | None = None,
+    min_share: float | None = None,
+) -> set[tuple[int, str]]:
+    """(partner_id, group) pairs whose order share marks them as register
+    house accounts — group is a channel or a pos config name, whatever the
+    caller tallied by. Pure; thresholds resolve at call time so tests can
+    lower them."""
+    min_orders = HOUSE_PARTNER_MIN_ORDERS if min_orders is None else min_orders
+    min_share = HOUSE_PARTNER_MIN_SHARE if min_share is None else min_share
+    out: set[tuple[int, str]] = set()
+    for (partner_id, group), n in partner_orders.items():
+        total = group_orders.get(group, 0)
+        if n >= min_orders and total and n / total >= min_share:
+            out.add((partner_id, group))
+    return out
+
+
+def monthly_house_partners(
+    orders_bucket: dict[tuple[int, int, str], dict],
+    min_monthly: int | None = None,
+) -> set[tuple[int, str]]:
+    """(partner_id, channel) pairs with implausible-for-a-person monthly
+    volume in any single month bucket."""
+    min_monthly = HOUSE_PARTNER_MONTHLY_ORDERS if min_monthly is None else min_monthly
+    out: set[tuple[int, str]] = set()
+    for (_y, _m, channel), ob in orders_bucket.items():
+        for partner_id, n in ob["partner_orders"].items():
+            if n >= min_monthly:
+                out.add((partner_id, channel))
+    return out
+
+
 def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: SyncState) -> int:
     now = utcnow()
     today = now.date()
@@ -157,10 +214,18 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     # center_bucket[(config_name, year, month)] = [units, amount] — city
     # centers only, config-level (feeds the dashboard's centers panel)
     center_bucket: dict[tuple[str, int, int], list[float]] = {}
-    # orders_bucket[(year, month, channel)] — header-level order facts
+    # orders_bucket[(year, month, channel)] — header-level order facts;
+    # partner_orders maps partner_id -> order count inside the bucket
     orders_bucket: dict[tuple[int, int, str], dict] = {}
     # (partner_id, channel) -> earliest order date seen THIS window
     partner_min: dict[tuple[int, str], date] = {}
+    # window-level tallies for house-partner (register default) detection —
+    # by channel AND by pos config (a low-volume register's default never
+    # dominates its aggregated channel, but it dominates its own register)
+    window_partner_orders: dict[tuple[int, str], int] = {}
+    window_channel_orders: dict[str, int] = {}
+    window_config_partner_orders: dict[tuple[int, str], int] = {}
+    window_config_orders: dict[str, int] = {}
     daily_floor = today - timedelta(days=settings.sales_daily_retention_days)
     any_source = False
     config_channels: dict[str, str] = {}  # config name -> channel, for admin visibility
@@ -206,18 +271,30 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
                 year, month = int(d[:4]), int(d[5:7])
                 ob = orders_bucket.setdefault(
                     (year, month, channel),
-                    {"orders": 0, "amount": 0.0, "with_customer": 0, "partners": set()},
+                    {"orders": 0, "amount": 0.0, "partner_orders": {}},
                 )
                 ob["orders"] += 1
                 ob["amount"] += float(o.get("amount_total") or 0.0)
+                window_channel_orders[channel] = window_channel_orders.get(channel, 0) + 1
+                config_name = config_by_order.get(o["id"], "")
+                if config_name:
+                    window_config_orders[config_name] = (
+                        window_config_orders.get(config_name, 0) + 1
+                    )
                 partner_field = o.get("partner_id")
                 partner_id = partner_field[0] if isinstance(partner_field, list) else None
                 if isinstance(partner_id, int):
-                    ob["with_customer"] += 1
-                    ob["partners"].add(partner_id)
+                    po = ob["partner_orders"]
+                    po[partner_id] = po.get(partner_id, 0) + 1
+                    pkey = (partner_id, channel)
+                    window_partner_orders[pkey] = window_partner_orders.get(pkey, 0) + 1
+                    if config_name:
+                        cfg_key = (partner_id, config_name)
+                        window_config_partner_orders[cfg_key] = (
+                            window_config_partner_orders.get(cfg_key, 0) + 1
+                        )
                     order_day = _order_date(d)
                     if order_day is not None:
-                        pkey = (partner_id, channel)
                         prev = partner_min.get(pkey)
                         if prev is None or order_day < prev:
                             partner_min[pkey] = order_day
@@ -312,6 +389,32 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
             )
         )
 
+    # House partners (register defaults): freshly detected in this window,
+    # plus the ones remembered from bigger windows — hourly slices are too
+    # small to re-detect on the 1st of a month.
+    remembered = {
+        (int(pid), str(ch))
+        for pid, ch in (extra.get("house_partners") or [])
+        if isinstance(pid, int | float) and str(ch)
+    }
+    house = remembered | detect_house_partners(window_partner_orders, window_channel_orders)
+    # per-register pass: a config's dominant partner is a house account on
+    # that config's CHANNEL (config_channels maps register → channel)
+    for pid, cfg in detect_house_partners(window_config_partner_orders, window_config_orders):
+        house.add((pid, config_channels.get(cfg, SalesChannel.CAMPUS_OTHER.value)))
+    # volume pass: sometimes-attached register defaults dodge share checks
+    house |= monthly_house_partners(orders_bucket)
+    if house:
+        # keep the first-seen memory people-only — the period-exact "new
+        # customers" query on the dashboard counts these rows directly
+        for pid, ch in house:
+            db.execute(
+                delete(CustomerFirstSeen).where(
+                    CustomerFirstSeen.partner_id == pid, CustomerFirstSeen.channel == ch
+                )
+            )
+        partner_min = {k: v for k, v in partner_min.items() if k not in house}
+
     # Order-header facts: remember each partner's earliest order (append-only
     # min — a full rebuild replays history and converges), then replace the
     # window's monthly order rows with counts + the new/returning split.
@@ -348,16 +451,23 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
         )
     )
     first_seen_by_key: dict[tuple[int, str], date] = {}
-    all_partner_ids = {pid for ob in orders_bucket.values() for pid in ob["partners"]}
+    all_partner_ids = {pid for ob in orders_bucket.values() for pid in ob["partner_orders"]}
     if all_partner_ids:
         for seen in db.scalars(
             select(CustomerFirstSeen).where(CustomerFirstSeen.partner_id.in_(all_partner_ids))
         ):
             first_seen_by_key[(seen.partner_id, seen.channel)] = seen.first_order_on
     for (year, month, channel), ob in orders_bucket.items():
+        # customer metrics count PEOPLE: house accounts drop out here (their
+        # orders still count as orders — walk-ins are sales, not customers)
+        kept = {
+            pid: n
+            for pid, n in ob["partner_orders"].items()
+            if (pid, channel) not in house
+        }
         new_customers = sum(
             1
-            for pid in ob["partners"]
+            for pid in kept
             if (fs := first_seen_by_key.get((pid, channel))) is not None
             and (fs.year, fs.month) == (year, month)
         )
@@ -368,10 +478,10 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
                 channel=channel,
                 orders=ob["orders"],
                 amount=round(ob["amount"], 2),
-                orders_with_customer=ob["with_customer"],
-                distinct_customers=len(ob["partners"]),
+                orders_with_customer=sum(kept.values()),
+                distinct_customers=len(kept),
                 new_customers=new_customers,
-                returning_customers=len(ob["partners"]) - new_customers,
+                returning_customers=len(kept) - new_customers,
                 synced_at=now,
             )
         )
@@ -397,5 +507,6 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     extra["prev_month_synced_on"] = today.isoformat() if since < today.replace(day=1) else extra.get("prev_month_synced_on")
     extra["last_window"] = window_label
     extra["pos_config_channels"] = dict(sorted(config_channels.items())[:80])
+    extra["house_partners"] = [list(pair) for pair in sorted(house)][:40]
     state.extra = extra
     return len(bucket)

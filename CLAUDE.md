@@ -370,3 +370,73 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   VITE_API_BASE now points the client at a remote API (Vercel guide:
   docs/DEPLOY_VERCEL_SUPABASE.md + frontend/vercel.json — backend/worker CANNOT run on
   Vercel, they need an always-on host). e2e phase5.spec is now fully read-only.
+  Follow-ups (2026-07-26): **blacklist sweep** `POST /products/blacklist/sweep`
+  (declared BEFORE /{product_id}; preview `apply:false` → confirm) = never-stocked
+  AND never-SOLD active odoo items (no snapshot qty>0 ever + nothing on hand + no
+  sales_monthly rows; IL-Service hard exception, manual source exempt) ∪
+  "USA"-in-name / "-USA"-sku duplicates (ilike prefilter + case-sensitive Python
+  check so SQLite==Postgres). The never-SOLD half is LOAD-BEARING: snapshots are
+  weekly/~6mo deep, so fast movers and digital items trade without stock history —
+  the first sweep (stock-only) blacklisted 1,308 selling items (sarees/kurtas!)
+  that were restored by hand 07-26; don't loosen it again. Live state: ~960
+  blacklisted, ~2,950 active visible. **Clothing scope change (Noah 07-26,
+  supersedes the brief's blanket exclusion): catalogs + center order menus ALLOW
+  clothing** — hand-curated menus decide; `not_clothing()` and the clothing 422s
+  are GONE from orders/router + center_orders/catalog, and the catalog editor's
+  ProductPicker lost `excludeClothing`. Clothing stays excluded ONLY from
+  purchasing (ordering/inputs candidates, analogy pools, VendorsPage roster
+  picker) — test_clothing_is_curatable_but_never_purchasable locks both sides. **House partners**: POS registers put a HOUSE
+  partner on walk-in orders ('… - III FLOOR POS' = ~99% of shoppe; LA's account rode
+  ~50–130 campus orders/mo) — `app/sync/sales.py` detects them three ways (channel
+  dominance ≥50 orders & ≥30%; per-config dominance, same thresholds; monthly volume
+  ≥25 orders/partner/month), remembers pairs in sync_state.extra['house_partners'],
+  scrubs them from customer_first_seen, and drops them from with_customer/distinct/
+  new/returning while their ORDERS still count. Detectors are pure + threshold-
+  injectable (tests lower them); a full rebuild re-ran 07-26 → in-person ≈ 0 known
+  customers (true), online is the loyalty signal, known-share 96%→24%. "New" = first
+  order per (partner, channel) within the 24-month window — cross-channel debuts and
+  window-edge returns read as new; don't "fix" without a partner-level identity
+  decision. **Order size** on /reports is a display NUMBER (period AOV + prior),
+  chart removed. **ProductPicker + blacklist search keep results open after a pick**
+  (multi-add; picked rows disable) — don't reinstate clear-on-pick.
+- Two-way transfer sync (2026-07-27, same build-on rule): **INBOUND** — new sync
+  domain `transfers` (SYNCERS + SYNC_DOMAINS + `sync_transfers_minutes`=10 + worker
+  STAGGER; runs LAST in run_all because it needs the staging location the stock
+  sync maps): `app/sync/transfers.py` discovers stock.pickings with
+  location_dest_id child_of staging in (draft, waiting, confirmed, assigned) —
+  "drafted as going to staging" counts — snapshots lines into
+  `staging_inbound_moves` (replace-on-sync; validated/cancelled pickings drop out;
+  app-placed pickings excluded by TransferRequest.odoo_picking_id). /coming-soon
+  unions them per product (`odoo_pickings` refs, dashed chips + "Odoo · state"
+  badge on the page). Simulator RELATIONS gained ("stock.picking",
+  "location_dest_id") for the child_of. **OUTBOUND** —
+  `transfers/service.poll_outbound_status` (throttled by new
+  `transfer_requests.picking_checked_at`, same odoo_count_poll_seconds): warehouse
+  actions IN ODOO on app-placed pickings drive the workflow — confirmed/assigned →
+  working_on_it, done → sent (qty readback) → count transfer prepared → counting,
+  cancel → cancelled; hooked into the list GET (≤8 polls/refresh, both listeners)
+  and the detail GET, events note "… in Odoo — synced". Migration `e7b1f5a9c2d4`
+  (additive). Test fixtures ship 2 native pickings (WH/INT/NATIVE1 assigned +
+  a done twin) — writer/canary tests count pickings RELATIVE to that baseline,
+  never == 0.
+- Staging2 pallet flow (2026-07-27, the warehouse's REAL process): transfers get
+  retargeted to **III/Staging2** (live id 2030, a TOP-LEVEL sibling of III/Stock —
+  `staging2` LocationKey, OPTIONAL_LOCATION_KEYS so old fixture sets don't break the
+  stock sync), accumulate, then ONE pallet goes to floor staging.
+  `poll_outbound_status` therefore checks WHERE a validated picking went: dest ==
+  staging → old path (sent → count prepared → counting); anything else (staging2) →
+  SENT only, "waiting for the pallet", count deferred. `app/transfers/pallet.py`:
+  `staging2_snapshot` (LIVE quant read — action screen; snapshot fallback when Odoo
+  down), `create_pallet` (ONE draft via the existing create_internal_transfer op,
+  source staging2 → dest staging, ILAPP-PLT- reference, lines frozen on
+  `pallet_transfers`), `poll_pallets` (validation listener: pallet done → every
+  SENT request w/ count none/failed gets its count prepared → counting; hooked into
+  the transfers list GET + the staging2 GET). Endpoints: GET
+  /transfer-requests/staging2 (PARTICIPANTS; declared before /{id}) + POST
+  …/staging2/send-all (WAREHOUSE only). /staging2 page in the warehouse nav (floor
+  may view; only warehouse sees the button). staging2 counts in org OOS scope +
+  ordering/timemachine on-hand sums (NOT in bwhse scope — it's committed to the
+  floor). Discovery sync now watches BOTH staging destinations and skips ILAPP-
+  origin pickings (app pallets would double-count the SENT requests riding them).
+  Migration `c9d4e8b2f7a1`. Fixtures: III/Staging2 + 2 staging2 quants (tests) and
+  the location in generate.py — expected_stock carries the staging2 rows.

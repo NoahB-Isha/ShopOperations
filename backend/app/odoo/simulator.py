@@ -26,6 +26,8 @@ RELATIONS: dict[tuple[str, str], str] = {
     ("sale.order.line", "order_id"): "sale.order",
     ("stock.move", "picking_id"): "stock.picking",
     ("stock.quant", "location_id"): "stock.location",
+    # the transfers sync finds staging-bound pickings by destination subtree
+    ("stock.picking", "location_dest_id"): "stock.location",
 }
 
 # one2many creation commands the app uses ((parent, field) -> (child, backref))

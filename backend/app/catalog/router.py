@@ -5,13 +5,22 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth.deps import AuthedUser, get_current_user, require_roles
 from ..config import Settings, get_settings
 from ..db import get_db
-from ..models import Product, ProductSource, ProductTag, Role, StockLevel, TagName
+from ..models import (
+    Product,
+    ProductSource,
+    ProductTag,
+    Role,
+    SalesMonthly,
+    StockLevel,
+    StockSnapshot,
+    TagName,
+)
 from ..odoo.urls import odoo_record_url
 
 router = APIRouter(prefix="/products", tags=["catalog"])
@@ -174,6 +183,122 @@ def facets(db: Session = Depends(get_db), _: AuthedUser = Depends(get_current_us
     ]
     total = db.scalar(select(func.count()).where(Product.is_active.is_(True))) or 0
     return FacetsOut(categories=categories, tags=[t.value for t in TagName], total_active=total)
+
+
+# ---------------------------------------------------------- blacklist sweep
+# Items that were never stocked AND never sold (dead entries — one-off
+# consecrated pieces, retired listings) plus the stale "-USA" duplicate
+# products. The never-SOLD half matters: snapshot history is weekly and only
+# ~6 months deep, so fast-moving items (sold out between snapshots) and
+# digital/menu items legitimately trade without ever showing stock — an item
+# with sales is not junk. Sweeps are previewed (apply=false) and re-runnable
+# as new junk syncs in. Declared BEFORE /{product_id} — route order matters.
+
+# never sweep these, whatever the rules say (IL-Service is a real service
+# item the floor uses even though it has no stock history)
+SWEEP_EXCEPTIONS = ("IL-Service", "IL Service")
+
+
+class SweepIn(BaseModel):
+    apply: bool = False
+
+
+class SweepOut(BaseModel):
+    no_stock_history: int
+    usa_items: int
+    total: int
+    applied: bool
+    sample: list[str]  # first names, so the preview shows what it means
+
+
+def _sweep_candidates(db: Session) -> tuple[set[int], set[int], list[Product]]:
+    """(no-history ids, usa ids, union of products) for the sweep."""
+    not_exception = ~or_(
+        Product.global_sku.in_(SWEEP_EXCEPTIONS), Product.name.in_(SWEEP_EXCEPTIONS)
+    )
+    ever_snapshotted = exists(
+        select(StockSnapshot.id).where(
+            StockSnapshot.product_id == Product.id, StockSnapshot.qty > 0
+        )
+    )
+    stocked_now = exists(
+        select(StockLevel.id).where(
+            StockLevel.product_id == Product.id, StockLevel.qty > 0
+        )
+    )
+    ever_sold = exists(
+        select(SalesMonthly.id).where(SalesMonthly.product_id == Product.id)
+    )
+    no_history = {
+        pid
+        for (pid,) in db.execute(
+            select(Product.id).where(
+                Product.is_active.is_(True),
+                Product.blacklisted.is_(False),
+                Product.source == ProductSource.ODOO.value,
+                ~ever_snapshotted,
+                ~stocked_now,
+                ~ever_sold,
+                not_exception,
+            )
+        )
+    }
+    # "-USA" duplicates: ilike prefilter, then a case-sensitive check in
+    # Python so SQLite (tests) and Postgres agree and "USA" never matches a
+    # lowercase word
+    usa_rows = db.scalars(
+        select(Product).where(
+            Product.is_active.is_(True),
+            Product.blacklisted.is_(False),
+            or_(
+                Product.name.ilike("%usa%"),
+                Product.global_sku.ilike("%-usa%"),
+                Product.us_sku.ilike("%-usa%"),
+                Product.odoo_internal_ref.ilike("%-usa%"),
+            ),
+            not_exception,
+        )
+    ).all()
+    usa = {
+        p.id
+        for p in usa_rows
+        if "USA" in (p.name or "")
+        or "-USA" in (p.global_sku or "")
+        or "-USA" in (p.us_sku or "")
+        or "-USA" in (p.odoo_internal_ref or "")
+    }
+    union_ids = no_history | usa
+    products = (
+        db.scalars(
+            select(Product).where(Product.id.in_(union_ids or {-1})).order_by(Product.name)
+        ).all()
+        if union_ids
+        else []
+    )
+    return no_history, usa, list(products)
+
+
+@router.post("/blacklist/sweep", response_model=SweepOut)
+def blacklist_sweep(
+    body: SweepIn,
+    db: Session = Depends(get_db),
+    _: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> SweepOut:
+    no_history, usa, products = _sweep_candidates(db)
+    if body.apply and products:
+        db.execute(
+            update(Product)
+            .where(Product.id.in_([p.id for p in products]))
+            .values(blacklisted=True)
+        )
+        db.commit()
+    return SweepOut(
+        no_stock_history=len(no_history),
+        usa_items=len(usa),
+        total=len(products),
+        applied=bool(body.apply and products),
+        sample=[p.name or p.global_sku for p in products[:15]],
+    )
 
 
 @router.get("/{product_id}", response_model=ProductOut)

@@ -70,7 +70,8 @@ from .rules import AIR_ONLY_TAGS, BULK_CYCLE_TAGS, EXPIRY_TAGS, OrderingRules
 
 INDIA_REF_RE = re.compile(r"^[A-Za-z]{2}\d{10}$")
 
-ON_HAND_LOCATION_KEYS = ("bwhse", "floor", "staging")
+# staging2 = warehouse consolidation stock, still owned — counts for purchasing
+ON_HAND_LOCATION_KEYS = ("bwhse", "floor", "staging", "staging2")
 
 
 def is_india_ref(code: str | None) -> bool:

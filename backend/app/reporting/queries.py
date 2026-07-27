@@ -487,8 +487,10 @@ def orders_summary(db: Session, period: Period, scope: str = "all") -> dict:
             "known_customer_share": (known / orders_total) if orders_total else None,
         },
         "caveat": (
-            "Customer metrics count orders with a customer on file; walk-in "
-            "sales count as orders but not customers."
+            "Customer metrics count real customer records: register house "
+            "accounts (walk-in defaults) are excluded, so in-person sales "
+            "count as orders, not customers. 'New' means first order on that "
+            "channel within the app's 24-month history."
         ),
     }
 
