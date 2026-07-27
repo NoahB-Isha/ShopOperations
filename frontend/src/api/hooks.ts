@@ -987,10 +987,13 @@ export function useAvailabilityMeta() {
   });
 }
 
-export function useAvailabilityOos(scope: string, enabled = true) {
+export function useAvailabilityOos(scope: string, enabled = true, includeNeverStocked = false) {
   return useQuery({
-    queryKey: ["availability-oos", scope],
-    queryFn: () => api<AvailabilityItemOut[]>("/availability/oos", { params: { scope } }),
+    queryKey: ["availability-oos", scope, includeNeverStocked],
+    queryFn: () =>
+      api<AvailabilityItemOut[]>("/availability/oos", {
+        params: { scope, ...(includeNeverStocked ? { include_never_stocked: true } : {}) },
+      }),
     enabled,
     placeholderData: keepPreviousData,
     staleTime: 30_000,

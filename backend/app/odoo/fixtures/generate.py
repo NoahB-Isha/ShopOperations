@@ -155,6 +155,11 @@ def generate_fixtures(
             else:
                 code = f"{prefix}{serial:010d}"
             price = round(rng.uniform(lo, hi), 2)
+            # about half the US-coded items carry the "Domestic" product tag
+            # (tag 1) — the Odoo-side sourcing declaration the sync reads.
+            # India-shaped codes stay untagged so the demo candidate pool is
+            # unchanged; tag classification is exercised without moving it.
+            tag_ids = [1] if code.startswith("US-") and rng.random() < 0.5 else []
             products.append(
                 {
                     "id": pid,
@@ -167,6 +172,7 @@ def generate_fixtures(
                     "barcode": f"890{pid:010d}",
                     "sale_ok": True,
                     "active": rng.random() > 0.03,
+                    "all_product_tag_ids": tag_ids,
                     "_velocity": velocity,  # generator-internal, stripped below
                     "_category": cat,
                 }
@@ -368,7 +374,9 @@ def generate_fixtures(
 
     schema = {
         "product.product": ["id", "default_code", "name", "display_name", "categ_id",
-                            "standard_price", "list_price", "barcode", "sale_ok", "active"],
+                            "standard_price", "list_price", "barcode", "sale_ok", "active",
+                            "all_product_tag_ids"],
+        "product.tag": ["id", "name"],
         "stock.location": ["id", "complete_name", "usage"],
         "stock.quant": ["id", "product_id", "location_id", "quantity"],
         "stock.picking": ["id", "name", "origin", "state", "location_id", "location_dest_id",
@@ -385,6 +393,7 @@ def generate_fixtures(
 
     files = {
         "product.product": products,
+        "product.tag": [{"id": 1, "name": "Domestic"}, {"id": 2, "name": "India"}],
         "stock.location": LOCATIONS,
         "stock.picking.type": PICKING_TYPES,
         "stock.quant": quants,

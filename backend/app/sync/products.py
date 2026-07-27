@@ -2,6 +2,13 @@
 
 Sync owns the synced columns of source='odoo' rows and never touches
 app-managed fields (case_size, dept_orderable, tags) or manual products.
+
+Sourcing classification: Odoo users declare a product's procurement origin
+by tagging it "Domestic" or "India" (product tags — Sales tab on the product
+form; tag names matched case-insensitively). The sync reads
+`all_product_tag_ids` (template + variant tags united) and stores the
+verdict in `products.sourcing`; domestic wins if both tags are present.
+Renaming/removing the tag in Odoo reclassifies on the next sync.
 """
 from __future__ import annotations
 
@@ -9,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..models import Product, ProductSource, SyncState
+from ..models import SOURCING_DOMESTIC, SOURCING_INDIA, Product, ProductSource, SyncState
 from ..odoo.protocol import OdooConnection, parse_code, safe_fields
 
 PRODUCT_FIELDS = [
@@ -20,9 +27,41 @@ PRODUCT_FIELDS = [
     "list_price",
     "barcode",
     "active",
+    "all_product_tag_ids",
 ]
 
 _PLACEHOLDER_CODES = {"", "---", "false", "none"}
+
+SOURCING_TAG_NAMES = {
+    "domestic": SOURCING_DOMESTIC,
+    "india": SOURCING_INDIA,
+}
+
+
+def _sourcing_tag_ids(conn: OdooConnection) -> dict[int, str]:
+    """product.tag id -> sourcing value, for tags named Domestic/India.
+    Instances (or sparse fixture sets) without the model classify nothing."""
+    try:
+        records = conn.search_read("product.tag", [], ["name"])
+    except Exception:
+        return {}
+    out: dict[int, str] = {}
+    for rec in records:
+        value = SOURCING_TAG_NAMES.get(str(rec.get("name") or "").strip().lower())
+        if value:
+            out[rec["id"]] = value
+    return out
+
+
+def _classify_sourcing(tag_ids: object, sourcing_tags: dict[int, str]) -> str:
+    if not sourcing_tags or not isinstance(tag_ids, list):
+        return ""
+    values = {sourcing_tags.get(t) for t in tag_ids}
+    if SOURCING_DOMESTIC in values:  # domestic wins a (mis)tagged conflict:
+        return SOURCING_DOMESTIC  # better to leave it off the India order
+    if SOURCING_INDIA in values:
+        return SOURCING_INDIA
+    return ""
 
 
 def sync_products(
@@ -30,6 +69,7 @@ def sync_products(
 ) -> int:
     fields = safe_fields(conn, "product.product", PRODUCT_FIELDS)
     records = conn.search_read("product.product", [["sale_ok", "=", True]], fields, order="id asc")
+    sourcing_tags = _sourcing_tag_ids(conn)
 
     by_odoo_id = {
         p.odoo_product_id: p
@@ -78,6 +118,7 @@ def sync_products(
         product.cost = rec.get("standard_price") or 0
         product.retail_price = rec.get("list_price") or 0
         product.is_active = bool(rec.get("active", True))
+        product.sourcing = _classify_sourcing(rec.get("all_product_tag_ids"), sourcing_tags)
         count += 1
 
     # Products that disappeared from Odoo (archived, deleted): deactivate, keep history.

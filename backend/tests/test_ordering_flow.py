@@ -475,6 +475,33 @@ def test_clothing_and_excluded_products_never_reach_the_review(db, client):
     assert excluded.global_sku not in skus
 
 
+def test_odoo_sourcing_tags_steer_india_candidacy(db, client):
+    """Products tagged in Odoo (synced into `Product.sourcing`): "Domestic"
+    is a hard exclude from the India table — even with an India-shaped
+    reference, even on the uploaded product list — and "India" makes a
+    candidate of a product whose reference doesn't look India-shaped."""
+    from app.ordering.inputs import import_candidates
+
+    _admin(db, client)
+    _seed_import_products(db)
+    tagged_domestic = mk_product(db, "GL0000000404", "Glass Bottle (US-made)", category="Home")
+    tagged_domestic.sourcing = "domestic"
+    tagged_india = mk_product(db, "US-HW0100", "Herbal Handwash", category="Body Care")
+    tagged_india.sourcing = "india"
+    untagged_us = mk_product(db, "US-HW0200", "Hand Towel", category="Home")
+    db.commit()
+
+    ids = {p.id for p in import_candidates(db)}
+    assert tagged_domestic.id not in ids  # India-shaped ref, Odoo says domestic
+    assert tagged_india.id in ids  # US-shaped ref, Odoo says india
+    assert untagged_us.id not in ids  # US-shaped ref, untagged: unchanged
+
+    # the uploaded product list can't re-admit a Domestic-tagged product
+    ids = {p.id for p in import_candidates(db, restrict_skus={"gl0000000404", "us-hw0100"})}
+    assert tagged_domestic.id not in ids
+    assert tagged_india.id in ids
+
+
 def test_workbook_upload_generates_order(db, client):
     """The CSV fallback path: long-format sales history upload."""
     headers = _admin(db, client)

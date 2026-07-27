@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..catalog.search import matches_search
 from ..config import Settings
 from ..models import (
     Product,
@@ -129,14 +130,7 @@ def bounds(db: Session, settings: Settings, today: date | None = None) -> dict:
 def _matches(p: Product, category: str | None, q: str | None) -> bool:
     if category and (p.category or "").lower() != category.lower():
         return False
-    if q:
-        needle = q.lower()
-        hay = " ".join(
-            filter(None, (p.name, p.global_sku, p.odoo_internal_ref, p.barcode))
-        ).lower()
-        if needle not in hay:
-            return False
-    return True
+    return matches_search(q, p.name, p.global_sku, p.odoo_internal_ref, p.barcode)
 
 
 def _item_base(p: Product) -> dict:

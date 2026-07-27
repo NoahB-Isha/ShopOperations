@@ -16,6 +16,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..catalog.search import matches_search
 from ..center_orders.catalog import (
     INCOMING_PENDING_STATES,
     expected_back_label,
@@ -91,14 +92,9 @@ def _stock_buckets(db: Session, product_ids: list[int] | None = None) -> dict[in
 def _matches(product: Product, category: str | None, q: str | None) -> bool:
     if category and (product.category or "").lower() != category.lower():
         return False
-    if q:
-        needle = q.lower()
-        hay = " ".join(
-            filter(None, (product.name, product.global_sku, product.odoo_internal_ref, product.barcode))
-        ).lower()
-        if needle not in hay:
-            return False
-    return True
+    return matches_search(
+        q, product.name, product.global_sku, product.odoo_internal_ref, product.barcode
+    )
 
 
 def _scope_qty(buckets: dict[str, float], scope: str) -> float:
@@ -117,9 +113,16 @@ def oos_items(
     category: str | None = None,
     q: str | None = None,
     today: date | None = None,
+    include_never_stocked: bool = False,
 ) -> list[AvailabilityItem]:
     """Products with nothing left in `scope` (org = bwhse+floor+staging).
-    Non-retail POS items (`restock_exclude`) are noise here and stay out."""
+    Non-retail POS items (`restock_exclude`) are noise here and stay out.
+
+    Items the snapshot history has NEVER seen in stock (in scope) are hidden
+    by default — they didn't "go out of stock", the app has just never known
+    them stocked (fast movers between weekly snapshots, digital goods,
+    clothing variants); Noah's 2026-07-27 call. `include_never_stocked`
+    is the peek switch."""
     today = today or utcnow().date()
     if scope not in OOS_SCOPES:
         scope = "org"
@@ -148,6 +151,8 @@ def oos_items(
 
     items: list[AvailabilityItem] = []
     for p in sorted(out_products, key=lambda p: ((p.category or ""), p.name)):
+        if not include_never_stocked and p.id not in last_in_stock:
+            continue
         b = buckets.get(p.id, {})
         inc = incoming.get(p.id, [])
         inc_dates = sorted(d for _, d in inc if d is not None)

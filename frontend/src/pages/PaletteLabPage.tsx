@@ -1,7 +1,7 @@
-/* Palette lab — a decision aid, not a product page. The same example page is
-   rendered four times, each inside a theme scope that overrides the color
-   custom properties (see styles/palette-lab.css). Primary #f36f21 is LOCKED
-   and identical in all four. Purely presentational; delete after the pick. */
+/* Palette lab — the shipped themes side by side. The same example page is
+   rendered once per palette, each inside a theme scope that overrides the
+   color custom properties (see styles/palette-lab.css — kept in lockstep
+   with tokens.css). Primary #f36f21 is LOCKED and identical in all. */
 import "../styles/palette-lab.css";
 
 import { useState } from "react";
@@ -66,51 +66,9 @@ interface Variant {
 
 const VARIANTS: Variant[] = [
   {
-    id: "sunset",
-    className: "pl-sunset",
-    name: "A — Sunset Studio",
-    story:
-      "Analogous warmth: raspberry secondary, marigold tertiary, peach-sand surfaces. Leans all the way into playful — the whole page glows like the brand orange.",
-    tradeoff: "Least color contrast against orange; marigold sits close to the amber 'stale' warnings.",
-    swatches: [
-      { hex: "#f36f21", label: "primary (locked)" },
-      { hex: "#b42d66", label: "secondary" },
-      { hex: "#ffdf7a", label: "tertiary container" },
-      { hex: "#fdf1e5", label: "surface" },
-    ],
-  },
-  {
-    id: "indigo",
-    className: "pl-indigo",
-    name: "B — Indigo Violet",
-    story:
-      "Complementary cool: indigo secondary, violet tertiary, quiet bone surfaces. The blues recede so every orange action jumps forward — sleek, modern, composed.",
-    tradeoff: "The coolest and most 'serious' of the four; quirk carries less of the mood.",
-    swatches: [
-      { hex: "#f36f21", label: "primary (locked)" },
-      { hex: "#4450b5", label: "secondary" },
-      { hex: "#ecdcff", label: "tertiary container" },
-      { hex: "#faf4ee", label: "surface" },
-    ],
-  },
-  {
-    id: "forest",
-    className: "pl-forest",
-    name: "C — Forest & Clay",
-    story:
-      "Earthy organic: forest-green secondary, quiet teal tertiary, oat-linen surfaces. Closest to Isha's natural soul — orange reads as the fire in a calm landscape.",
-    tradeoff: "The most muted; 'vibrant' shows up only where you act, not everywhere you look.",
-    swatches: [
-      { hex: "#f36f21", label: "primary (locked)" },
-      { hex: "#3f6b4a", label: "secondary" },
-      { hex: "#b7e9ec", label: "tertiary container" },
-      { hex: "#f9f3e8", label: "surface" },
-    ],
-  },
-  {
     id: "pop",
     className: "pl-pop",
-    name: "D — Charcoal Pop",
+    name: "A — Charcoal Pop (default)",
     story:
       "Maximum energy: hot magenta secondary, electric cyan tertiary, crisp lilac-white paper. Triadic neon against near-black ink — loud, confident, unmistakable.",
     tradeoff: "The loudest; an all-day ops tool this saturated can fatigue, and it drops the warm-cream Isha feel.",
@@ -119,6 +77,34 @@ const VARIANTS: Variant[] = [
       { hex: "#b90d6e", label: "secondary" },
       { hex: "#b5eaff", label: "tertiary container" },
       { hex: "#fbfafd", label: "surface" },
+    ],
+  },
+  {
+    id: "neem",
+    className: "pl-neem",
+    name: "B — Neem Tree",
+    story:
+      "Botanical warmth: olive-bark secondary, neem-leaf tertiary, parchment surfaces deepening toward desert sand. The earthiest of the set — orange reads as sunlight on bark.",
+    tradeoff: "The gentlest contrast between accents; green + olive sit close together in dim rooms.",
+    swatches: [
+      { hex: "#f36f21", label: "primary (locked)" },
+      { hex: "#5c4f26", label: "secondary" },
+      { hex: "#c3ecb6", label: "tertiary container" },
+      { hex: "#faf5ee", label: "surface" },
+    ],
+  },
+  {
+    id: "turmeric",
+    className: "pl-turmeric",
+    name: "C — Turmeric Root",
+    story:
+      "Fresh-cut gold on cool lavender-slate: sunflower secondary wearing dark text, slate-violet tertiary, carbon ink. The cool ground makes both the orange and the gold glow.",
+    tradeoff: "Gold chips sit near the amber 'stale' warnings — the warn container stays paler on purpose.",
+    swatches: [
+      { hex: "#f36f21", label: "primary (locked)" },
+      { hex: "#f5bd45", label: "secondary" },
+      { hex: "#dfe1ff", label: "tertiary container" },
+      { hex: "#f9f9fe", label: "surface" },
     ],
   },
 ];
@@ -230,8 +216,8 @@ export function PaletteLabPage() {
         title="Themes"
         subtitle={
           <>
-            Four palettes around the locked primary <span className="font-mono font-semibold text-primary">#f36f21</span> —
-            pick one here or from the palette button in the top bar. Dark mode is one global
+            Three palettes around the locked primary <span className="font-mono font-semibold text-primary">#f36f21</span> —
+            pick one here or on the Settings page. Dark mode is one global
             scheme and follows your system.
           </>
         }

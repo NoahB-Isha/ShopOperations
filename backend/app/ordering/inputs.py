@@ -5,8 +5,9 @@ Snapshot path (the normal one):
   * candidates: active, Odoo-sourced, stock-tracked products that are not
     clothing (project brief: out of scope), not `ordering_exclude`d, and are
     India imports — internal reference matching ^[A-Za-z]{2}\\d{10}$ (verified
-    instance fact) or an explicitly assigned India vendor. A product assigned
-    a US/CA vendor is domestic and belongs to the vendor flow instead.
+    instance fact), an explicitly assigned India vendor, or an "India" product
+    tag in Odoo (`Product.sourcing`). A product assigned a US/CA vendor OR
+    tagged "Domestic" in Odoo is domestic and stays off the India table.
   * on-hand: BWHSE + FLOOR + STAGING stock levels summed (whole-campus stock,
     matching the workbook's INV OH; city-center consignment stock excluded).
   * sales: `sales_monthly` (24-month history), channels summed, SPARSE — only
@@ -45,6 +46,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import (
+    SOURCING_DOMESTIC,
+    SOURCING_INDIA,
     AnalogyStatus,
     ForecastAnalogy,
     IncomingMove,
@@ -128,8 +131,12 @@ def import_candidates(db: Session, restrict_skus: set[str] | None = None) -> lis
 
     `restrict_skus` (the admin's uploaded product list) is authoritative when
     present: listed products are included even when their reference doesn't
-    look India-shaped — the buyer curated the list. Domestic-vendor-assigned
-    products stay out either way (they belong to the vendor flow)."""
+    look India-shaped — the buyer curated the list. Two exclusions outrank
+    even the list, because both are explicit human declarations that the
+    product is bought domestically: a domestic-vendor assignment (the vendor
+    flow owns it) and a "Domestic" product tag in Odoo (`Product.sourcing`,
+    synced). Symmetrically, an "India" tag makes a product a candidate even
+    when its reference isn't India-shaped."""
     india_vendor_ids = [
         vid for vid, in db.execute(select(Vendor.id).where(Vendor.kind == VendorKind.INDIA.value))
     ]
@@ -155,14 +162,16 @@ def import_candidates(db: Session, restrict_skus: set[str] | None = None) -> lis
     for p in products:
         if p.vendor_id is not None and p.vendor_id not in india_vendor_ids:
             continue  # assigned to a domestic vendor -> vendor flow
+        if p.sourcing == SOURCING_DOMESTIC:
+            continue  # tagged Domestic in Odoo -> never on the India table
         if restrict is not None:
             if p.global_sku.lower() in restrict or (
                 p.odoo_internal_ref and p.odoo_internal_ref.lower() in restrict
             ):
                 out.append(p)
             continue
-        if p.vendor_id is not None:  # india vendor
-            out.append(p)
+        if p.vendor_id is not None or p.sourcing == SOURCING_INDIA:
+            out.append(p)  # india vendor or tagged India in Odoo
             continue
         if is_india_ref(p.global_sku) or is_india_ref(p.odoo_internal_ref):
             out.append(p)

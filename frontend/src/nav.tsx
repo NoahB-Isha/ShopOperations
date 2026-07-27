@@ -60,6 +60,9 @@ export const Icons = {
   bell: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2a4 4 0 0 1 4 4c0 3 .8 4 1.5 4.7H2.5C3.2 10 4 9 4 6a4 4 0 0 1 4-4ZM6.4 13a1.7 1.7 0 0 0 3.2 0" /></svg>
   ),
+  download: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2.5V10M5 7.5 8 10.5 11 7.5M2.5 13.5h11" /></svg>
+  ),
 };
 
 export interface NavItem {

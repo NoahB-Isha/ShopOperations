@@ -3,9 +3,9 @@
 /* ============================================================
    Isha Life Ops — Material 3 dynamic color around #f36f21
 
-   Vibrant orange carries every key action and active state; a
-   rich indigo grounds it, an electric teal sparks the accents.
-   Surfaces are never grey: almond-cream in light, deep slate-
+   Vibrant orange carries every key action and active state; hot
+   magenta seconds it, electric cyan sparks the accents. Surfaces
+   are never flat grey: crisp lilac paper in light, deep slate-
    indigo in dark (auto via prefers-color-scheme — pure CSS, no
    state). Type is oversized and editorial (Fraunces, WONK on);
    motion is springy and staggered, and stands down under
@@ -20,17 +20,17 @@
   --color-on-primary-container: #360f00;
   --color-inverse-primary: #ffb68c;
 
-  /* Default palette: SUNSET STUDIO (switch via data-palette on <html>;
+  /* Default palette: CHARCOAL POP (switch via data-palette on <html>;
      the other palettes override these below) */
-  --color-secondary: #b42d66; /* raspberry */
+  --color-secondary: #b90d6e; /* hot magenta */
   --color-on-secondary: #ffffff;
-  --color-secondary-container: #ffd9e4;
-  --color-on-secondary-container: #3f0022;
+  --color-secondary-container: #ffd8e6;
+  --color-on-secondary-container: #3d0026;
 
-  --color-tertiary: #815600; /* marigold */
+  --color-tertiary: #006d84; /* electric cyan, deep enough for white text */
   --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #ffdf7a;
-  --color-on-tertiary-container: #291800;
+  --color-tertiary-container: #b5eaff;
+  --color-on-tertiary-container: #001f28;
 
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
@@ -48,20 +48,20 @@
   --color-warn-container: #ffdf9b;
   --color-on-warn-container: #271900;
 
-  /* neutral / surface ladder — peach-sand (sunset), never flat grey */
-  --color-surface-dim: #ecd5bd;
-  --color-surface: #fdf1e5;
+  /* neutral / surface ladder — crisp lilac paper (pop), never flat grey */
+  --color-surface-dim: #dcd9e2;
+  --color-surface: #fbfafd;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f9e7d2;
-  --color-surface-container: #f4ddc0;
-  --color-surface-container-high: #efd3ae;
-  --color-surface-container-highest: #e9c99c;
-  --color-on-surface: #241910;
-  --color-on-surface-variant: #57453a;
-  --color-outline: #8a7361;
-  --color-outline-variant: #e0c5a7;
-  --color-inverse-surface: #3a2e21;
-  --color-inverse-on-surface: #ffeddd;
+  --color-surface-container-low: #f4f1f7;
+  --color-surface-container: #edeaf1;
+  --color-surface-container-high: #e5e2ea;
+  --color-surface-container-highest: #dedae4;
+  --color-on-surface: #1b1721;
+  --color-on-surface-variant: #494455;
+  --color-outline: #767081;
+  --color-outline-variant: #d2cdda;
+  --color-inverse-surface: #302b38;
+  --color-inverse-on-surface: #f2eff7;
   --color-scrim: #000000;
 
   /* Text fields get their own ground — noticeably lighter than the container
@@ -168,70 +168,61 @@
 
 /* ============================================================
    Switchable LIGHT palettes. `data-palette` on <html> (set from
-   localStorage before first paint) picks one; Sunset is the
-   default above. Primary, error, success, and warn never change.
+   localStorage before first paint) picks one; Charcoal Pop is
+   the default above (data-palette="pop" needs no override block —
+   an unknown/absent value falls through to it). Primary, error,
+   success, and warn never change.
    ============================================================ */
-:root[data-palette="indigo"] {
-  --color-secondary: #4450b5;
+
+/* Neem Tree: botanical warmth — olive-bark secondary, neem-leaf
+   tertiary, parchment-to-desert-sand surfaces, deep-mocha ink */
+:root[data-palette="neem"] {
+  --color-secondary: #5c4f26; /* olive bark */
   --color-on-secondary: #ffffff;
-  --color-secondary-container: #dee0ff;
-  --color-on-secondary-container: #0a1566;
-  --color-tertiary: #7a4dbe;
+  --color-secondary-container: #e6dfae;
+  --color-on-secondary-container: #1c1700;
+  --color-tertiary: #42663c; /* neem leaf */
   --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #ecdcff;
-  --color-on-tertiary-container: #2b0053;
-  --color-surface-dim: #e4d7c6;
-  --color-surface: #faf4ee;
-  --color-surface-container-low: #f4ece2;
-  --color-surface-container: #eee3d6;
-  --color-surface-container-high: #e7dac9;
-  --color-surface-container-highest: #e0d1bd;
-  --color-on-surface: #211b13;
-  --color-on-surface-variant: #52453a;
-  --color-outline: #857463;
-  --color-outline-variant: #d9c7b1;
+  --color-tertiary-container: #c3ecb6;
+  --color-on-tertiary-container: #032100;
+  --color-surface-dim: #e5d3bd;
+  --color-surface: #faf5ee; /* parchment */
+  --color-surface-container-low: #f4ecdf;
+  --color-surface-container: #efe3d0;
+  --color-surface-container-high: #e9d9c0;
+  --color-surface-container-highest: #e2cfaf; /* toward desert sand */
+  --color-on-surface: #241d15; /* deep mocha */
+  --color-on-surface-variant: #5e5042; /* stone brown */
+  --color-outline: #8b7a67;
+  --color-outline-variant: #dcc9ae;
+  --color-inverse-surface: #392f24;
+  --color-inverse-on-surface: #f7efe3;
 }
 
-:root[data-palette="forest"] {
-  --color-secondary: #3f6b4a;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #c0ecc6;
-  --color-on-secondary-container: #00210c;
-  --color-tertiary: #21656a;
+/* Turmeric Root: fresh-cut gold on cool lavender-slate — sunflower
+   secondary (gold is a light hue: it wears dark text), slate-violet
+   tertiary, carbon-black ink */
+:root[data-palette="turmeric"] {
+  --color-secondary: #f5bd45; /* sunflower gold */
+  --color-on-secondary: #402d00;
+  --color-secondary-container: #ffe9b8;
+  --color-on-secondary-container: #271c00;
+  --color-tertiary: #545d92; /* slate violet */
   --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #b7e9ec;
-  --color-on-tertiary-container: #001f22;
-  --color-surface-dim: #ded7c4;
-  --color-surface: #f9f3e8;
-  --color-surface-container-low: #f2ecdc;
-  --color-surface-container: #ebe4d0;
-  --color-surface-container-high: #e4dcc2;
-  --color-surface-container-highest: #ddd4b6;
-  --color-on-surface: #201c11;
-  --color-on-surface-variant: #4f4b39;
-  --color-outline: #7f7a64;
-  --color-outline-variant: #d4cdb0;
-}
-
-:root[data-palette="pop"] {
-  --color-secondary: #b90d6e;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #ffd8e6;
-  --color-on-secondary-container: #3d0026;
-  --color-tertiary: #006d84;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #b5eaff;
-  --color-on-tertiary-container: #001f28;
-  --color-surface-dim: #dcd9e2;
-  --color-surface: #fbfafd;
-  --color-surface-container-low: #f4f1f7;
-  --color-surface-container: #edeaf1;
-  --color-surface-container-high: #e5e2ea;
-  --color-surface-container-highest: #dedae4;
-  --color-on-surface: #1b1721;
-  --color-on-surface-variant: #494455;
-  --color-outline: #767081;
-  --color-outline-variant: #d2cdda;
+  --color-tertiary-container: #dfe1ff; /* lavender */
+  --color-on-tertiary-container: #10164b;
+  --color-surface-dim: #d6d9e8;
+  --color-surface: #f9f9fe; /* lavender-white */
+  --color-surface-container-low: #f1f2fa;
+  --color-surface-container: #e9ebf6;
+  --color-surface-container-high: #e0e3f1;
+  --color-surface-container-highest: #d8dcec;
+  --color-on-surface: #1d1b1a; /* carbon black */
+  --color-on-surface-variant: #4b4d5c; /* pale slate, deepened for text */
+  --color-outline: #777a8b;
+  --color-outline-variant: #d0d3e2;
+  --color-inverse-surface: #2f3040;
+  --color-inverse-on-surface: #f0f0fa;
 }
 
 /* ---- DARK scheme: ONE global scheme (deep slate-indigo, orange

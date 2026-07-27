@@ -23,13 +23,23 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     cur = f"{cy}-{cm:02d}-05 10:00:00"
     prev = f"{py}-{pm:02d}-15 10:00:00"
 
+    # sourcing tags: Odoo users mark procurement origin with product tags
+    # named Domestic / India (id 3 is noise the classifier must ignore)
+    product_tags = [
+        {"id": 1, "name": "Domestic"},
+        {"id": 2, "name": "India"},
+        {"id": 3, "name": "Featured"},
+    ]
+
     products = [
         _p(201, "CA0023000009", "Copper Water Bottle — 950ml", "Copper", 34.0, 14.0),
         _p(202, "RU0000000005", "Rudraksha Mala — 5mm", "Rudraksha", 24.0, 8.0),
         _p(203, "IN0000000777", "Sandalwood Incense", "Incense & Dhoop", 9.0, 3.0),
-        _p(204, "US-SN0001", "Banana Chips", "Snacks", 4.5, 1.8),
-        _p(205, "OC0000000042", "Neem Toothpaste", "Oral Care", 6.0, 2.2),
-        _p(206, "BL0000000021", "Bloom Ghee", "Bloom", 18.0, 9.0),
+        # domestic-shaped US code but tagged India: import candidate anyway
+        _p(204, "US-SN0001", "Banana Chips", "Snacks", 4.5, 1.8, tag_ids=[2, 3]),
+        # India-shaped reference but tagged Domestic: sourcing wins, excluded
+        _p(205, "OC0000000042", "Neem Toothpaste", "Oral Care", 6.0, 2.2, tag_ids=[1]),
+        _p(206, "BL0000000021", "Bloom Ghee", "Bloom", 18.0, 9.0, tag_ids=[3]),
         _p(207, "", "Mystery Item (no code)", "Home & Living", 11.0, 5.0),
         _p(208, "AP0000000001", "Kurta", "Apparel", 28.0, 12.0),
         # duplicate default_code (Odoo variant) — sync must keep the first
@@ -171,7 +181,9 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
 
     schema = {
         "product.product": ["id", "default_code", "name", "display_name", "categ_id",
-                            "standard_price", "list_price", "barcode", "sale_ok", "active"],
+                            "standard_price", "list_price", "barcode", "sale_ok", "active",
+                            "all_product_tag_ids"],
+        "product.tag": ["id", "name"],
         "stock.location": ["id", "complete_name", "usage"],
         "stock.quant": ["id", "product_id", "location_id", "quantity"],
         "stock.picking": ["id", "name", "origin", "state", "location_id", "location_dest_id",
@@ -189,6 +201,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     files = {
         "product.product": products,
+        "product.tag": product_tags,
         "stock.location": locations,
         "stock.picking.type": picking_types,
         "stock.quant": quants,
@@ -205,6 +218,8 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
 
     return {
         "product_count": 8,  # 9 records, one duplicate default_code collapsed
+        # sku -> products.sourcing after the sync (everything else "")
+        "expected_sourcing": {"US-SN0001": "india", "OC0000000042": "domestic"},
         "expected_stock": {
             ("CA0023000009", "bwhse"): 150.0,  # 120 at the root + 30 in bin A/1/1/1
             ("CA0023000009", "floor"): 12.0,
@@ -257,7 +272,15 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
     }
 
 
-def _p(pid: int, code: str, name: str, cat: str, price: float, cost: float) -> dict:
+def _p(
+    pid: int,
+    code: str,
+    name: str,
+    cat: str,
+    price: float,
+    cost: float,
+    tag_ids: list[int] | None = None,
+) -> dict:
     return {
         "id": pid,
         "default_code": code,
@@ -269,6 +292,7 @@ def _p(pid: int, code: str, name: str, cat: str, price: float, cost: float) -> d
         "barcode": f"890{pid:010d}",
         "sale_ok": True,
         "active": True,
+        "all_product_tag_ids": tag_ids or [],
     }
 
 

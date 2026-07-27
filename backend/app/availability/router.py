@@ -55,12 +55,18 @@ class ListMetaOut(BaseModel):
 def list_oos(
     scope: str = Query("org"),
     q: str | None = None,
+    include_never_stocked: bool = False,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     if scope not in OOS_SCOPES:
         raise HTTPException(422, f"scope must be one of {', '.join(OOS_SCOPES)}")
-    return [i.as_dict() for i in oos_items(db, settings, scope=scope, q=q)]
+    return [
+        i.as_dict()
+        for i in oos_items(
+            db, settings, scope=scope, q=q, include_never_stocked=include_never_stocked
+        )
+    ]
 
 
 @router.get("/coming-soon", response_model=list[AvailabilityItemOut])

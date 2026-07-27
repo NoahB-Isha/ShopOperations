@@ -42,6 +42,8 @@ export interface ProductOut {
   cost: number;
   retail_price: number;
   source: "odoo" | "manual";
+  /** Odoo-tag-declared procurement origin ("" when untagged) */
+  sourcing: "" | "domestic" | "india";
   is_stock_tracked: boolean;
   is_active: boolean;
   case_size: number;

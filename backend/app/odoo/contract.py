@@ -13,8 +13,11 @@ from .protocol import OdooConnection
 CONTRACT: dict[str, list[str]] = {
     "product.product": [
         "default_code", "name", "categ_id", "list_price", "standard_price",
-        "barcode", "sale_ok", "active",
+        "barcode", "sale_ok", "active", "all_product_tag_ids",
     ],
+    # Domestic/India sourcing tags (verified live 2026-07-27: model exists,
+    # all_product_tag_ids readable via search_read)
+    "product.tag": ["name"],
     "stock.location": ["complete_name", "usage"],
     "stock.quant": ["product_id", "location_id", "quantity"],
     "stock.move": ["product_id", "product_qty", "date", "state", "picking_id", "picking_code",

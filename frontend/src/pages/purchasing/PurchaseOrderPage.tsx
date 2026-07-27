@@ -41,6 +41,8 @@ import {
   useToast,
 } from "../../design";
 import { fmtWhen } from "../shared/OpsBits";
+import { Icons } from "../../nav";
+import { matchesSearch } from "../../search";
 import {
   EVENT_META,
   FLAG_META,
@@ -102,18 +104,13 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   }, [lines]);
 
   const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
     setPage(1);
     return lines.filter((ln) => {
       const s = ln.suggestion;
       if (onlyOrdering && ln.final_sea_qty <= 0 && ln.final_air_qty <= 0) return false;
       if (category && s.category !== category) return false;
       if (flagFilter && !(s.flags ?? []).includes(flagFilter)) return false;
-      if (
-        needle &&
-        !`${s.name ?? ""} ${ln.global_sku} ${s.us_sku ?? ""}`.toLowerCase().includes(needle)
-      )
-        return false;
+      if (!matchesSearch(search, s.name, ln.global_sku, s.us_sku)) return false;
       return true;
     });
   }, [lines, search, category, flagFilter, onlyOrdering]);
@@ -145,10 +142,10 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
         >
           Discard draft
         </Button>
-        <Button variant="secondary" onClick={() => downloadOrderExport(order.id, "csv", order.name)}>
+        <Button variant="secondary" icon={Icons.download} onClick={() => downloadOrderExport(order.id, "csv", order.name)}>
           CSV
         </Button>
-        <Button variant="secondary" onClick={() => downloadOrderExport(order.id, "xlsx", order.name)}>
+        <Button variant="secondary" icon={Icons.download} onClick={() => downloadOrderExport(order.id, "xlsx", order.name)}>
           XLSX
         </Button>
       </OrderHeader>
@@ -700,10 +697,10 @@ function OrderTracking({ detail }: { detail: PurchaseOrderDetailOut }) {
             </Button>
           </>
         )}
-        <Button variant="secondary" onClick={() => downloadOrderExport(order.id, "csv", order.name)}>
+        <Button variant="secondary" icon={Icons.download} onClick={() => downloadOrderExport(order.id, "csv", order.name)}>
           CSV
         </Button>
-        <Button variant="secondary" onClick={() => downloadOrderExport(order.id, "xlsx", order.name)}>
+        <Button variant="secondary" icon={Icons.download} onClick={() => downloadOrderExport(order.id, "xlsx", order.name)}>
           XLSX
         </Button>
       </OrderHeader>

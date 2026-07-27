@@ -1,78 +1,13 @@
 /* ============================================================
-   Palette lab — four candidate supporting palettes around the
+   Palette lab — the shipped supporting palettes around the
    LOCKED primary #f36f21. Each class scopes CSS custom-property
    overrides to one preview frame: every component inside
    re-themes because utilities resolve var(--color-*) against the
-   nearest ancestor. Decision aid only — delete after the pick.
+   nearest ancestor. Mirrors the data-palette blocks in tokens.css
+   — change one, change both.
    ============================================================ */
 
-/* A — Sunset Studio: analogous warmth (raspberry + marigold on peach sand) */
-.pl-sunset {
-  --color-secondary: #b42d66;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #ffd9e4;
-  --color-on-secondary-container: #3f0022;
-  --color-tertiary: #815600;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #ffdf7a;
-  --color-on-tertiary-container: #291800;
-  --color-surface: #fdf1e5;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f9e7d2;
-  --color-surface-container: #f4ddc0;
-  --color-surface-container-high: #efd3ae;
-  --color-surface-container-highest: #e9c99c;
-  --color-on-surface: #241910;
-  --color-on-surface-variant: #57453a;
-  --color-outline: #8a7361;
-  --color-outline-variant: #e0c5a7;
-}
-
-/* B — Indigo Violet: complementary cool (indigo + violet on bone) */
-.pl-indigo {
-  --color-secondary: #4450b5;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #dee0ff;
-  --color-on-secondary-container: #0a1566;
-  --color-tertiary: #7a4dbe;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #ecdcff;
-  --color-on-tertiary-container: #2b0053;
-  --color-surface: #faf4ee;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f4ece2;
-  --color-surface-container: #eee3d6;
-  --color-surface-container-high: #e7dac9;
-  --color-surface-container-highest: #e0d1bd;
-  --color-on-surface: #211b13;
-  --color-on-surface-variant: #52453a;
-  --color-outline: #857463;
-  --color-outline-variant: #d9c7b1;
-}
-
-/* C — Forest & Clay: earthy organic (forest + quiet teal on oat linen) */
-.pl-forest {
-  --color-secondary: #3f6b4a;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #c0ecc6;
-  --color-on-secondary-container: #00210c;
-  --color-tertiary: #21656a;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #b7e9ec;
-  --color-on-tertiary-container: #001f22;
-  --color-surface: #f9f3e8;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f2ecdc;
-  --color-surface-container: #ebe4d0;
-  --color-surface-container-high: #e4dcc2;
-  --color-surface-container-highest: #ddd4b6;
-  --color-on-surface: #201c11;
-  --color-on-surface-variant: #4f4b39;
-  --color-outline: #7f7a64;
-  --color-outline-variant: #d4cdb0;
-}
-
-/* D — Charcoal Pop: max energy (magenta + electric cyan on crisp lilac paper) */
+/* A — Charcoal Pop (default): max energy (magenta + electric cyan on crisp lilac paper) */
 .pl-pop {
   --color-secondary: #b90d6e;
   --color-on-secondary: #ffffff;
@@ -92,4 +27,48 @@
   --color-on-surface-variant: #494455;
   --color-outline: #767081;
   --color-outline-variant: #d2cdda;
+}
+
+/* B — Neem Tree: botanical warmth (olive bark + neem leaf on parchment/desert sand) */
+.pl-neem {
+  --color-secondary: #5c4f26;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e6dfae;
+  --color-on-secondary-container: #1c1700;
+  --color-tertiary: #42663c;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #c3ecb6;
+  --color-on-tertiary-container: #032100;
+  --color-surface: #faf5ee;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4ecdf;
+  --color-surface-container: #efe3d0;
+  --color-surface-container-high: #e9d9c0;
+  --color-surface-container-highest: #e2cfaf;
+  --color-on-surface: #241d15;
+  --color-on-surface-variant: #5e5042;
+  --color-outline: #8b7a67;
+  --color-outline-variant: #dcc9ae;
+}
+
+/* C — Turmeric Root: fresh-cut gold on cool lavender-slate (dark text on the gold) */
+.pl-turmeric {
+  --color-secondary: #f5bd45;
+  --color-on-secondary: #402d00;
+  --color-secondary-container: #ffe9b8;
+  --color-on-secondary-container: #271c00;
+  --color-tertiary: #545d92;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #dfe1ff;
+  --color-on-tertiary-container: #10164b;
+  --color-surface: #f9f9fe;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f1f2fa;
+  --color-surface-container: #e9ebf6;
+  --color-surface-container-high: #e0e3f1;
+  --color-surface-container-highest: #d8dcec;
+  --color-on-surface: #1d1b1a;
+  --color-on-surface-variant: #4b4d5c;
+  --color-outline: #777a8b;
+  --color-outline-variant: #d0d3e2;
 }

@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
 import { Badge, EmptyState, Input, PageHeader, Spinner } from "../../design";
 import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
+import { matchesSearch } from "../../search";
 
 const PICKING_STATE_LABEL: Record<string, string> = {
   draft: "draft",
@@ -21,17 +22,13 @@ export function ComingSoonPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items ?? [];
-    return (items ?? []).filter(
-      (i) =>
-        i.name.toLowerCase().includes(q) ||
-        i.sku.toLowerCase().includes(q) ||
-        i.barcode.toLowerCase().includes(q) ||
-        i.category.toLowerCase().includes(q),
-    );
-  }, [items, search]);
+  const visible = useMemo(
+    () =>
+      (items ?? []).filter((i) =>
+        matchesSearch(search, i.name, i.sku, i.barcode, i.category),
+      ),
+    [items, search],
+  );
 
   return (
     <div className="mx-auto max-w-2xl">

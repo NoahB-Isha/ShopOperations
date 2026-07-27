@@ -134,6 +134,13 @@ export function ProductDrawer({
               <Badge tone="outline">app-only · untracked</Badge>
             )}
           </Row>
+          {product.sourcing && (
+            <Row label="Sourcing">
+              <Badge tone="outline">
+                {product.sourcing === "domestic" ? "Domestic" : "India"} · Odoo tag
+              </Badge>
+            </Row>
+          )}
         </div>
 
         {product.is_stock_tracked && (

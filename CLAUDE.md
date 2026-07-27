@@ -440,3 +440,31 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   origin pickings (app pallets would double-count the SENT requests riding them).
   Migration `c9d4e8b2f7a1`. Fixtures: III/Staging2 + 2 staging2 quants (tests) and
   the location in generate.py — expected_stock carries the staging2 rows.
+- Pre-deploy tweaks (2026-07-27, same build-on rule): **Product search is tokenized**
+  everywhere — `app/catalog/search.py` (SQL `product_search_clause` for /products +
+  `matches_search` for availability/timemachine/bot in-memory filters) and its frontend
+  twin `frontend/src/search.ts` (draft review, coming-soon, OOS, place-order client
+  filters). Semantics: alphanumeric tokens, match = any ONE field contains ALL tokens
+  ("yoga mat" ↔ "Yoga-Mat-Cotton-Brown"); tokens never mix across fields (a "00" token
+  must not match every barcode) — change one twin, change all three. **Sourcing from
+  Odoo product tags**: tags named exactly "Domestic"/"India" (case-insensitive;
+  `product.tag` + `all_product_tag_ids` verified live 2026-07-27, contract-checked) sync
+  into `products.sourcing` ('' | domestic | india, domestic wins conflicts). In
+  `import_candidates`: domestic = hard exclude (outranks the uploaded product list, like
+  the domestic-vendor rule), india = candidate regardless of reference shape; untagged =
+  the old pattern/vendor rules exactly. Sourcing shows in the catalog drawer ("Odoo tag"
+  badge) and ProductOut. Migration `d8f2a6c31b90` (additive). CSV/XLSX export buttons on
+  purchase orders carry `Icons.download` (nav.tsx icon set). **OOS lists hide
+  never-stocked items by default** (`oos_items(include_never_stocked=)`, scope-aware:
+  no snapshot ever showed stock in scope) — on live that's 1,271 of 1,652 org rows,
+  and 1,240 of them SELL (612 clothing, 299 digital), so they are HIDDEN not
+  blacklisted (Noah's call after seeing the numbers — the sweep's never-sold guard
+  stands); "Include never-stocked" chip on /out-of-stock is the peek, bot API stays
+  curated. **Themes**: light palettes are now Charcoal Pop (DEFAULT — its values live
+  in the @theme block; `data-palette="pop"` needs no override), Neem Tree (parchment/
+  desert-sand, olive-bark secondary, neem-leaf tertiary) and Turmeric Root (lavender-
+  slate, sunflower-gold secondary wearing DARK text — gold is a light hue, on-secondary
+  #402d00). Sunset/Indigo/Forest are gone; index.html validates stored ids and falls
+  back to pop, so stale localStorage can't strand anyone. Each palette now also themes
+  inverse-surface (snackbars). palette-lab.css + PaletteLabPage mirror tokens.css —
+  change one, change both. Dark stays the ONE global scheme.

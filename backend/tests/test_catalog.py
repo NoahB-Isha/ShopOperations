@@ -30,6 +30,36 @@ def test_search_and_pagination(client, db):
     assert "Copper" in r.json()["categories"]
 
 
+def test_search_is_separator_and_order_insensitive(client, db):
+    admin, _ = _setup(client, db, n=1)
+    mk_product(db, "YM0000000001", "Yoga-Mat-Cotton-Brown", category="Home & Living", odoo_id=2001)
+
+    for q in ("Yoga mat", "yoga-mat", "mat yoga", "brown cotton yoga", "Yoga-Mat-Cotton-Brown"):
+        r = client.get("/api/v1/products", params={"search": q}, headers=admin)
+        names = [i["name"] for i in r.json()["items"]]
+        assert names == ["Yoga-Mat-Cotton-Brown"], f"search {q!r} -> {names}"
+
+    # tokens must all land in ONE field — name+SKU mixing would make short
+    # numeric tokens match nearly everything
+    r = client.get("/api/v1/products", params={"search": "yoga 0000000001"}, headers=admin)
+    assert r.json()["total"] == 0
+
+    # punctuation-only queries filter nothing
+    r = client.get("/api/v1/products", params={"search": "--"}, headers=admin)
+    assert r.json()["total"] == 2
+
+
+def test_matches_search_helper():
+    from app.catalog.search import matches_search
+
+    assert matches_search("yoga mat", "Yoga-Mat-Cotton-Brown", "YM01")
+    assert matches_search("", "anything")
+    assert matches_search(None, "anything")
+    assert not matches_search("yoga 8901", "Yoga Mat", "8901234")  # no cross-field mixing
+    assert matches_search("YOGA", None, "yoga-mat")  # None fields skipped
+    assert not matches_search("yoga", None, "")
+
+
 def test_requires_auth(client, db):
     assert client.get("/api/v1/products").status_code == 401
 

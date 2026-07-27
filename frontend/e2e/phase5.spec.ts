@@ -117,7 +117,7 @@ test("warehouse incoming: pending inbound shipments from the snapshot", async ({
 test("settings: palette picker for everyone, blacklist manager for admins", async ({ page }) => {
   await login(page, "admin@demo.ishalife.test");
   await page.goto("/settings");
-  await expect(page.getByRole("button", { name: "Sunset Studio" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Charcoal Pop" })).toBeVisible();
   await expect(page.getByText("Product blacklist")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open styleguide →" })).toBeVisible();
 });

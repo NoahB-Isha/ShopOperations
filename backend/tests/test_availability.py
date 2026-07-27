@@ -81,14 +81,43 @@ def test_oos_org_scope_and_history(client, db):
 def test_oos_bwhse_scope_includes_floor_covered(client, db):
     _setup(db)
     wh = login(client, "warehouse@test.io")
+    # by default only items the snapshots have SEEN stocked (in scope) show —
+    # the mala and neem have no bwhse history, so they wait behind the switch
     r = client.get("/api/v1/availability/oos", params={"scope": "bwhse"}, headers=wh)
+    assert {i["sku"] for i in r.json()} == {"CA0000000001"}
+    # the peek switch restores them: floor stock doesn't hide a bwhse-out —
+    # the mala (floor 5) and the neem (floor 2) have NOTHING at the warehouse
+    r = client.get(
+        "/api/v1/availability/oos",
+        params={"scope": "bwhse", "include_never_stocked": True},
+        headers=wh,
+    )
     skus = {i["sku"] for i in r.json()}
-    # floor stock doesn't hide a bwhse-out: the mala (floor 5) and the neem
-    # (floor 2) both have NOTHING at the warehouse
     assert skus == {"CA0000000001", "RU0000000002", "AY0000000005"}
     assert client.get(
         "/api/v1/availability/oos", params={"scope": "nope"}, headers=wh
     ).status_code == 422
+
+
+def test_oos_hides_never_stocked_by_default(client, db):
+    """Noah's 2026-07-27 call: items with no stock history didn't 'go out of
+    stock' — they clutter the list (fast movers, digital goods, uncarried
+    variants). Hidden by default, one switch to peek."""
+    _setup(db)
+    ghost = mk_product(db, "HO0000000009", "Brass Lamp (never carried)", odoo_id=309)
+    db.add(StockLevel(product_id=ghost.id, location_key="bwhse", qty=0))
+    db.commit()
+    floor = login(client, "floor@test.io")
+
+    skus = {i["sku"] for i in client.get("/api/v1/availability/oos", headers=floor).json()}
+    assert skus == {"CA0000000001"}  # the ghost stays hidden
+
+    r = client.get(
+        "/api/v1/availability/oos", params={"include_never_stocked": True}, headers=floor
+    )
+    items = {i["sku"]: i for i in r.json()}
+    assert set(items) == {"CA0000000001", "HO0000000009"}
+    assert items["HO0000000009"]["last_in_stock_on"] is None
 
 
 def test_coming_soon_aggregates_and_windows(client, db):

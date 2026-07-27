@@ -36,6 +36,22 @@ def test_product_sync_upserts_and_dedupes(db, settings_env):
     assert by_sku["CA0023000009"].name == "Copper Water Bottle — 950ml"  # first variant won
     assert by_sku["ODOO-207"].name == "Mystery Item (no code)"  # blank code got sentinel key
     assert by_sku["OC0000000042"].category == "Oral Care"
+    # Domestic/India product tags land in `sourcing`; other tags are noise
+    for sku, p in by_sku.items():
+        assert p.sourcing == exp["expected_sourcing"].get(sku, ""), sku
+
+
+def test_product_sync_reclassifies_when_tags_change(db, settings_env):
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    p = db.scalar(select(Product).where(Product.global_sku == "OC0000000042"))
+    assert p.sourcing == "domestic"
+    for r in sim.tables["product.product"]:  # untag it in "Odoo"
+        if r["id"] == 205:
+            r["all_product_tag_ids"] = []
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    db.refresh(p)
+    assert p.sourcing == ""
 
 
 def test_product_sync_deactivates_disappeared(db, settings_env):

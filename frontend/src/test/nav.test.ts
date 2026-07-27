@@ -8,6 +8,7 @@ test("each role sees its own nav", () => {
   expect(navForRoles(new Set(["warehouse"])).map((i) => i.label)).toEqual([
     "Incoming",
     "Transfers",
+    "Staging 2",
     "Coming soon",
     "Out of stock",
     "Time machine",

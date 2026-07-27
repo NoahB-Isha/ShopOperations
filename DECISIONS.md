@@ -500,3 +500,53 @@ heuristic is honest about its grain — any request sent-and-waiting when a pall
 is assumed to be on it; Odoo's own availability check on the count picking is the
 backstop for stragglers. staging2 stock counts as owned (org OOS, purchasing on-hand)
 but NOT as warehouse-sellable (bwhse scope) — it's committed to the floor.
+
+**2026-07-27 — Sourcing lives in Odoo, as product tags** *(pre-deploy tweaks)*
+Domestic-tracked products kept leaking onto the India purchasing page because candidacy
+was inferred (reference shape ^[A-Za-z]{2}\d{10}$, vendor assignment) rather than
+declared. Noah wants the classification made IN ODOO, where products are managed. The
+mechanism is product tags named exactly "Domestic" or "India" (case-insensitive — the
+product form's Sales tab; `product.tag` and `all_product_tag_ids` verified live
+2026-07-27, zero tags existed so the team starts clean). The product sync stores the
+verdict in `products.sourcing`; a "Domestic" tag is a HARD exclude from India candidacy
+— it outranks even the uploaded product list, mirroring the domestic-vendor rule,
+because both are explicit human declarations — and "India" admits a product whose
+reference doesn't look India-shaped. Domestic wins a double-tag conflict: the failure
+mode of leaving an item off an India order (buyer adds it back) beats ordering from
+Coimbatore something bought in Ohio. Untagged products behave exactly as before, so
+nothing reclassifies until a human tags it.
+
+**2026-07-27 — Search is tokenized per field, not fuzzy and not cross-field** *(pre-deploy tweaks)*
+"Yoga mat" couldn't find "Yoga-Mat-Cotton-Brown" — the search was one contiguous
+`%query%` ILIKE. Now the query splits into alphanumeric tokens and a product matches
+when any ONE field (name, SKU, barcode, category) contains ALL tokens: order- and
+separator-insensitive, and strictly more forgiving than before (every old match still
+matches). Tokens deliberately do NOT mix across fields — "copper 00" must not return
+every product whose SKU contains "00". One semantics, three twins, kept in lockstep:
+`app/catalog/search.py` (SQL clause + in-memory matcher for availability/time-machine/
+bot) and `frontend/src/search.ts` (the client-side filtered lists).
+
+**2026-07-27 — Never-stocked items are hidden from OOS, not blacklisted** *(pre-deploy tweaks)*
+Noah asked to blacklist everything showing "no stock history yet" on the out-of-stock
+page (except IL-Service). The numbers said otherwise: 1,271 of 1,652 org-OOS rows had no
+history, but 1,240 of them have real sales — 612 are the same clothing restored by hand
+after the 07-26 sweep incident, 299 are digital downloads that sell without ever holding
+stock. Blacklisting hides items app-wide (search, menus, reports), so with those numbers
+on the table Noah chose the display fix: OOS lists now hide never-stocked items by
+default (they didn't GO out of stock — the app has just never seen them stocked), with
+an "Include never-stocked" chip to peek, scope-aware (no bwhse history = hidden from the
+warehouse scope). The never-stocked AND never-sold subset was already blacklisted by the
+07-26 sweep — zero new flags flipped. The org list dropped 1,652 → 381 actionable rows.
+
+**2026-07-27 — Three palettes: Charcoal Pop leads, Neem Tree and Turmeric Root join** *(pre-deploy tweaks)*
+Noah picked Charcoal Pop as the main theme and retired Sunset Studio, Indigo Violet, and
+Forest & Clay. Pop's values moved into the @theme default block (an absent or stale
+data-palette id now falls through to it; index.html validates stored ids). Two new
+palettes built from Noah's swatches, tuned for M3 contrast: NEEM TREE — parchment
+surfaces deepening toward desert sand, olive-bark secondary, a neem-leaf green tertiary
+(the given palette had no leaf — a tree needs one), deep-mocha ink, stone-brown
+secondary text. TURMERIC ROOT — cool lavender-slate ground so the gold and the brand
+orange both glow; sunflower-gold secondary wears DARK text (#402d00, 7.7:1) because gold
+is a light hue — M3 golds never carry white; slate-violet tertiary, carbon-black ink.
+Each palette now themes inverse-surface too, so snackbars match their world. Dark mode
+remains the one global slate-indigo scheme.

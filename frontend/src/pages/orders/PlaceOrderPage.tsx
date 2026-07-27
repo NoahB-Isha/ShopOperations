@@ -14,6 +14,7 @@ import {
 } from "../../api/hooks";
 import type { CatalogItemOut, CenterOrderOut, ReasonPreviewOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
+import { matchesSearch } from "../../search";
 import {
   Badge,
   Button,
@@ -324,11 +325,10 @@ export function PlaceOrderPage() {
     [catalog],
   );
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return (catalog?.items ?? []).filter(
       (i) =>
         (!category || i.category === category) &&
-        (!q || i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q)),
+        matchesSearch(search, i.name, i.sku),
     );
   }, [catalog, search, category]);
 

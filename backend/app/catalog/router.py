@@ -22,6 +22,7 @@ from ..models import (
     TagName,
 )
 from ..odoo.urls import odoo_record_url
+from .search import product_search_clause
 
 router = APIRouter(prefix="/products", tags=["catalog"])
 
@@ -42,6 +43,7 @@ class ProductOut(BaseModel):
     cost: float
     retail_price: float
     source: str
+    sourcing: str
     is_stock_tracked: bool
     is_active: bool
     case_size: int
@@ -79,6 +81,7 @@ def _product_out(p: Product, stock: dict[str, float], settings: Settings) -> Pro
         cost=float(p.cost or 0),
         retail_price=float(p.retail_price or 0),
         source=p.source,
+        sourcing=p.sourcing or "",
         is_stock_tracked=p.is_stock_tracked,
         is_active=p.is_active,
         case_size=p.case_size,
@@ -126,16 +129,18 @@ def list_products(
     # Settings-page manager view of what's currently hidden
     q = q.where(Product.blacklisted.is_(True if blacklisted else False))
     if search:
-        needle = f"%{search.strip()}%"
-        q = q.where(
-            or_(
-                Product.name.ilike(needle),
-                Product.global_sku.ilike(needle),
-                Product.us_sku.ilike(needle),
-                Product.barcode.ilike(needle),
-                Product.category.ilike(needle),
-            )
+        clause = product_search_clause(
+            search,
+            (
+                Product.name,
+                Product.global_sku,
+                Product.us_sku,
+                Product.barcode,
+                Product.category,
+            ),
         )
+        if clause is not None:
+            q = q.where(clause)
     if category:
         q = q.where(Product.category == category)
     if source:

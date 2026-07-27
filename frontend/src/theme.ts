@@ -11,14 +11,13 @@ export interface PaletteOption {
 }
 
 export const PALETTES: PaletteOption[] = [
-  { id: "sunset", label: "Sunset Studio", dot: "#b42d66" },
-  { id: "indigo", label: "Indigo Violet", dot: "#4450b5" },
-  { id: "forest", label: "Forest & Clay", dot: "#3f6b4a" },
   { id: "pop", label: "Charcoal Pop", dot: "#b90d6e" },
+  { id: "neem", label: "Neem Tree", dot: "#5c4f26" },
+  { id: "turmeric", label: "Turmeric Root", dot: "#f5bd45" },
 ];
 
 const STORAGE_KEY = "ilops_palette";
-export const DEFAULT_PALETTE = "sunset";
+export const DEFAULT_PALETTE = "pop";
 
 export function currentPalette(): string {
   return document.documentElement.dataset.palette || DEFAULT_PALETTE;

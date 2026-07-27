@@ -1,6 +1,15 @@
 from .audit import FeatureFlag, OdooWriteAudit
 from .base import Base, utcnow
-from .catalog import Product, ProductSource, ProductTag, TagName, not_blacklisted, not_clothing
+from .catalog import (
+    SOURCING_DOMESTIC,
+    SOURCING_INDIA,
+    Product,
+    ProductSource,
+    ProductTag,
+    TagName,
+    not_blacklisted,
+    not_clothing,
+)
 from .center_orders import (
     CenterOrder,
     CenterOrderEvent,
@@ -162,6 +171,8 @@ __all__ = [
     "Product",
     "ProductSource",
     "ProductTag",
+    "SOURCING_DOMESTIC",
+    "SOURCING_INDIA",
     "TagName",
     "not_blacklisted",
     "not_clothing",

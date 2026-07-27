@@ -23,6 +23,12 @@ class ProductSource(str, enum.Enum):
     MANUAL = "manual"  # app-only item (water, cookies) — no Odoo record, no stock tracking
 
 
+# `Product.sourcing` values — procurement origin declared IN ODOO by tagging
+# the product "Domestic" or "India" (product tags, case-insensitive names).
+SOURCING_DOMESTIC = "domestic"
+SOURCING_INDIA = "india"
+
+
 class TagName(str, enum.Enum):
     AIR_ONLY = "air_only"
     SEA_ONLY = "sea_only"
@@ -60,6 +66,12 @@ class Product(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(10), default=ProductSource.ODOO.value)
     is_stock_tracked: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Odoo-declared procurement origin, synced from product tags named exactly
+    # "Domestic" or "India" (case-insensitive): '' | 'domestic' | 'india'.
+    # Domestic wins if a product somehow carries both. The one behavioral hook
+    # is India-order candidacy (`ordering/inputs.import_candidates`): domestic
+    # is a hard exclude, india is an include regardless of reference shape.
+    sourcing: Mapped[str] = mapped_column(String(10), default="", server_default="")
 
     # --- app-managed (never touched by sync) ---
     case_size: Mapped[int] = mapped_column(Integer, default=1)

@@ -9,13 +9,16 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- apply the saved palette before the bundle loads so there's no color flash -->
+    <!-- apply the saved palette before the bundle loads so there's no color
+         flash; ids no longer offered (sunset/indigo/forest) fall back to the
+         default so stale localStorage can't strand anyone -->
     <script>
       try {
+        var p = localStorage.getItem("ilops_palette");
         document.documentElement.dataset.palette =
-          localStorage.getItem("ilops_palette") || "sunset";
+          ["pop", "neem", "turmeric"].indexOf(p) >= 0 ? p : "pop";
       } catch (e) {
-        document.documentElement.dataset.palette = "sunset";
+        document.documentElement.dataset.palette = "pop";
       }
     </script>
     <script type="module" src="/src/main.tsx"></script>

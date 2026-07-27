@@ -19,6 +19,7 @@ import { useAuth } from "../../auth/AuthContext";
 import type { AvailabilityItemOut, OosItemOut } from "../../api/types";
 import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Textarea, useToast } from "../../design";
 import { LowCountHint, OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
+import { matchesSearch } from "../../search";
 
 function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [picked, setPicked] = useState<PickedLine | null>(null);
@@ -317,38 +318,32 @@ export function OutOfStockPage() {
     isFloorRole ? "floor" : roles.has("warehouse") ? "bwhse" : "org",
   );
   const boardMode = scope === "floor";
+  // never-stocked items (no snapshot has ever seen them in stock) are hidden
+  // from the scoped lists by default — this is the peek switch
+  const [includeNeverStocked, setIncludeNeverStocked] = useState(false);
   const { data: items, isLoading } = useOosList();
-  const scoped = useAvailabilityOos(scope, !boardMode);
+  const scoped = useAvailabilityOos(scope, !boardMode, includeNeverStocked);
   const [markOpen, setMarkOpen] = useState(false);
   // page-level: the list refetch removes the row (and would unmount a dialog
   // nested inside it) the moment the mark is gone — the dialog outlives that
   const [restockTarget, setRestockTarget] = useState<OosItemOut | null>(null);
   const [search, setSearch] = useState("");
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items ?? [];
-    return (items ?? []).filter(
-      (i) =>
-        i.name.toLowerCase().includes(q) ||
-        i.sku.toLowerCase().includes(q) ||
-        i.barcode.toLowerCase().includes(q) ||
-        i.category.toLowerCase().includes(q),
-    );
-  }, [items, search]);
+  const visible = useMemo(
+    () =>
+      (items ?? []).filter((i) =>
+        matchesSearch(search, i.name, i.sku, i.barcode, i.category),
+      ),
+    [items, search],
+  );
 
-  const scopedVisible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const rows = scoped.data ?? [];
-    if (!q) return rows;
-    return rows.filter(
-      (i) =>
-        i.name.toLowerCase().includes(q) ||
-        i.sku.toLowerCase().includes(q) ||
-        i.barcode.toLowerCase().includes(q) ||
-        i.category.toLowerCase().includes(q),
-    );
-  }, [scoped.data, search]);
+  const scopedVisible = useMemo(
+    () =>
+      (scoped.data ?? []).filter((i) =>
+        matchesSearch(search, i.name, i.sku, i.barcode, i.category),
+      ),
+    [scoped.data, search],
+  );
 
   const loading = boardMode ? isLoading : scoped.isLoading;
   const empty = boardMode ? !items?.length : !scoped.data?.length;
@@ -395,6 +390,21 @@ export function OutOfStockPage() {
         aria-label="Search out-of-stock items"
         className="mb-3 w-full"
       />
+      {!boardMode && (
+        <div className="mb-3 flex items-center justify-end">
+          <button
+            onClick={() => setIncludeNeverStocked((v) => !v)}
+            title="Items the app has never seen in stock — mostly fast sellers, digital goods, and variants that were never carried. Hidden so this list stays actionable."
+            className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+              includeNeverStocked
+                ? "bg-secondary-container text-on-secondary-container"
+                : "text-on-surface-variant hover:bg-on-surface/8"
+            }`}
+          >
+            {includeNeverStocked ? "Showing never-stocked" : "Include never-stocked"}
+          </button>
+        </div>
+      )}
       {loading ? (
         <div className="grid place-items-center py-24">
           <Spinner size={24} />
