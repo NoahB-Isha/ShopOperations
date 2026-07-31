@@ -14,9 +14,11 @@
 #      the frontend's URL. Both redeploy automatically.
 #
 # Notes:
-#   - Background Workers require at least the Starter plan ($7/mo).
-#     To smoke-test without the worker, comment its block out — the app serves
-#     everything; inventory/sales data just won't refresh on schedule.
+#   - CURRENTLY IN FREE-TIER TRIAL CONFIG (no card needed): backend on the
+#     free plan (sleeps when idle), worker commented out (Render has no free
+#     workers). Data refreshes via the Status page's "Sync now" buttons only.
+#     Going live for volunteers: backend `plan: starter` + un-comment the
+#     worker block ($14/mo total) — scheduled syncs, sweeps, and no cold starts.
 #   - The shared env group keeps backend + worker identical (same DATABASE_URL,
 #     same APP_JWT_SECRET — sessions require it).
 
@@ -145,7 +147,10 @@ services:
     region: ohio # nearest to the campus + a us-east Supabase
     dockerfilePath: infra/docker/backend.Dockerfile
     dockerContext: .
-    plan: starter # free tier spins down (~30s cold starts); starter stays warm
+    # FREE-TIER TRIAL CONFIG: spins down after 15 min idle (~30-60s cold start
+    # on the next request). Before volunteers rely on this, switch to
+    # `plan: starter` ($7/mo, stays warm) and un-comment the worker below.
+    plan: free
     healthCheckPath: /api/v1/health
     envVars:
       - fromGroup: shopops-shared
@@ -157,23 +162,29 @@ services:
         sync: false
 
   # ── Background Worker (Odoo sync, notification sweeps, mailbox, digests) ──
-  - type: worker
-    name: shopops-worker
-    runtime: docker
-    region: ohio
-    dockerfilePath: infra/docker/backend.Dockerfile
-    dockerContext: .
-    plan: starter # workers require a paid plan
-    # dockerCommand (not startCommand) is the Docker-runtime override. Invoked
-    # through the entrypoint explicitly: Render's Docker command replaces
-    # ENTRYPOINT+CMD, and the entrypoint carries the wait-for-DB step.
-    # (RUN_MIGRATIONS=0 below keeps the worker from racing the backend's
-    # migrations either way.)
-    dockerCommand: /entrypoint.sh python -m worker.main
-    envVars:
-      - fromGroup: shopops-shared
-      - key: RUN_MIGRATIONS
-        value: "0"
+  # COMMENTED OUT for the free-tier trial: Render has no free background
+  # workers (Starter, $7/mo, is the floor). Without it the app still works —
+  # data refreshes only when an admin clicks "Sync now" on the Status page,
+  # and there are no scheduled sweeps/polls. Un-comment this whole block (and
+  # bump the backend to `plan: starter`) when moving to the paid tier.
+  #
+  # - type: worker
+  #   name: shopops-worker
+  #   runtime: docker
+  #   region: ohio
+  #   dockerfilePath: infra/docker/backend.Dockerfile
+  #   dockerContext: .
+  #   plan: starter # workers require a paid plan
+  #   # dockerCommand (not startCommand) is the Docker-runtime override. Invoked
+  #   # through the entrypoint explicitly: Render's Docker command replaces
+  #   # ENTRYPOINT+CMD, and the entrypoint carries the wait-for-DB step.
+  #   # (RUN_MIGRATIONS=0 below keeps the worker from racing the backend's
+  #   # migrations either way.)
+  #   dockerCommand: /entrypoint.sh python -m worker.main
+  #   envVars:
+  #     - fromGroup: shopops-shared
+  #     - key: RUN_MIGRATIONS
+  #       value: "0"
 
   # ── Frontend (static) ──────────────────────────────────────────────────────
   - type: web
