@@ -58,3 +58,17 @@ def test_contract_check_against_production_readonly():
     client = OdooClient(Settings(), read_only=True)
     results = check_contract(client)
     assert all(r["ok"] for r in results), [r for r in results if not r["ok"]]
+
+
+def test_database_url_scheme_normalizes_to_psycopg3(monkeypatch):
+    """Pasted provider URLs (plain postgres:// or postgresql://) must resolve
+    to the installed psycopg v3 dialect, never legacy psycopg2."""
+    from app.config import Settings
+
+    for raw in (
+        "postgres://u:p@host:6543/db?sslmode=require",
+        "postgresql://u:p@host:6543/db?sslmode=require",
+        "postgresql+psycopg://u:p@host:6543/db?sslmode=require",
+    ):
+        s = Settings(database_url=raw)
+        assert s.database_url == "postgresql+psycopg://u:p@host:6543/db?sslmode=require"

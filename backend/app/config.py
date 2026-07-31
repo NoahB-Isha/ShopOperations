@@ -6,6 +6,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root anchor: this file lives at <root>/backend/app/config.py, and the
@@ -23,6 +24,19 @@ class Settings(BaseSettings):
 
     # --- database ---
     database_url: str = "postgresql+psycopg://ilops:ilops@localhost:5432/ilops"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_scheme(cls, v: str) -> str:
+        """Providers hand out plain `postgres(ql)://` URLs (Supabase, Render,
+        Heroku); SQLAlchemy would route those to the legacy psycopg2 driver,
+        which isn't installed. Rewrite to the psycopg v3 dialect so pasted
+        connection strings just work."""
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://"):]
+        return v
 
     # --- auth ---
     auth_mode: str = "dev"  # dev | supabase
