@@ -164,7 +164,12 @@ services:
     dockerfilePath: infra/docker/backend.Dockerfile
     dockerContext: .
     plan: starter # workers require a paid plan
-    startCommand: python -m worker.main
+    # dockerCommand (not startCommand) is the Docker-runtime override. Invoked
+    # through the entrypoint explicitly: Render's Docker command replaces
+    # ENTRYPOINT+CMD, and the entrypoint carries the wait-for-DB step.
+    # (RUN_MIGRATIONS=0 below keeps the worker from racing the backend's
+    # migrations either way.)
+    dockerCommand: /entrypoint.sh python -m worker.main
     envVars:
       - fromGroup: shopops-shared
       - key: RUN_MIGRATIONS
