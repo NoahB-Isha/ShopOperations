@@ -1,0 +1,191 @@
+# Render Blueprint — the whole app: backend API + worker (one Docker image)
+# and the frontend as a static site. Docs: https://render.com/docs/blueprint-spec
+#
+# Usage:
+#   1. Restore the database into Supabase FIRST (docs/DEPLOY_VERCEL_SUPABASE.md,
+#      "Migrating the existing database") so the backend boots against real data.
+#   2. Push this repo to GitHub.
+#   3. Render Dashboard → Blueprints → "New Blueprint Instance" → pick the repo.
+#   4. Fill the values Render prompts for (everything marked `sync: false`).
+#      Minimum to boot: DATABASE_URL. Odoo creds enable live reads (writes stay
+#      off regardless — ODOO_WRITES_ENABLED=false + per-operation flags).
+#   5. After the backend is live: set VITE_API_BASE on the frontend service to
+#      the backend's URL, and CORS_ORIGINS/APP_PUBLIC_URL in the env group to
+#      the frontend's URL. Both redeploy automatically.
+#
+# Notes:
+#   - Background Workers require at least the Starter plan ($7/mo).
+#     To smoke-test without the worker, comment its block out — the app serves
+#     everything; inventory/sales data just won't refresh on schedule.
+#   - The shared env group keeps backend + worker identical (same DATABASE_URL,
+#     same APP_JWT_SECRET — sessions require it).
+
+envVarGroups:
+  - name: shopops-shared
+    envVars:
+      # ── app ──
+      - key: ENV
+        value: prod
+      - key: LOG_LEVEL
+        value: INFO
+
+      # ── database ──
+      # Supabase *transaction pooler* (port 6543) connection string:
+      #   postgresql+psycopg://postgres.<ref>:<PASSWORD>@<host>:6543/postgres?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+
+      # ── auth ──
+      - key: APP_JWT_SECRET
+        generateValue: true # one value for the whole group = backend and worker match
+      - key: SESSION_DAYS
+        value: "30"
+      - key: OTP_EXP_MINUTES
+        value: "10"
+      # Start on "dev" to verify the deployment (codes shown on screen — anyone
+      # with the URL can log in as anyone, keep this window short and the URL
+      # private). Switch to "supabase" + fill SUPABASE_* before real users.
+      - key: AUTH_MODE
+        value: dev
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+
+      # ── Odoo ──
+      # Leave all four blank for fixture mode (simulator-backed, no live Odoo).
+      - key: ODOO_BASE_URL
+        sync: false
+      - key: ODOO_DB
+        sync: false
+      - key: ODOO_LOGIN
+        sync: false
+      - key: ODOO_PASSWORD
+        sync: false
+      # SAFETY: stays false until the canary protocol has passed FROM THIS
+      # deployment; per-operation feature flags gate each write besides.
+      - key: ODOO_WRITES_ENABLED
+        value: "false"
+      - key: ODOO_PAGE_SIZE
+        value: "1000"
+      - key: ODOO_THROTTLE_SECONDS
+        value: "0.25"
+      - key: ODOO_TIMEOUT_SECONDS
+        value: "120"
+      - key: ODOO_RECORD_URL_TEMPLATE
+        value: "{base}/web#id={id}&model={model}&view_type=form"
+
+      # ── sync cadence (minutes) ──
+      - key: SYNC_PRODUCTS_MINUTES
+        value: "720"
+      - key: SYNC_STOCK_MINUTES
+        value: "240"
+      - key: SYNC_SALES_MINUTES
+        value: "60"
+      - key: SYNC_INCOMING_MINUTES
+        value: "240"
+      - key: SYNC_STALE_FACTOR
+        value: "2.0"
+      - key: SALES_BACKFILL_MONTHS
+        value: "24"
+
+      # ── seeds / reference files (baked into the image) ──
+      - key: SEED_COORDINATOR_XLSX
+        value: docs/reference/IL City Coordinators.xlsx
+
+      # ── public URL (the frontend's) — notification links point here ──
+      - key: APP_PUBLIC_URL
+        sync: false
+
+      # ── notifications ──
+      - key: NOTIFY_ENABLED
+        value: "true"
+      # SMTP — blank simulates sends honestly (they log + show as SIMULATED).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        value: "Isha Life Shop Ops <orders@ishalife.test>"
+      # WhatsApp bridge — on hold; leave blank.
+      - key: WHATSAPP_BRIDGE_URL
+        sync: false
+      - key: WHATSAPP_BRIDGE_TOKEN
+        sync: false
+
+      # ── order-reply ingestion (worker) — blank = paste replies manually ──
+      - key: IMAP_HOST
+        sync: false
+      - key: IMAP_USERNAME
+        sync: false
+      - key: IMAP_PASSWORD
+        sync: false
+
+      # ── LLM (reasonability, Q&A, email parsing) — blank = rules-only ──
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: REASONABILITY_LLM_MODEL
+        value: claude-opus-4-8
+
+      # ── bot API — blank = /api/v1/bot/* returns 503 until skubot connects ──
+      - key: SKUBOT_API_KEY
+        sync: false
+
+services:
+  # ── Backend API ────────────────────────────────────────────────────────────
+  - type: web
+    name: shopops-backend
+    runtime: docker
+    region: ohio # nearest to the campus + a us-east Supabase
+    dockerfilePath: infra/docker/backend.Dockerfile
+    dockerContext: .
+    plan: starter # free tier spins down (~30s cold starts); starter stays warm
+    healthCheckPath: /api/v1/health
+    envVars:
+      - fromGroup: shopops-shared
+      - key: RUN_MIGRATIONS
+        value: "1" # the backend owns migrations; worker must not race it
+      # The frontend's origin(s), comma-separated, scheme included, no trailing
+      # slash. Example: https://shopops-frontend.onrender.com,https://shop.ishalife.com
+      - key: CORS_ORIGINS
+        sync: false
+
+  # ── Background Worker (Odoo sync, notification sweeps, mailbox, digests) ──
+  - type: worker
+    name: shopops-worker
+    runtime: docker
+    region: ohio
+    dockerfilePath: infra/docker/backend.Dockerfile
+    dockerContext: .
+    plan: starter # workers require a paid plan
+    startCommand: python -m worker.main
+    envVars:
+      - fromGroup: shopops-shared
+      - key: RUN_MIGRATIONS
+        value: "0"
+
+  # ── Frontend (static) ──────────────────────────────────────────────────────
+  - type: web
+    name: shopops-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      # SPA fallback so deep links like /settings load
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # The backend's public URL (https://shopops-backend[-xxxx].onrender.com).
+      # Build-time only: set/changed → Render rebuilds automatically.
+      - key: VITE_API_BASE
+        sync: false

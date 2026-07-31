@@ -22,6 +22,15 @@ RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Reference docs (coordinator xlsx, etc.) — needed for roster import.
+# Not in .dockerignore so this COPY always succeeds.
+COPY docs docs
+
+# Pre-generate deterministic demo Odoo fixtures at build time.
+# Pure Python, no DB required. The image works in fixture mode (ODOO_* blank)
+# without any runtime volume mount — important for cloud deployments.
+RUN python -m app.odoo.fixtures.generate
+
 COPY infra/docker/backend-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

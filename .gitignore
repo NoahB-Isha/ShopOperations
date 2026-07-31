@@ -27,3 +27,6 @@ backend/data/
 .DS_Store
 .idea/
 .vscode/
+
+# database dumps (deploy migration artifacts — never commit)
+/backups/

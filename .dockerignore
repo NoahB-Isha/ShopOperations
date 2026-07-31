@@ -11,6 +11,7 @@ frontend/playwright-report
 backend/data
 .env
 .env.*
-docs
+# docs/ is included — the coordinator xlsx is needed at runtime for roster import.
+# Remove this line only if you want to exclude large binary reference files.
 *.sqlite3
 .DS_Store

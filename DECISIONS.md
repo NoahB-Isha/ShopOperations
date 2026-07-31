@@ -550,3 +550,29 @@ orange both glow; sunflower-gold secondary wears DARK text (#402d00, 7.7:1) beca
 is a light hue — M3 golds never carry white; slate-violet tertiary, carbon-black ink.
 Each palette now themes inverse-surface too, so snackbars match their world. Dark mode
 remains the one global slate-indigo scheme.
+
+**2026-07-27 — Never-stocked OOS items are hidden, not blacklisted** *(pre-deploy tweaks)*
+Noah asked to blacklist everything on the OOS page saying "no stock history yet"
+(except IL-Service). The numbers said otherwise: of 1,270 such items, 1,240 had real
+sales — 852 in the last 12 months, 612 of them the same clothing restored by hand after
+the 07-26 sweep incident, 299 digital downloads that sell without ever holding stock.
+Blacklisting is app-WIDE (search, menus, reports), so with those numbers surfaced Noah
+chose the display fix: `oos_items` now drops items whose snapshot history never saw
+them stocked (scope-aware), with an "Include never-stocked" chip as the peek. Live
+effect: the Everywhere list fell 1,652 → 381 actionable rows. The never-sold subset
+that COULD be safely blacklisted turned out to be zero — the 07-26 sweep had already
+caught it (items whose only sales rows are zero/negative months count as activity,
+deliberately). The bot API inherits the curated default.
+
+**2026-07-27 — Three palettes: Charcoal Pop leads, Neem Tree and Turmeric Root join** *(pre-deploy tweaks)*
+Noah promoted Charcoal Pop to the default and retired Sunset Studio, Indigo Violet, and
+Forest & Clay. Pop's values moved INTO the `@theme` block (the default needs no
+attribute; unknown/stale `data-palette` ids fall through to it, and index.html
+validates stored ids so retired ones can't strand a browser). Two new palettes built
+from Noah's swatches, tuned for M3 contrast: **Neem Tree** — olive-bark secondary
+(#5c4f26), neem-leaf tertiary, parchment surfaces deepening toward desert sand,
+stone-brown variant text; **Turmeric Root** — sunflower-gold secondary (#f5bd45)
+wearing dark text (gold is a light hue; white-on-gold would fail contrast), slate-
+violet tertiary, cool lavender surfaces, carbon ink. Each palette now themes
+inverse-surface too, so snackbars match their world. Dark mode stays the one global
+slate-indigo scheme.
