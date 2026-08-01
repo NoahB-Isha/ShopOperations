@@ -173,7 +173,10 @@ export function LoginPage() {
                 <Input
                   ref={codeRef}
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  // 10, not 6: Supabase's email OTP length is configurable
+                  // (6-10 digits) — a shorter mask would silently truncate
+                  // the code and every login would fail as "invalid"
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))}
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   className="text-center font-mono text-xl tracking-[0.5em]"

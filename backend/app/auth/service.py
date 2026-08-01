@@ -16,6 +16,7 @@ import hashlib
 import re
 import secrets
 from datetime import timedelta
+from functools import lru_cache
 
 import jwt
 from sqlalchemy import func, select
@@ -172,19 +173,47 @@ def decode_session_token(token: str, settings: Settings) -> int:
 
 
 # ------------------------------------------------------------- supabase mode
+@lru_cache(maxsize=4)
+def _jwks_client(supabase_url: str) -> jwt.PyJWKClient:
+    """Cached JWKS fetcher for projects on Supabase's asymmetric signing keys
+    (the public keys live at a well-known URL; PyJWKClient caches them)."""
+    return jwt.PyJWKClient(
+        f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json",
+        cache_keys=True,
+        timeout=10,
+    )
+
+
 def verify_supabase_token(token: str, settings: Settings) -> dict:
-    """Verify a Supabase Auth access token (HS256 with the project JWT secret)
-    and return its claims. Used by /auth/exchange in supabase mode."""
-    if not settings.supabase_jwt_secret:
-        raise AuthError("Supabase auth is not configured on the server.", 500)
+    """Verify a Supabase Auth access token and return its claims. Handles both
+    signing schemes: legacy projects sign HS256 with the shared JWT secret;
+    newer projects sign ES256/RS256 with asymmetric keys we verify against the
+    project's public JWKS endpoint. Used by /auth/exchange in supabase mode."""
     try:
-        return jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
+        alg = str(jwt.get_unverified_header(token).get("alg", ""))
     except jwt.PyJWTError as e:
+        raise AuthError(f"Supabase token rejected: {e}", 401) from e
+    try:
+        if alg == "HS256":
+            if not settings.supabase_jwt_secret:
+                raise AuthError("Supabase auth is not configured on the server.", 500)
+            return jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+        if alg in ("ES256", "RS256"):
+            if not settings.supabase_url:
+                raise AuthError("Supabase auth is not configured on the server.", 500)
+            key = _jwks_client(settings.supabase_url).get_signing_key_from_jwt(token).key
+            return jwt.decode(token, key, algorithms=[alg], audience="authenticated")
+        raise AuthError(f"Supabase token rejected: unsupported alg {alg!r}.", 401)
+    except AuthError:
+        raise
+    except (jwt.PyJWTError, OSError, ValueError) as e:
+        # PyJWKClientError (bad/unreachable JWKS) subclasses PyJWTError;
+        # OSError covers network failures fetching the keys
         raise AuthError(f"Supabase token rejected: {e}", 401) from e
 
 

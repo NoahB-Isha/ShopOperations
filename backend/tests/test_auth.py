@@ -104,3 +104,53 @@ def test_bad_token_rejected(client, db):
     assert r.status_code == 401
     r = client.get("/api/v1/auth/me")
     assert r.status_code == 401
+
+
+def test_verify_supabase_token_both_signing_schemes(monkeypatch):
+    """Legacy projects sign HS256 with the shared secret; new projects sign
+    ES256 with asymmetric keys served via JWKS. Both must verify; anything
+    else is rejected without a key lookup."""
+    import jwt as pyjwt
+    import pytest
+    from app.auth import service
+    from app.auth.service import AuthError, verify_supabase_token
+    from app.config import Settings
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    settings = Settings(
+        auth_mode="supabase",
+        supabase_url="https://proj.supabase.co",
+        supabase_jwt_secret="legacy-secret",
+    )
+    claims = {"sub": "uid-1", "email": "n@x.org", "aud": "authenticated"}
+
+    # HS256 — the legacy shared-secret path
+    hs = pyjwt.encode(claims, "legacy-secret", algorithm="HS256")
+    assert verify_supabase_token(hs, settings)["sub"] == "uid-1"
+    with pytest.raises(AuthError):  # wrong secret
+        verify_supabase_token(hs, settings.model_copy(update={"supabase_jwt_secret": "other"}))
+
+    # ES256 — the asymmetric path, JWKS stubbed to return our public key
+    priv = ec.generate_private_key(ec.SECP256R1())
+    es = pyjwt.encode(claims, priv, algorithm="ES256", headers={"kid": "k1"})
+
+    class _StubKey:
+        key = priv.public_key()
+
+    class _StubClient:
+        def get_signing_key_from_jwt(self, token):
+            return _StubKey()
+
+    monkeypatch.setattr(service, "_jwks_client", lambda url: _StubClient())
+    assert verify_supabase_token(es, settings)["email"] == "n@x.org"
+
+    # audience is enforced on the asymmetric path too
+    bad_aud = pyjwt.encode({**claims, "aud": "elsewhere"}, priv, algorithm="ES256")
+    with pytest.raises(AuthError):
+        verify_supabase_token(bad_aud, settings)
+
+    # unsupported algorithms never reach a key lookup
+    none_tok = pyjwt.encode(claims, None, algorithm="none")
+    with pytest.raises(AuthError) as exc:
+        verify_supabase_token(none_tok, settings)
+    assert "unsupported alg" in str(exc.value)
