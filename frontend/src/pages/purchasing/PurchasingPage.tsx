@@ -38,7 +38,16 @@ import {
 import type { Column } from "../../design";
 import { Icons } from "../../nav";
 import { fmtWhen } from "../shared/OpsBits";
-import { PoStatusChip, fmtMoh, fmtUnits } from "./orderingBits";
+import {
+  PoStatusChip,
+  SellThroughChip,
+  SortableTh,
+  fmtMoh,
+  fmtUnits,
+  sortBy,
+  toggledSort,
+} from "./orderingBits";
+import type { SortState } from "./orderingBits";
 
 type Tab = "india" | "domestic";
 
@@ -544,8 +553,27 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState<SortState | null>(null);
 
   const items = useMemo(() => suggestions.data?.items ?? [], [suggestions.data]);
+  const sortedItems = useMemo(
+    () =>
+      sortBy(items, sort, (item, key) => {
+        switch (key) {
+          case "item":
+            return (item.name || item.global_sku).toLowerCase();
+          case "on_hand":
+            return item.on_hand ?? 0;
+          case "cover":
+            return item.current_moh ?? 0;
+          case "suggested":
+            return item.suggested_sea_round ?? 0;
+          default:
+            return 0;
+        }
+      }),
+    [items, sort],
+  );
   const chosen = useMemo(() => {
     const out: Record<string, number> = {};
     for (const item of items) {
@@ -587,23 +615,40 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
       </p>
     );
   }
+  const toggle = (key: string) => setSort((prev) => toggledSort(prev, key));
   return (
     <div>
+      <div className="mb-2 flex justify-end">
+        <SellThroughChip />
+      </div>
       <div className="overflow-x-auto rounded-(--radius-md) bg-surface-container-low">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-surface-container">
               {/* Cover + Suggested step aside on phones — the row's essentials
                   (item, on hand, qty input) must fit a 375px screen */}
-              <th className="label-m px-3 py-3 text-left sm:px-3.5">Item</th>
-              <th className="label-m px-3 py-3 text-left sm:px-3.5">On hand</th>
-              <th className="label-m hidden px-3.5 py-3 text-left sm:table-cell">Cover</th>
-              <th className="label-m hidden px-3.5 py-3 text-left sm:table-cell">Suggested</th>
+              <SortableTh label="Item" sortKey="item" sort={sort} onToggle={toggle} pad="px-3 py-3 sm:px-3.5" />
+              <SortableTh label="On hand" sortKey="on_hand" sort={sort} onToggle={toggle} pad="px-3 py-3 sm:px-3.5" />
+              <SortableTh
+                label="Cover"
+                sortKey="cover"
+                sort={sort}
+                onToggle={toggle}
+                className="hidden sm:table-cell"
+                help="Months of cover = on hand ÷ sell-through sales/mo (units ÷ in-stock months). Below 4 months triggers a reorder."
+              />
+              <SortableTh
+                label="Suggested"
+                sortKey="suggested"
+                sort={sort}
+                onToggle={toggle}
+                className="hidden sm:table-cell"
+              />
               <th className="label-m px-3 py-3 text-left sm:px-3.5">Order qty</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
+            {sortedItems.map((item) => {
               const shown = quantities[item.global_sku] ?? String(item.suggested_sea_round);
               return (
                 <tr key={item.global_sku} className="border-b border-outline-variant/50 last:border-b-0">

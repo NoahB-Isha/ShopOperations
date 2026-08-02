@@ -127,3 +127,64 @@ def test_manual_item_lifecycle(client, db):
     # manual items may be renamed
     r = client.patch(f"/api/v1/products/{body['id']}", json={"name": "Water 24pk"}, headers=admin)
     assert r.status_code == 200 and r.json()["name"] == "Water 24pk"
+
+
+# ------------------------------------------------------------ stock history
+def test_stock_history_series(client, db):
+    """Covered days become points (absent rows = genuine zero), the last
+    point is live StockLevel, reconstructed days are counted honestly."""
+    from datetime import timedelta
+
+    from app.models import StockLevel, StockSnapshot, StockSnapshotDay, utcnow
+
+    admin, floor = _setup(client, db, n=1)
+    pid = client.get("/api/v1/products", headers=admin).json()["items"][0]["id"]
+    today = utcnow().date()
+    d20, d2 = today - timedelta(days=20), today - timedelta(days=2)
+    db.add_all(
+        [
+            StockSnapshotDay(snapshot_date=d20, rows=2, source="reconstructed"),
+            StockSnapshotDay(snapshot_date=d2, rows=2),
+            StockSnapshot(snapshot_date=d20, product_id=pid, location_key="bwhse", qty=5),
+            StockSnapshot(snapshot_date=d20, product_id=pid, location_key="floor", qty=2),
+            # d2 has NO rows for this product: covered day ⇒ genuinely zero
+            StockLevel(product_id=pid, location_key="bwhse", qty=4),
+            StockLevel(product_id=pid, location_key="staging2", qty=1),
+        ]
+    )
+    db.commit()
+
+    r = client.get(f"/api/v1/products/{pid}/stock-history", headers=floor)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["covered_days"] == 2
+    assert body["reconstructed_days"] == 1
+    assert body["first_covered"] == d20.isoformat()
+    days = [(p["day"], p["total"], p["source"]) for p in body["points"]]
+    assert days == [
+        (d20.isoformat(), 7.0, "reconstructed"),
+        (d2.isoformat(), 0.0, "sync"),
+        (today.isoformat(), 5.0, "live"),
+    ]
+    live = body["points"][-1]
+    assert live["bwhse"] == 4 and live["staging2"] == 1
+
+    # the window honors ?days=
+    r = client.get(f"/api/v1/products/{pid}/stock-history?days=14", headers=admin)
+    body = r.json()
+    assert [p["source"] for p in body["points"]] == ["sync", "live"]
+    assert body["covered_days"] == 1
+
+
+def test_stock_history_untracked_and_missing(client, db):
+    from app.models import ProductSource
+
+    admin, _ = _setup(client, db, n=1)
+    manual = mk_product(
+        db, "MAN-0009", "Spring Water", source=ProductSource.MANUAL.value, stock_tracked=False
+    )
+    r = client.get(f"/api/v1/products/{manual.id}/stock-history", headers=admin)
+    assert r.status_code == 200
+    assert r.json()["points"] == [] and r.json()["covered_days"] == 0
+
+    assert client.get("/api/v1/products/99999/stock-history", headers=admin).status_code == 404

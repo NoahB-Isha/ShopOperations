@@ -6,6 +6,7 @@ import { useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
+import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
 import { WarpFX, fireWarp, msSinceLastWarp } from "./warpFx";
 
@@ -42,6 +43,7 @@ function Brand() {
 
 /** M3 navigation drawer items: full-width pills, secondary-container when active. */
 function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+  const s = useSillyLabel();
   return (
     <nav className="stagger-children mt-5 flex flex-col gap-1" aria-label="Main">
       {items.map((item) => (
@@ -60,7 +62,7 @@ function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => v
           }
         >
           {item.icon}
-          {item.label}
+          {s(item.label)}
         </NavLink>
       ))}
     </nav>
@@ -69,6 +71,7 @@ function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => v
 
 /** M3 bottom navigation bar — phones, roles with few destinations. */
 function BottomNav({ items }: { items: NavItem[] }) {
+  const s = useSillyLabel();
   return (
     <nav
       aria-label="Main"
@@ -96,7 +99,7 @@ function BottomNav({ items }: { items: NavItem[] }) {
                 {item.icon}
               </span>
               <span className={isActive ? "font-semibold text-on-surface" : "text-on-surface-variant"}>
-                {item.label}
+                {s(item.label)}
               </span>
             </>
           )}
@@ -162,6 +165,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const s = useSillyLabel();
   useTimeWarpOnEntry();
 
   const items = navForRoles(roles);
@@ -229,7 +233,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
             className="state-layer mt-3 w-full rounded-full border border-outline-variant px-4
               py-2.5 text-left text-sm text-on-surface-variant"
           >
-            Sign out {user?.display_name ? `(${user.display_name})` : ""}
+            {s("Sign out")} {user?.display_name ? `(${user.display_name})` : ""}
           </button>
         </div>
       )}
@@ -238,7 +242,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         {/* desktop top app bar */}
         <header className="sticky top-0 z-20 hidden items-center justify-between bg-surface/85
           px-8 py-3.5 backdrop-blur md:flex">
-          <div className="title-l text-on-surface">{title}</div>
+          <div className="title-l text-on-surface">{s(title)}</div>
           <div className="flex items-center gap-4">
             <HealthChip />
             <div className="flex items-center gap-1">
@@ -257,7 +261,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
                 onClick={logout}
                 className="text-[13px] font-medium text-primary underline-offset-2 hover:underline"
               >
-                Sign out
+                {s("Sign out")}
               </button>
             </div>
           </div>

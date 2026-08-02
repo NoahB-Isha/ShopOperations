@@ -1,7 +1,7 @@
 """Product catalog API: search/browse for everyone, tag & item management for admins."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -19,7 +19,9 @@ from ..models import (
     SalesMonthly,
     StockLevel,
     StockSnapshot,
+    StockSnapshotDay,
     TagName,
+    utcnow,
 )
 from ..odoo.urls import odoo_record_url
 from .search import product_search_clause
@@ -319,6 +321,92 @@ def get_product(
     if p is None:
         raise HTTPException(404, "Product not found.")
     return _product_out(p, _stock_for(db, p.id), settings)
+
+
+# ---------------------------------------------------------- stock history
+# The drawer's availability-over-time graph. Same honesty rules as the time
+# machine's past view: a covered day (a StockSnapshotDay row) with no snapshot
+# rows for this product is a GENUINE zero — that is the out-of-stock signal,
+# so zero points are emitted, never skipped. Uncovered days are simply absent.
+
+HISTORY_LOCATION_KEYS = ("bwhse", "floor", "staging", "staging2")
+
+
+class StockHistoryPoint(BaseModel):
+    day: date
+    total: float
+    bwhse: float
+    floor: float
+    staging: float
+    staging2: float
+    source: str  # sync | reconstructed | live
+
+
+class StockHistoryOut(BaseModel):
+    points: list[StockHistoryPoint]  # oldest → newest; last point is live
+    first_covered: date | None  # earliest history day ON RECORD (any product)
+    covered_days: int  # history points in the window (excludes the live point)
+    reconstructed_days: int  # of those, backfilled from Odoo's move ledger
+
+
+def _history_point(day: date, buckets: dict[str, float], source: str) -> StockHistoryPoint:
+    vals = {k: float(buckets.get(k, 0) or 0) for k in HISTORY_LOCATION_KEYS}
+    return StockHistoryPoint(day=day, total=sum(vals.values()), source=source, **vals)
+
+
+@router.get("/{product_id}/stock-history", response_model=StockHistoryOut)
+def stock_history(
+    product_id: int,
+    days: int = Query(180, ge=14, le=730),
+    db: Session = Depends(get_db),
+    _: AuthedUser = Depends(get_current_user),
+) -> StockHistoryOut:
+    p = db.get(Product, product_id)
+    if p is None:
+        raise HTTPException(404, "Product not found.")
+    first_covered = db.scalar(select(func.min(StockSnapshotDay.snapshot_date)))
+    if not (p.is_stock_tracked and p.source == ProductSource.ODOO.value):
+        # manual/untracked items have no counts anywhere — an empty series,
+        # not an error, so the UI can say so plainly
+        return StockHistoryOut(
+            points=[], first_covered=first_covered, covered_days=0, reconstructed_days=0
+        )
+
+    today = utcnow().date()
+    start = today - timedelta(days=days)
+    day_rows = (
+        db.execute(
+            select(StockSnapshotDay)
+            .where(StockSnapshotDay.snapshot_date >= start)
+            .order_by(StockSnapshotDay.snapshot_date)
+        )
+        .scalars()
+        .all()
+    )
+    by_day: dict[date, dict[str, float]] = {}
+    for d, key, qty in db.execute(
+        select(StockSnapshot.snapshot_date, StockSnapshot.location_key, StockSnapshot.qty).where(
+            StockSnapshot.product_id == product_id,
+            StockSnapshot.snapshot_date >= start,
+        )
+    ):
+        by_day.setdefault(d, {})[key] = float(qty or 0)
+
+    points: list[StockHistoryPoint] = []
+    reconstructed = 0
+    for row in day_rows:
+        if row.snapshot_date >= today:
+            continue  # the live point below is fresher than today's snapshot
+        if row.source == "reconstructed":
+            reconstructed += 1
+        points.append(_history_point(row.snapshot_date, by_day.get(row.snapshot_date, {}), row.source))
+    points.append(_history_point(today, _stock_for(db, product_id), "live"))
+    return StockHistoryOut(
+        points=points,
+        first_covered=first_covered,
+        covered_days=len(points) - 1,
+        reconstructed_days=reconstructed,
+    )
 
 
 class TagsIn(BaseModel):

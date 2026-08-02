@@ -8,11 +8,13 @@ import { Link } from "react-router-dom";
 import { useBlacklistSweep, usePatchProduct, useProducts } from "../api/hooks";
 import type { BlacklistSweepOut, ProductOut } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, useToast } from "../design";
+import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Toggle, useToast } from "../design";
 import { PALETTES, currentPalette, setPalette } from "../theme";
+import { setSillyMode, useSillyMode } from "../silly";
 
 function AppearanceCard() {
   const [active, setActive] = useState(currentPalette);
+  const silly = useSillyMode();
   return (
     <Card>
       <h2 className="display mb-1 text-[16px]">Appearance</h2>
@@ -44,6 +46,20 @@ function AppearanceCard() {
             {p.label}
           </button>
         ))}
+      </div>
+
+      <div className="mt-4 flex items-start justify-between gap-4 border-t border-outline-variant/60 pt-3">
+        <div>
+          <h3 className="text-[14px] font-semibold">
+            Silly mode {silly && <span aria-hidden>🕶️</span>}
+          </h3>
+          <p className="text-[12.5px] leading-4.5 text-on-surface-variant">
+            Menus and page titles get their street names — Purchasing becomes “Get the goods”,
+            Users become “Peeps”, Reports become 🤑🤑🤑. Purely cosmetic, this device only;
+            every number stays serious.
+          </p>
+        </div>
+        <Toggle checked={silly} onChange={setSillyMode} />
       </div>
     </Card>
   );

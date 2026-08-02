@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useSillyLabel } from "../silly";
 
 type CardVariant = "filled" | "elevated" | "outlined";
 type CardTone = "none" | "primary" | "secondary" | "tertiary";
@@ -76,10 +77,12 @@ export function PageHeader({
   subtitle?: ReactNode;
   actions?: ReactNode;
 }) {
+  // silly mode renames known page titles; dynamic titles pass through
+  const s = useSillyLabel();
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="display-l text-on-surface">{title}</h1>
+        <h1 className="display-l text-on-surface">{s(title)}</h1>
         {subtitle && <p className="mt-2 text-[15px] text-on-surface-variant">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}

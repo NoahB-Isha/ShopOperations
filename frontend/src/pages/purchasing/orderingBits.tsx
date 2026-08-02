@@ -61,6 +61,111 @@ export function FlagChips({ flags, max = 3 }: { flags: string[]; max?: number })
   );
 }
 
+/* ---- click-to-sort for the hand-rolled purchasing tables ----------------
+   Mirrors DataTable's header affordance (arrow, aria-sort, asc ⇄ desc) but
+   the caller owns the state and sorts the FULL filtered set — pagination
+   slices afterwards, so a sort never reorders just the visible page. */
+
+export type SortDir = "asc" | "desc";
+export interface SortState {
+  key: string;
+  dir: SortDir;
+}
+
+export function toggledSort(prev: SortState | null, key: string): SortState {
+  return { key, dir: prev?.key === key && prev.dir === "asc" ? "desc" : "asc" };
+}
+
+export function sortBy<T>(
+  rows: readonly T[],
+  sort: SortState | null,
+  value: (row: T, key: string) => string | number,
+): T[] {
+  if (!sort) return [...rows];
+  const { key, dir } = sort;
+  return [...rows].sort((a, b) => {
+    const va = value(a, key);
+    const vb = value(b, key);
+    const cmp =
+      typeof va === "number" && typeof vb === "number"
+        ? va - vb
+        : String(va).localeCompare(String(vb));
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+export function SortableTh({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+  help,
+  pad = "px-3.5 py-3",
+  className = "",
+}: {
+  label: string;
+  /** omit to render a plain, unsortable header */
+  sortKey?: string;
+  sort: SortState | null;
+  onToggle: (key: string) => void;
+  help?: string;
+  pad?: string;
+  className?: string;
+}) {
+  const active = sortKey !== undefined && sort?.key === sortKey;
+  return (
+    <th
+      title={help}
+      aria-sort={active ? (sort?.dir === "asc" ? "ascending" : "descending") : undefined}
+      onClick={sortKey ? () => onToggle(sortKey) : undefined}
+      className={`label-m text-left select-none ${pad}
+        ${sortKey ? "cursor-pointer transition-colors hover:text-primary" : ""} ${className}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {help && (
+          <span aria-hidden className="font-normal opacity-60">
+            ⓘ
+          </span>
+        )}
+        {active && (
+          <span aria-hidden className="animate-pop text-primary">
+            {sort?.dir === "asc" ? "↑" : "↓"}
+          </span>
+        )}
+      </span>
+    </th>
+  );
+}
+
+/* ---- sell-through basis — the honesty note an admin asked to see --------- */
+
+export const SELL_THROUGH_HELP =
+  "Every sales/mo figure here is a SELL-THROUGH rate: units sold ÷ months the item was " +
+  "actually in stock. Months it sat at zero don't count against demand, so out-of-stock gaps " +
+  "never deflate the velocity. Cover (months on hand), the projections, and every suggested " +
+  "quantity divide by this same rate.";
+
+export const SALES_MO_HELP =
+  "The main number is the FORECAST: expected units/month over the projection window " +
+  "(trend + seasonality once an item has 6+ months of history). “base” is the flat " +
+  "sell-through average — units ÷ in-stock months, the workbook's number — shown whenever " +
+  "the forecast departs from it; ⚠ marks a gap over 30%. With thin history the forecast " +
+  "IS the base, so a single number shows. Click to sort.";
+
+/** Small persistent chip: hover for the full explanation. */
+export function SellThroughChip({ className = "" }: { className?: string }) {
+  return (
+    <span
+      title={SELL_THROUGH_HELP}
+      className={`inline-flex cursor-help items-center gap-1.5 rounded-full border border-outline-variant
+        px-3 py-1 text-[12px] font-semibold text-on-surface-variant ${className}`}
+    >
+      <span aria-hidden>✓</span> sell-through basis
+    </span>
+  );
+}
+
 export const EVENT_META: Record<OrderEventKind, { icon: string; label: string }> = {
   status: { icon: "→", label: "Status" },
   note: { icon: "✎", label: "Note" },

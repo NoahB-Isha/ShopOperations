@@ -481,3 +481,32 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   back to pop, so stale localStorage can't strand anyone. Each palette now also themes
   inverse-surface (snackbars). palette-lab.css + PaletteLabPage mirror tokens.css —
   change one, change both. Dark stays the ONE global scheme.
+- Feedback round (2026-08-02, same build-on rule): **Purchasing table sort** —
+  `orderingBits` gained `SortState/toggledSort/sortBy` + `SortableTh` (mirrors
+  DataTable's asc⇄desc arrow + aria-sort); DraftReview sorts the FULL filtered set
+  BEFORE pagination (sort in `sorted` memo, never the page slice) and QuickOrder
+  sorts its items — both hand-rolled tables, the orders list already had DataTable
+  sort. **Sell-through indicator** (an admin asked for a visible signal):
+  `SellThroughChip` ("✓ sell-through basis", hover = SELL_THROUGH_HELP) sits on the
+  draft filter rail + Quick order; SALES_MO_HELP on the Sales/mo header explains
+  main-number-vs-base (forecast mean vs flat sell-through average — units ÷ in-stock
+  months; identical under 6 useable months, ⚠ at >30% divergence); LineDrawer
+  MiniStats carry help tooltips. **Drawer availability graph**: GET
+  /products/{id}/stock-history?days=90|180|365 (catalog/router — covered
+  StockSnapshotDay with no product rows = genuine ZERO point, emitted not skipped;
+  last point = live StockLevel, source sync|reconstructed|live; first_covered =
+  global min; untracked/manual → empty, not error). ProductDrawer renders it under
+  On hand: time-scaled single-series line (--chart-1), zero baseline = OOS, line
+  BREAKS on >21-day capture gaps, per-point hover tooltip w/ bucket split,
+  "View as table" relief, range chips 3mo/6mo/1yr, window-scoped coverage footnote;
+  staging2 card appears only when nonzero. **Tags compacted** to one wrap of toggle
+  chips + inline expires date (admin), read-only tag badges row for everyone else.
+  **Silly mode** (`frontend/src/silly.ts`): localStorage `ilops_silly` +
+  useSyncExternalStore; EXACT-match dictionary SILLY_LABELS renames nav labels,
+  AppShell/PageHeader titles and Sign out (Purchasing→"Get the goods", Users→
+  "Peeps", Reports/Sales→🤑🤑🤑, Restock→"The re-up", Vendors→"The plugs", Order
+  history→"Receipts 🧾"…) — dynamic strings pass through untouched; toggle lives in
+  Settings→Appearance; silly.test.ts FAILS if any role's nav label lacks an entry,
+  so new nav items need a silly name too. Browser-pane note: computer-tool coords =
+  screenshot px (= rendered image ÷ 2 at 1280×1400); ref-clicks are unreliable on
+  small controls — probe with a JS click listener when clicks seem to miss.

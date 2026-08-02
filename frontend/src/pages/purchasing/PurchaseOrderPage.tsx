@@ -49,11 +49,18 @@ import {
   FlagChips,
   PoStatusChip,
   ProjectionSparkline,
+  SALES_MO_HELP,
+  SELL_THROUGH_HELP,
+  SellThroughChip,
+  SortableTh,
   confidenceLabel,
   describePayload,
   fmtMoh,
   fmtUnits,
+  sortBy,
+  toggledSort,
 } from "./orderingBits";
+import type { SortState } from "./orderingBits";
 
 const PAGE_SIZE = 100;
 
@@ -87,6 +94,7 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   const [category, setCategory] = useState("");
   const [onlyOrdering, setOnlyOrdering] = useState(false);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState | null>(null);
   const [inspecting, setInspecting] = useState<PurchaseOrderLineOut | null>(null);
   const [analogyFor, setAnalogyFor] = useState<PurchaseOrderLineOut | null>(null);
   const [placeOpen, setPlaceOpen] = useState(false);
@@ -114,7 +122,8 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
       return true;
     });
   }, [lines, search, category, flagFilter, onlyOrdering]);
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sorted = useMemo(() => sortBy(filtered, sort, lineSortValue), [filtered, sort]);
+  const pageRows = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totals = useMemo(() => {
     let sea = 0;
@@ -193,11 +202,17 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
               {meta.label} · {flagCounts[flag]}
             </button>
           ))}
+        <SellThroughChip className="ml-auto" />
       </div>
 
       <ReviewTable
         orderId={order.id}
         rows={pageRows}
+        sort={sort}
+        onToggleSort={(key) => {
+          setPage(1);
+          setSort((prev) => toggledSort(prev, key));
+        }}
         onInspect={setInspecting}
         onAnalogy={setAnalogyFor}
       />
@@ -241,14 +256,41 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   );
 }
 
+/** Sort values per header key — strings sort a-z, numbers numerically. */
+function lineSortValue(ln: PurchaseOrderLineOut, key: string): string | number {
+  const s = ln.suggestion;
+  switch (key) {
+    case "item":
+      return (s.name || ln.global_sku).toLowerCase();
+    case "on_hand":
+      return s.on_hand ?? 0;
+    case "sales":
+      return s.forecast_mean ?? 0;
+    case "projection":
+      return s.projected_moh_m6 ?? 0;
+    case "sea":
+      return ln.final_sea_qty;
+    case "air":
+      return ln.final_air_qty;
+    case "flags":
+      return (s.flags ?? []).length;
+    default:
+      return 0;
+  }
+}
+
 function ReviewTable({
   orderId,
   rows,
+  sort,
+  onToggleSort,
   onInspect,
   onAnalogy,
 }: {
   orderId: number;
   rows: PurchaseOrderLineOut[];
+  sort: SortState | null;
+  onToggleSort: (key: string) => void;
   onInspect: (line: PurchaseOrderLineOut) => void;
   onAnalogy: (line: PurchaseOrderLineOut) => void;
 }) {
@@ -257,16 +299,25 @@ function ReviewTable({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-surface-container">
-            {["Item", "On hand", "Sales /mo", "6-mo projection", "Sea", "Air", "Flags"].map(
-              (h, i) => (
-                <th
-                  key={h}
-                  className={`label-m px-3.5 py-3 text-left ${i >= 4 && i <= 5 ? "w-28" : ""}`}
-                >
-                  {h}
-                </th>
-              ),
-            )}
+            <SortableTh label="Item" sortKey="item" sort={sort} onToggle={onToggleSort} />
+            <SortableTh label="On hand" sortKey="on_hand" sort={sort} onToggle={onToggleSort} />
+            <SortableTh
+              label="Sales /mo"
+              sortKey="sales"
+              sort={sort}
+              onToggle={onToggleSort}
+              help={SALES_MO_HELP}
+            />
+            <SortableTh
+              label="6-mo projection"
+              sortKey="projection"
+              sort={sort}
+              onToggle={onToggleSort}
+              help="Sorts by projected months-on-hand at month 6 (before this order lands)."
+            />
+            <SortableTh label="Sea" sortKey="sea" sort={sort} onToggle={onToggleSort} className="w-28" />
+            <SortableTh label="Air" sortKey="air" sort={sort} onToggle={onToggleSort} className="w-28" />
+            <SortableTh label="Flags" sortKey="flags" sort={sort} onToggle={onToggleSort} />
           </tr>
         </thead>
         <tbody>
@@ -322,7 +373,10 @@ function ReviewRow({
         {fmtUnits(s.on_hand)}
         <span className="text-[12px] text-on-surface-variant"> ({fmtMoh(s.current_moh)} mo)</span>
       </td>
-      <td className="px-3.5 py-2 tabular-nums" title={`method: ${s.forecast_method ?? "flat"} · confidence: ${s.forecast_confidence ?? "low"}`}>
+      <td
+        className="px-3.5 py-2 tabular-nums"
+        title={`method: ${s.forecast_method ?? "flat"} · confidence: ${s.forecast_confidence ?? "low"} · sell-through base: ${Math.round(s.baseline_monthly_sales ?? 0)}/mo (units ÷ in-stock months)`}
+      >
         {Math.round(s.forecast_mean ?? 0)}
         {diverges && (
           <span className="text-[12px] font-semibold text-tertiary"> ⚠ vs {Math.round(s.baseline_monthly_sales ?? 0)} base</span>
@@ -434,15 +488,21 @@ function LineDrawer({
           ))}
         </Card>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MiniStat label="On hand" value={`${fmtUnits(s.on_hand)} (${fmtMoh(s.current_moh)} mo)`} />
+          <MiniStat
+            label="On hand"
+            value={`${fmtUnits(s.on_hand)} (${fmtMoh(s.current_moh)} mo)`}
+            help="Months of cover = on hand ÷ the sell-through sales/mo."
+          />
           <MiniStat
             label="Sales / month"
             value={`${Math.round(s.forecast_mean ?? 0)} fc · ${Math.round(s.baseline_monthly_sales ?? 0)} base`}
+            help={`fc = forecast used in the projection; base = flat sell-through average. ${SELL_THROUGH_HELP}`}
           />
           <MiniStat label="Target cover" value={`${s.target_moh ?? "—"} months`} />
           <MiniStat
             label="History"
             value={`${s.months_active ?? 0} mo · ${s.forecast_confidence ?? "low"} conf`}
+            help="Months with sales in the trailing 24 — the in-stock months the sell-through rate divides by."
           />
         </div>
         <div>
@@ -477,10 +537,17 @@ function LineDrawer({
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value, help }: { label: string; value: string; help?: string }) {
   return (
-    <div className="rounded-(--radius-md) bg-surface-container p-3">
-      <div className="label-m text-on-surface-variant">{label}</div>
+    <div className={`rounded-(--radius-md) bg-surface-container p-3 ${help ? "cursor-help" : ""}`} title={help}>
+      <div className="label-m text-on-surface-variant">
+        {label}
+        {help && (
+          <span aria-hidden className="ml-1 font-normal opacity-60">
+            ⓘ
+          </span>
+        )}
+      </div>
       <div className="mt-0.5 text-[14px] font-semibold tabular-nums">{value}</div>
     </div>
   );

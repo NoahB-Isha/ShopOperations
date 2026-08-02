@@ -11,6 +11,7 @@ import type {
   ImportReportOut,
   ProductListOut,
   ProductOut,
+  StockHistoryOut,
   OrderListOut,
   OrderListSummaryOut,
   RestockOut,
@@ -71,6 +72,16 @@ export function useFacets() {
     queryKey: ["facets"],
     queryFn: () => api<FacetsOut>("/products/facets"),
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useProductStockHistory(productId: number | null, days: number) {
+  return useQuery({
+    queryKey: ["product-stock-history", productId, days],
+    enabled: productId !== null,
+    queryFn: () =>
+      api<StockHistoryOut>(`/products/${productId}/stock-history`, { params: { days } }),
+    staleTime: 60_000,
   });
 }
 

@@ -55,6 +55,23 @@ export interface ProductOut {
   odoo_url: string | null;
 }
 
+export interface StockHistoryPointOut {
+  day: string; // YYYY-MM-DD, oldest → newest; the last point is live
+  total: number;
+  bwhse: number;
+  floor: number;
+  staging: number;
+  staging2: number;
+  source: "sync" | "reconstructed" | "live";
+}
+
+export interface StockHistoryOut {
+  points: StockHistoryPointOut[];
+  first_covered: string | null;
+  covered_days: number;
+  reconstructed_days: number;
+}
+
 export interface ProductListOut {
   items: ProductOut[];
   total: number;
