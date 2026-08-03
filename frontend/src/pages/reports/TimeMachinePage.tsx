@@ -19,6 +19,7 @@ import { settleWarp } from "../../shell/warpFx";
 import type { TimeMachineItemOut } from "../../api/types";
 import { Badge, Button, Card, DataTable, PageHeader, Select, Spinner, useToast } from "../../design";
 import type { BadgeTone, Column } from "../../design";
+import { fmtQty, productCode } from "../shared/OpsBits";
 
 const DAY_MS = 86_400_000;
 
@@ -106,7 +107,9 @@ export function TimeMachinePage() {
   const todayOffset = b ? daysBetween(b.min_date, b.today) : 0;
 
   const v = view.data;
+  const hasDaySales = v?.day_sales?.available === true;
   const columns = useMemo<Column<TimeMachineItemOut>[]>(() => {
+    // slim: one identity column (name + floor code), search covers category
     const base: Column<TimeMachineItemOut>[] = [
       {
         key: "name",
@@ -116,11 +119,12 @@ export function TimeMachinePage() {
         render: (r) => (
           <div>
             <div className="text-on-surface">{r.name}</div>
-            <div className="text-[11px] text-on-surface-variant">{r.sku}</div>
+            <div className="font-mono text-[11px] text-on-surface-variant">
+              {productCode(r.barcode, r.sku)}
+            </div>
           </div>
         ),
       },
-      { key: "category", header: "Category", value: (r) => r.category, sortable: true, hideBelow: "md" },
     ];
     if (v?.mode === "future") {
       return [
@@ -162,21 +166,52 @@ export function TimeMachinePage() {
         },
       ];
     }
+    const sales: Column<TimeMachineItemOut>[] = hasDaySales
+      ? [
+          {
+            key: "sold",
+            header: "Sold that day",
+            align: "right",
+            value: (r) => r.sold_qty ?? 0,
+            sortable: true,
+            render: (r) =>
+              r.sold_qty ? (
+                <span className="tm-era-text font-semibold">{fmtQty(r.sold_qty)}</span>
+              ) : (
+                <span className="text-on-surface-variant">—</span>
+              ),
+          },
+          {
+            key: "returned",
+            header: "Returned",
+            align: "right",
+            value: (r) => r.returned_qty ?? 0,
+            sortable: true,
+            hideBelow: "md",
+            render: (r) =>
+              r.returned_qty ? (
+                <span className="font-semibold text-warn">{fmtQty(r.returned_qty)}</span>
+              ) : (
+                <span className="text-on-surface-variant">—</span>
+              ),
+          },
+        ]
+      : [];
     return [
       ...base,
-      { key: "bwhse", header: "BWHSE", align: "right", value: (r) => r.bwhse_qty ?? 0, sortable: true, render: (r) => <span className="tm-era-text">{(r.bwhse_qty ?? 0).toLocaleString()}</span> },
-      { key: "floor", header: "Floor", align: "right", value: (r) => r.floor_qty ?? 0, sortable: true, render: (r) => <span className="tm-era-text">{(r.floor_qty ?? 0).toLocaleString()}</span>, hideBelow: "sm" },
-      { key: "staging", header: "Staging", align: "right", value: (r) => r.staging_qty ?? 0, sortable: true, render: (r) => <span className="tm-era-text">{(r.staging_qty ?? 0).toLocaleString()}</span>, hideBelow: "md" },
+      { key: "bwhse", header: "BWHSE", align: "right", value: (r) => r.bwhse_qty ?? 0, sortable: true, hideBelow: "sm", render: (r) => <span className="tm-era-text">{(r.bwhse_qty ?? 0).toLocaleString()}</span> },
+      { key: "floor", header: "Floor", align: "right", value: (r) => r.floor_qty ?? 0, sortable: true, hideBelow: "sm", render: (r) => <span className="tm-era-text">{(r.floor_qty ?? 0).toLocaleString()}</span> },
       {
         key: "total",
         header: "Total",
         align: "right",
         value: (r) => r.total_qty,
         sortable: true,
-        render: (r) => <span className="tm-era-text font-semibold">{r.total_qty.toLocaleString()}</span>,
+        render: (r) => <span className="tm-era-text font-semibold" title="BWHSE + floor + staging (incl. Staging 2)">{r.total_qty.toLocaleString()}</span>,
       },
+      ...sales,
     ];
-  }, [v?.mode]);
+  }, [v?.mode, hasDaySales]);
 
   const [filter, setFilter] = useState("");
 
@@ -279,6 +314,32 @@ export function TimeMachinePage() {
                   <span className="text-[13px] text-on-surface-variant">{v.confidence.note}</span>
                 </div>
               </Card>
+
+              {v.day_sales && (
+                <Card className="mt-3 p-4" pad={false}>
+                  {v.day_sales.available ? (
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
+                      <span className="label-m text-on-surface-variant">
+                        {v.mode === "today" ? "Sold today" : "Sold that day"}
+                      </span>
+                      <span className="tm-era-text display text-[22px] leading-none tabular-nums">
+                        {(v.day_sales.total_sold ?? 0).toLocaleString()}
+                        <span className="ml-1 text-[13px] font-normal text-on-surface-variant">units</span>
+                      </span>
+                      <span className="label-m text-on-surface-variant">Returned</span>
+                      <span className={`display text-[22px] leading-none tabular-nums ${(v.day_sales.total_returned ?? 0) > 0 ? "text-warn" : ""}`}>
+                        {(v.day_sales.total_returned ?? 0).toLocaleString()}
+                        <span className="ml-1 text-[13px] font-normal text-on-surface-variant">units</span>
+                      </span>
+                      <span className="text-[12.5px] text-on-surface-variant">{v.day_sales.note}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[13px] text-on-surface-variant">
+                      Sales that day: {v.day_sales.note}.
+                    </span>
+                  )}
+                </Card>
+              )}
 
               <div className="mt-4 mb-3 flex flex-wrap items-center gap-2">
                 <Select

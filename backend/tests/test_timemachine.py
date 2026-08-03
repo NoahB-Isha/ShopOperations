@@ -267,3 +267,57 @@ def test_future_beyond_horizon_is_422_and_roles(client, db):
     assert client.get(
         "/api/v1/time-machine", params={"date": TODAY.isoformat()}, headers=floor
     ).status_code == 403
+
+
+# ----------------------------------------------------------- day sales
+def test_day_sales_totals_and_per_item_split(db):
+    """Sales/returns ride the requested day: gross = net + returned, NULL
+    returned (pre-capture rows) reads as unknown — never as zero."""
+    from app.models import SalesDaily
+
+    p1, p2, d10, d3 = _seed_history(db)
+    db.add_all(
+        [
+            # p1 net 8 = 10 sold − 2 returned, split captured; plus 5 online
+            SalesDaily(product_id=p1.id, day=d3, channel="shoppe", units=8, returned_units=2),
+            SalesDaily(product_id=p1.id, day=d3, channel="online", units=5, returned_units=0),
+            # p2 synced before returns capture — split unknown
+            SalesDaily(product_id=p2.id, day=d3, channel="shoppe", units=3, returned_units=None),
+        ]
+    )
+    db.commit()
+    settings = get_settings()
+
+    v = view(db, settings, d3)
+    ds = v.day_sales
+    assert ds["available"] is True
+    assert ds["total_sold"] == 18.0  # (8+2) + 5 + 3
+    assert ds["total_returned"] == 2.0
+    assert ds["products_sold"] == 2
+    assert "returns split unknown" in ds["note"]
+
+    by_sku = {i.sku: i for i in v.items}
+    assert by_sku["CA0000000011"].sold_qty == 15.0
+    assert by_sku["CA0000000011"].returned_qty == 2.0
+    # p2 had zero stock that day (no row) — its sales still count in totals
+
+    # sales describe the REQUESTED day even when the snapshot shown is older
+    day_between = d3 + timedelta(days=1)
+    v2 = view(db, settings, day_between)
+    assert v2.effective_date == d3
+    assert v2.day_sales["available"] is True
+    assert v2.day_sales["products_sold"] == 0
+
+
+def test_day_sales_honest_outside_retention_and_future(db):
+    _seed_history(db)
+    settings = get_settings()
+    old = TODAY - timedelta(days=settings.sales_daily_retention_days + 10)
+    v = view(db, settings, old)
+    assert v.day_sales["available"] is False
+    assert "kept" in v.day_sales["note"]
+
+    y, m = _month_shift(TODAY, 1)
+    future = date(y, m, 15)
+    vf = view(db, settings, future)
+    assert vf.day_sales is None

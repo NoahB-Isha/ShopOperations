@@ -17,7 +17,7 @@ import {
   useToast,
 } from "../../design";
 import type { Column } from "../../design";
-import { fmtQty, fmtWhen } from "../shared/OpsBits";
+import { fmtQty, fmtWhen, productCode } from "../shared/OpsBits";
 
 const FILTERS = [
   ["open", "Open"],
@@ -39,7 +39,7 @@ export function AdjustmentsPage() {
       render: (r) => (
         <div>
           <div className="font-medium">{r.name}</div>
-          <div className="font-mono text-[11.5px] text-on-surface-variant">{r.sku}</div>
+          <div className="font-mono text-[11.5px] text-on-surface-variant">{productCode(r.barcode, r.sku)}</div>
         </div>
       ),
     },

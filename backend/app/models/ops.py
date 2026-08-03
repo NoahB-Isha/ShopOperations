@@ -303,9 +303,13 @@ class SalesDaily(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     day: Mapped[date] = mapped_column(Date, index=True)
     channel: Mapped[str] = mapped_column(String(20))  # SalesChannel value
+    # NET units (sales minus same-day returns — restock math depends on net)
     units: Mapped[float] = mapped_column(Float, default=0)
     # gross revenue (tax-in); NULL on rows synced before amount capture
     amount: Mapped[float | None] = mapped_column(Float)
+    # units on negative-qty lines (POS refunds), stored positive; NULL on rows
+    # synced before returns capture — unknown, not zero. Gross sold = units + returned.
+    returned_units: Mapped[float | None] = mapped_column(Float)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

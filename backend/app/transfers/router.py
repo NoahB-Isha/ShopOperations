@@ -76,6 +76,7 @@ class LineOut(BaseModel):
     id: int
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     qty_requested: float
@@ -234,6 +235,7 @@ def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: 
                 id=line.id,
                 product_id=line.product_id,
                 sku=p.global_sku,
+                barcode=p.barcode or "",
                 name=p.name,
                 category=p.category,
                 qty_requested=line.qty_requested,
@@ -847,6 +849,7 @@ class AdjustmentOut(BaseModel):
     request_id: int | None
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     qty_expected: float
     qty_counted: float
@@ -876,6 +879,7 @@ def _adjustment_out(db: Session, rows: list[Adjustment]) -> list[AdjustmentOut]:
                 request_id=a.request_id,
                 product_id=a.product_id,
                 sku=p.global_sku if p else "",
+                barcode=(p.barcode or "") if p else "",
                 name=p.name if p else f"product {a.product_id}",
                 qty_expected=a.qty_expected,
                 qty_counted=a.qty_counted,

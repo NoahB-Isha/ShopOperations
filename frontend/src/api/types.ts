@@ -232,6 +232,7 @@ export interface OrderLineOut {
   id: number;
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   is_active: boolean;
@@ -277,6 +278,7 @@ export interface TransferLineOut {
   id: number;
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   qty_requested: number;
@@ -349,6 +351,7 @@ export interface AdjustmentOut {
   request_id: number | null;
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   qty_expected: number;
   qty_counted: number;
@@ -365,6 +368,7 @@ export interface RestockFloorItem {
   line_id: number;
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   qty: number;
@@ -377,6 +381,7 @@ export interface RestockFloorItem {
 export interface RestockBackItem {
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   floor_qty: number;
@@ -427,6 +432,7 @@ export interface OrderContextCenter {
 export interface CatalogItemOut {
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   retail_price: number;
@@ -460,6 +466,7 @@ export interface CenterOrderLineOut {
   id: number;
   product_id: number;
   sku: string;
+  barcode: string;
   name: string;
   category: string;
   qty_requested: number;
@@ -974,6 +981,8 @@ export interface TimeMachineItemOut {
   incoming_included: number;
   forecast_method: string;
   forecast_confidence: string;
+  sold_qty: number | null;
+  returned_qty: number | null;
 }
 
 export interface TimeMachineViewOut {
@@ -988,6 +997,14 @@ export interface TimeMachineViewOut {
     stock_synced_at?: string | null;
   };
   items: TimeMachineItemOut[];
+  day_sales: {
+    available: boolean;
+    note: string;
+    total_sold?: number;
+    total_returned?: number;
+    products_sold?: number;
+    partial?: boolean;
+  } | null;
 }
 
 // ------------------------------------------------ phase 5: availability

@@ -44,6 +44,7 @@ class LineOut(BaseModel):
     id: int
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     is_active: bool  # stale items surface so admins can prune them
@@ -150,6 +151,7 @@ def _out(db: Session, ol: OrderList) -> OrderListOut:
             id=line.id,
             product_id=line.product_id,
             sku=line.product.global_sku,
+            barcode=line.product.barcode or "",
             name=line.product.name,
             category=line.product.category,
             is_active=line.product.is_active,

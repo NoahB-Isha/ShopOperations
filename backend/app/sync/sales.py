@@ -333,9 +333,11 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
                     continue
                 if day >= daily_floor:
                     dkey = (product_id, day, channel)
-                    drow = daily.setdefault(dkey, [0.0, 0.0])
+                    drow = daily.setdefault(dkey, [0.0, 0.0, 0.0])
                     drow[0] += qty
                     drow[1] += amount
+                    if qty < 0:  # POS refund line — track the return separately
+                        drow[2] += -qty
 
     if not any_source:
         raise RuntimeError(
@@ -491,7 +493,7 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     daily_since = max(since, daily_floor)
     db.execute(delete(SalesDaily).where(SalesDaily.day >= daily_since))
     db.execute(delete(SalesDaily).where(SalesDaily.day < daily_floor))
-    for (product_id, day, channel), (units, amount) in daily.items():
+    for (product_id, day, channel), (units, amount, returned) in daily.items():
         db.add(
             SalesDaily(
                 product_id=product_id,
@@ -499,6 +501,7 @@ def sync_sales(db: Session, settings: Settings, conn: OdooConnection, state: Syn
                 channel=channel,
                 units=round(units, 3),
                 amount=round(amount, 2),
+                returned_units=round(returned, 3),
                 synced_at=now,
             )
         )

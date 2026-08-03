@@ -5,7 +5,7 @@ import { useAvailabilityComingSoon, useAvailabilityMeta } from "../../api/hooks"
 import type { AvailabilityItemOut } from "../../api/types";
 import { DataTable, PageHeader, Select } from "../../design";
 import type { Column } from "../../design";
-import { LowCountHint, fmtWhen } from "../shared/OpsBits";
+import { LowCountHint, fmtWhen, productCode } from "../shared/OpsBits";
 
 export function IncomingPage() {
   const [withinDays, setWithinDays] = useState<number | null>(null);
@@ -22,7 +22,7 @@ export function IncomingPage() {
       render: (r) => (
         <div>
           <div className="text-on-surface">{r.name}</div>
-          <div className="text-[11px] text-on-surface-variant">{r.sku}</div>
+          <div className="text-[11px] text-on-surface-variant">{productCode(r.barcode, r.sku)}</div>
         </div>
       ),
     },

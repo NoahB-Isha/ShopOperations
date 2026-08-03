@@ -19,14 +19,18 @@ import {
   Badge,
   Button,
   Card,
+  ContextMenu,
   Dialog,
   EmptyState,
   Input,
   Spinner,
   Textarea,
+  isInteractiveTarget,
+  useContextMenu,
+  useRowSelection,
   useToast,
 } from "../../design";
-import { QtyInput } from "../shared/OpsBits";
+import { QtyInput, SetQtyDialog, productCode } from "../shared/OpsBits";
 import { AvailabilityBadge, ReasonBadgeChip, money } from "./orderBits";
 
 export interface OrderPrefill {
@@ -40,28 +44,55 @@ function ItemRow({
   item,
   qty,
   onQty,
+  selected,
+  onSelect,
+  onMenu,
+  qtyEls,
+  onQtyEnter,
 }: {
   item: CatalogItemOut;
   qty: number;
   onQty: (q: number) => void;
+  selected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  onMenu: (e: React.MouseEvent) => void;
+  /** live registry of qty inputs so the Enter flow can focus them */
+  qtyEls: React.RefObject<Map<number, HTMLInputElement>>;
+  onQtyEnter: () => void;
 }) {
   const inCart = qty > 0;
   return (
     <li
+      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+      onClick={(e) => {
+        if (!isInteractiveTarget(e)) onSelect(e);
+      }}
+      onContextMenu={onMenu}
+      aria-selected={selected}
       className={`flex items-center justify-between gap-3 rounded-(--radius-md) px-3 py-2.5
-        transition-colors ${inCart ? "bg-primary-container/40" : ""}`}
+        transition-colors ${selected ? "bg-secondary-container/50" : inCart ? "bg-primary-container/40" : ""}`}
     >
       <div className="min-w-0">
         <div className="truncate text-[14px] font-medium text-on-surface">{item.name}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-on-surface-variant">
           <span className="font-semibold tabular-nums">{money(item.retail_price)}</span>
+          <span className="font-mono">{productCode(item.barcode, item.sku)}</span>
           <AvailabilityBadge a={item.availability} />
           {item.case_size > 1 && <span>case of {item.case_size}</span>}
         </div>
       </div>
       <div className="shrink-0">
         {inCart ? (
-          <QtyInput value={qty} onChange={onQty} ariaLabel={`Quantity for ${item.name}`} />
+          <QtyInput
+            value={qty}
+            onChange={onQty}
+            ariaLabel={`Quantity for ${item.name}`}
+            inputRef={(el) => {
+              if (el) qtyEls.current.set(item.product_id, el);
+              else qtyEls.current.delete(item.product_id);
+            }}
+            onEnter={onQtyEnter}
+          />
         ) : (
           <Button
             variant="secondary"
@@ -328,7 +359,7 @@ export function PlaceOrderPage() {
     return (catalog?.items ?? []).filter(
       (i) =>
         (!category || i.category === category) &&
-        matchesSearch(search, i.name, i.sku),
+        matchesSearch(search, i.name, i.sku, i.barcode),
     );
   }, [catalog, search, category]);
 
@@ -337,6 +368,57 @@ export function PlaceOrderPage() {
     (sum, i) => sum + (qtys[i.product_id] ?? 0) * i.retail_price,
     0,
   );
+
+  // keyboard flow: Enter adds the top match and jumps to its qty; Enter in
+  // the qty bounces back to search — type, enter, qty, enter, repeat.
+  const searchRef = useRef<HTMLInputElement>(null);
+  const qtyEls = useRef(new Map<number, HTMLInputElement>());
+  const focusQty = (productId: number) =>
+    // rAF: a just-added item's qty input mounts on this render
+    requestAnimationFrame(() => qtyEls.current.get(productId)?.focus());
+  const addFirstMatch = () => {
+    const first = visible[0];
+    if (!first) return;
+    if (!(qtys[first.product_id] ?? 0)) {
+      setQty(first.product_id, first.case_size > 1 ? first.case_size : 1);
+    }
+    focusQty(first.product_id);
+  };
+  const backToSearch = () => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  };
+
+  const selection = useRowSelection(visible.map((i) => i.product_id));
+  const menu = useContextMenu();
+  const [setQtyFor, setSetQtyFor] = useState<Set<number> | null>(null);
+  const rowMenu = (productId: number, e: React.MouseEvent) => {
+    const ids = selection.forContext(productId);
+    const byId = new Map((catalog?.items ?? []).map((i) => [i.product_id, i]));
+    const inCart = [...ids].filter((id) => (qtys[id] ?? 0) > 0);
+    const notInCart = [...ids].filter((id) => !(qtys[id] ?? 0));
+    menu.open(e, [
+      {
+        label: `Add ${notInCart.length} to order`,
+        disabled: notInCart.length === 0,
+        onSelect: () =>
+          notInCart.forEach((id) => {
+            const it = byId.get(id);
+            setQty(id, it && it.case_size > 1 ? it.case_size : 1);
+          }),
+      },
+      {
+        label: `Set quantity… (${ids.size})`,
+        onSelect: () => setSetQtyFor(new Set(ids)),
+      },
+      {
+        label: `Remove ${inCart.length} from order`,
+        danger: true,
+        disabled: inCart.length === 0,
+        onSelect: () => inCart.forEach((id) => setQty(id, 0)),
+      },
+    ]);
+  };
 
   if (placed) {
     return (
@@ -407,8 +489,15 @@ export function PlaceOrderPage() {
       </div>
 
       <Input
+        ref={searchRef}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && search.trim() !== "") {
+            e.preventDefault();
+            addFirstMatch();
+          }
+        }}
         placeholder="Search your catalog…"
         aria-label="Search your catalog"
         className="w-full"
@@ -463,6 +552,11 @@ export function PlaceOrderPage() {
               item={item}
               qty={qtys[item.product_id] ?? 0}
               onQty={(q) => setQty(item.product_id, q)}
+              selected={selection.selected.has(item.product_id)}
+              onSelect={(e) => selection.click(item.product_id, e)}
+              onMenu={(e) => rowMenu(item.product_id, e)}
+              qtyEls={qtyEls}
+              onQtyEnter={backToSearch}
             />
           ))}
           {visible.length === 0 && (
@@ -494,6 +588,16 @@ export function PlaceOrderPage() {
             </button>
           </div>
         </div>
+      )}
+
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
+      {setQtyFor && (
+        <SetQtyDialog
+          count={setQtyFor.size}
+          min={0}
+          onApply={(q) => setQtyFor.forEach((id) => setQty(id, q))}
+          onClose={() => setSetQtyFor(null)}
+        />
       )}
 
       {centerId !== null && catalog && (

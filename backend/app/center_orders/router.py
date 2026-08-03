@@ -89,6 +89,7 @@ class AvailabilityOut(BaseModel):
 class CatalogItemOut(BaseModel):
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     retail_price: float
@@ -131,6 +132,7 @@ class LineOut(BaseModel):
     id: int
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     qty_requested: float
@@ -371,6 +373,7 @@ def _order_out(
                 id=line.id,
                 product_id=line.product_id,
                 sku=p.global_sku,
+                barcode=p.barcode or "",
                 name=p.name,
                 category=p.category,
                 qty_requested=line.qty_requested,
@@ -501,6 +504,7 @@ def order_catalog(
             CatalogItemOut(
                 product_id=it.product.id,
                 sku=it.product.global_sku,
+                barcode=it.product.barcode or "",
                 name=it.product.name,
                 category=it.product.category,
                 retail_price=float(it.product.retail_price or 0),

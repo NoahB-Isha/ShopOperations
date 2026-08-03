@@ -29,6 +29,7 @@ import {
   Badge,
   Button,
   Card,
+  ContextMenu,
   Dialog,
   EmptyState,
   Fab,
@@ -38,9 +39,11 @@ import {
   Select,
   Spinner,
   Textarea,
+  useContextMenu,
+  useRowSelection,
   useToast,
 } from "../../design";
-import { fmtWhen } from "../shared/OpsBits";
+import { SetQtyDialog, fmtWhen } from "../shared/OpsBits";
 import { Icons } from "../../nav";
 import { matchesSearch } from "../../search";
 import {
@@ -126,6 +129,28 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   }, [lines, search, category, flagFilter, onlyOrdering]);
   const sorted = useMemo(() => sortBy(filtered, sort, lineSortValue), [filtered, sort]);
   const pageRows = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // shift/cmd-click selection + right-click bulk actions over the page rows
+  const selection = useRowSelection(pageRows.map((ln) => ln.id));
+  const menu = useContextMenu();
+  const override = useOverrideOrderLine();
+  const [bulkQty, setBulkQty] = useState<{ leg: "sea" | "air"; ids: Set<number> } | null>(null);
+  const applyBulk = (ids: Set<number>, patch: { final_sea_qty?: number; final_air_qty?: number }) => {
+    for (const lineId of ids) override.mutate({ orderId: order.id, lineId, ...patch });
+  };
+  const rowMenu = (lineId: number, e: React.MouseEvent) => {
+    const ids = selection.forContext(lineId);
+    const n = ids.size;
+    menu.open(e, [
+      { label: `Set sea qty… (${n})`, onSelect: () => setBulkQty({ leg: "sea", ids: new Set(ids) }) },
+      { label: `Set air qty… (${n})`, onSelect: () => setBulkQty({ leg: "air", ids: new Set(ids) }) },
+      {
+        label: `Remove ${n} from order (sea + air → 0)`,
+        danger: true,
+        onSelect: () => applyBulk(new Set(ids), { final_sea_qty: 0, final_air_qty: 0 }),
+      },
+    ]);
+  };
 
   const totals = useMemo(() => {
     let sea = 0;
@@ -217,6 +242,9 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
         }}
         onInspect={setInspecting}
         onAnalogy={setAnalogyFor}
+        selectedIds={selection.selected}
+        onSelectRow={(id, e) => selection.click(id, e)}
+        onRowMenu={rowMenu}
       />
       <div className="mt-2 flex items-center justify-between text-[13px] text-on-surface-variant">
         <span>
@@ -233,6 +261,18 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
         className="fixed right-6 bottom-6 z-30"
         data-testid="place-order"
       />
+
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
+      {bulkQty && (
+        <SetQtyDialog
+          count={bulkQty.ids.size}
+          noun={`line (${bulkQty.leg})`}
+          onApply={(qty) =>
+            applyBulk(bulkQty.ids, bulkQty.leg === "sea" ? { final_sea_qty: qty } : { final_air_qty: qty })
+          }
+          onClose={() => setBulkQty(null)}
+        />
+      )}
 
       <LineDrawer line={inspecting} onClose={() => setInspecting(null)} />
       <AnalogyDialog
@@ -288,6 +328,9 @@ function ReviewTable({
   onToggleSort,
   onInspect,
   onAnalogy,
+  selectedIds,
+  onSelectRow,
+  onRowMenu,
 }: {
   orderId: number;
   rows: PurchaseOrderLineOut[];
@@ -295,6 +338,9 @@ function ReviewTable({
   onToggleSort: (key: string) => void;
   onInspect: (line: PurchaseOrderLineOut) => void;
   onAnalogy: (line: PurchaseOrderLineOut) => void;
+  selectedIds: Set<number>;
+  onSelectRow: (id: number, e: React.MouseEvent) => void;
+  onRowMenu: (id: number, e: React.MouseEvent) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-(--radius-lg) bg-surface-container-low">
@@ -328,6 +374,9 @@ function ReviewTable({
               key={ln.id}
               orderId={orderId}
               line={ln}
+              selected={selectedIds.has(ln.id)}
+              onSelect={(e) => onSelectRow(ln.id, e)}
+              onMenu={(e) => onRowMenu(ln.id, e)}
               onInspect={() => onInspect(ln)}
               onAnalogy={() => onAnalogy(ln)}
             />
@@ -346,11 +395,17 @@ function ReviewTable({
 function ReviewRow({
   orderId,
   line,
+  selected,
+  onSelect,
+  onMenu,
   onInspect,
   onAnalogy,
 }: {
   orderId: number;
   line: PurchaseOrderLineOut;
+  selected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  onMenu: (e: React.MouseEvent) => void;
   onInspect: () => void;
   onAnalogy: () => void;
 }) {
@@ -359,8 +414,14 @@ function ReviewRow({
   const diverges = s.diverges_from_baseline;
   return (
     <tr
-      className="cursor-pointer border-b border-outline-variant/50 transition-colors last:border-b-0 hover:bg-primary/8"
-      onClick={onInspect}
+      className={`cursor-pointer border-b border-outline-variant/50 transition-colors last:border-b-0
+        ${selected ? "bg-secondary-container/40 hover:bg-secondary-container/50" : "hover:bg-primary/8"}`}
+      aria-selected={selected}
+      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+      // plain click inspects (the long-standing behavior); shift/cmd-click
+      // selects for bulk actions; right-click opens the action menu
+      onClick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey ? onSelect(e) : onInspect())}
+      onContextMenu={onMenu}
     >
       <td className="max-w-72 px-3.5 py-2">
         <div className="truncate font-medium" title={s.name}>

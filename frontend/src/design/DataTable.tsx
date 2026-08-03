@@ -22,7 +22,11 @@ export interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string | number;
-  onRowClick?: (row: T) => void;
+  onRowClick?: (row: T, e: React.MouseEvent) => void;
+  /** right-click hook for selection/context menus */
+  onRowContextMenu?: (row: T, e: React.MouseEvent) => void;
+  /** extra classes per row (e.g. selection tint) */
+  rowClassName?: (row: T) => string;
   /** client-side text filter across all column values */
   filterText?: string;
   loading?: boolean;
@@ -38,6 +42,8 @@ export function DataTable<T>({
   rows,
   rowKey,
   onRowClick,
+  onRowContextMenu,
+  rowClassName,
   filterText = "",
   loading = false,
   empty,
@@ -134,9 +140,13 @@ export function DataTable<T>({
               : visible.map((row) => (
                   <tr
                     key={rowKey(row)}
-                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onClick={onRowClick ? (e) => onRowClick(row, e) : undefined}
+                    onContextMenu={onRowContextMenu ? (e) => onRowContextMenu(row, e) : undefined}
+                    // shift-click selection must not smear a text selection
+                    onMouseDown={(e) => e.shiftKey && e.preventDefault()}
                     className={`border-b border-outline-variant/50 transition-colors last:border-b-0
-                      ${onRowClick ? "cursor-pointer hover:bg-primary/8" : "hover:bg-on-surface/4"}`}
+                      ${onRowClick ? "cursor-pointer hover:bg-primary/8" : "hover:bg-on-surface/4"}
+                      ${rowClassName ? rowClassName(row) : ""}`}
                   >
                     {columns.map((col) => (
                       <td

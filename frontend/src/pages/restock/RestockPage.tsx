@@ -7,7 +7,7 @@ import { useCheckRestock, useResetFloorRestock, useRestock } from "../../api/hoo
 import type { RestockBackItem, RestockFloorItem, RestockOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge, Button, Dialog, EmptyState, PageHeader, Spinner, useToast } from "../../design";
-import { LowCountHint, fmtQty } from "../shared/OpsBits";
+import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
 
 export function RestockPage() {
   const { data, isLoading } = useRestock();
@@ -156,7 +156,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
             )
           }
           title={item.name}
-          sku={item.sku}
+          sku={productCode(item.barcode, item.sku)}
           right={
             <span className="text-right">
               <span className="display block text-2xl leading-none">{fmtQty(item.qty)}</span>
@@ -202,11 +202,13 @@ function BackList({ items }: { items: RestockBackItem[] }) {
           lines: items.map((item) => ({
             product_id: item.product_id,
             sku: item.sku,
+            barcode: item.barcode,
             name: item.name,
             category: item.category,
             qty: Math.max(1, item.suggested_qty),
             floor_qty: item.floor_qty,
             bwhse_qty: item.bwhse_qty,
+            case_size: 1,
           })),
         },
       },
@@ -223,7 +225,7 @@ function BackList({ items }: { items: RestockBackItem[] }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px] font-medium">{item.name}</span>
               <span className="mt-0.5 block text-[12px] tabular-nums text-on-surface-variant">
-                <span className="font-mono">{item.sku}</span> ·{" "}
+                <span className="font-mono">{productCode(item.barcode, item.sku)}</span> ·{" "}
                 {item.days_of_cover === null ? (
                   <Badge tone="danger">none on floor</Badge>
                 ) : (

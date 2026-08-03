@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProductOut, StockHistoryPointOut, TagOut } from "../api/types";
 import { usePatchProduct, useProductStockHistory, useSaveTags } from "../api/hooks";
 import { Badge, Button, Drawer, Field, Input, Toggle, useToast } from "../design";
@@ -39,7 +39,6 @@ export function ProductDrawer({
 
   const [tags, setTags] = useState<Record<string, string | true>>({});
   const [caseSize, setCaseSize] = useState("1");
-  const [deptOrderable, setDeptOrderable] = useState(false);
   const [restockExclude, setRestockExclude] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -49,7 +48,6 @@ export function ProductDrawer({
     for (const tag of product.tags) t[tag.tag] = tag.expires_on ?? true;
     setTags(t);
     setCaseSize(String(product.case_size));
-    setDeptOrderable(product.dept_orderable);
     setRestockExclude(product.restock_exclude);
     setDirty(false);
   }, [product]);
@@ -88,7 +86,6 @@ export function ProductDrawer({
       await patch.mutateAsync({
         id: product.id,
         case_size: Number(caseSize) || 1,
-        dept_orderable: deptOrderable,
         restock_exclude: restockExclude,
       });
       toast.success("Saved.");
@@ -238,14 +235,6 @@ export function ProductDrawer({
                 />
               </Field>
               <div className="flex flex-col gap-2.5 pb-1">
-                <Toggle
-                  checked={deptOrderable}
-                  onChange={(v) => {
-                    setDirty(true);
-                    setDeptOrderable(v);
-                  }}
-                  label="Dept-orderable"
-                />
                 <Toggle
                   checked={restockExclude}
                   onChange={(v) => {
@@ -544,5 +533,253 @@ function StockHistoryChart({ points }: { points: StockHistoryPointOut[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------- bulk edit (multi-select)
+   Premiere-style: edit shared params across every selected item. Only the
+   fields you TOUCH apply — everything else is left exactly as it was, per
+   item. Tag chips read all/some/none and a click stages one pending change
+   (add to all / remove from all); a second click cancels it. */
+
+type Tri = boolean | null; // null = leave as is
+
+function TriPick({
+  label,
+  value,
+  onChange,
+  onLabel,
+  offLabel,
+}: {
+  label: string;
+  value: Tri;
+  onChange: (v: Tri) => void;
+  onLabel: string;
+  offLabel: string;
+}) {
+  const options: { v: Tri; text: string }[] = [
+    { v: null, text: "Leave as is" },
+    { v: true, text: onLabel },
+    { v: false, text: offLabel },
+  ];
+  return (
+    <div>
+      <div className="label-caps mb-1.5">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button
+            key={String(o.v)}
+            type="button"
+            aria-pressed={value === o.v}
+            onClick={() => onChange(o.v)}
+            className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors
+              ${value === o.v
+                ? "border-transparent bg-secondary-container font-semibold text-on-secondary-container"
+                : "border-line font-medium text-ink-soft hover:border-line-strong hover:text-ink"}`}
+          >
+            {o.text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function BulkProductDrawer({
+  products,
+  onClose,
+}: {
+  products: ProductOut[];
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const saveTags = useSaveTags();
+  const patch = usePatchProduct();
+
+  const [tagPlan, setTagPlan] = useState<Record<string, "add" | "remove">>({});
+  const [caseSize, setCaseSize] = useState("");
+  const [restockExclude, setRestockExclude] = useState<Tri>(null);
+  const [blacklisted, setBlacklisted] = useState<Tri>(null);
+  const [saving, setSaving] = useState(false);
+
+  const tagCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const p of products) for (const t of p.tags) counts[t.tag] = (counts[t.tag] ?? 0) + 1;
+    return counts;
+  }, [products]);
+
+  const dirty =
+    Object.keys(tagPlan).length > 0 ||
+    caseSize.trim() !== "" ||
+    restockExclude !== null ||
+    blacklisted !== null;
+
+  const cycleTag = (tag: string) => {
+    setTagPlan((prev) => {
+      const next = { ...prev };
+      if (next[tag]) {
+        delete next[tag]; // second click cancels the pending change
+        return next;
+      }
+      const have = tagCounts[tag] ?? 0;
+      const wantRemove = have === products.length;
+      if (tag === "expires" && !wantRemove) return next; // adding needs a per-item date
+      next[tag] = wantRemove ? "remove" : "add";
+      return next;
+    });
+  };
+
+  const apply = async () => {
+    setSaving(true);
+    try {
+      const caseN = caseSize.trim() ? Math.max(1, Math.round(Number(caseSize) || 1)) : null;
+      let failures = 0;
+      await Promise.all(
+        products.map(async (p) => {
+          try {
+            const body: Record<string, unknown> = {};
+            if (caseN !== null) body.case_size = caseN;
+            if (restockExclude !== null) body.restock_exclude = restockExclude;
+            if (blacklisted !== null) body.blacklisted = blacklisted;
+            if (Object.keys(body).length) await patch.mutateAsync({ id: p.id, ...body });
+            if (Object.keys(tagPlan).length) {
+              const current = new Map(p.tags.map((t) => [t.tag, t] as const));
+              let changed = false;
+              for (const [tag, act] of Object.entries(tagPlan)) {
+                if (act === "add" && !current.has(tag)) {
+                  current.set(tag, { tag, expires_on: null });
+                  changed = true;
+                } else if (act === "remove" && current.has(tag)) {
+                  current.delete(tag);
+                  changed = true;
+                }
+              }
+              // air/sea stay mutually exclusive, same rule as the API
+              if (tagPlan.air_only === "add" && current.delete("sea_only")) changed = true;
+              if (tagPlan.sea_only === "add" && current.delete("air_only")) changed = true;
+              if (changed) await saveTags.mutateAsync({ id: p.id, tags: [...current.values()] });
+            }
+          } catch {
+            failures += 1;
+          }
+        }),
+      );
+      if (failures > 0) {
+        toast.error(`${failures} of ${products.length} items failed — the rest saved.`);
+      } else {
+        toast.success(`${products.length} items updated.`);
+      }
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`Editing ${products.length} items`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={apply} loading={saving} disabled={!dirty}>
+            Apply to {products.length}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <div className="rounded-(--radius-md) bg-raised/60 p-3 text-[12.5px] leading-5 text-ink-soft">
+          {products
+            .slice(0, 5)
+            .map((p) => p.name)
+            .join(" · ")}
+          {products.length > 5 && ` · +${products.length - 5} more`}
+          <div className="mt-1 text-[11.5px] text-ink-faint">
+            Only the fields you change apply — everything else stays as it is on each item.
+          </div>
+        </div>
+
+        <div>
+          <div className="label-caps mb-2">App tags</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ALL_TAGS.map(({ tag, label }) => {
+              const have = tagCounts[tag] ?? 0;
+              const plan = tagPlan[tag];
+              const all = have === products.length && have > 0;
+              const some = have > 0 && !all;
+              const blockedAdd = tag === "expires" && !all;
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  disabled={blockedAdd && !plan}
+                  title={
+                    plan === "add"
+                      ? `Will be added to all ${products.length}`
+                      : plan === "remove"
+                        ? `Will be removed from all ${products.length}`
+                        : blockedAdd
+                          ? "Expiry dates are per item — set them one by one"
+                          : some
+                            ? `${have} of ${products.length} have this — click to add to all`
+                            : all
+                              ? "All have this — click to remove from all"
+                              : "None have this — click to add to all"
+                  }
+                  onClick={() => cycleTag(tag)}
+                  className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors disabled:opacity-40
+                    ${plan === "add"
+                      ? "border-transparent bg-secondary-container font-semibold text-on-secondary-container"
+                      : plan === "remove"
+                        ? "border-transparent bg-error-container font-semibold text-on-error-container line-through"
+                        : all
+                          ? "border-line-strong bg-raised font-semibold text-ink"
+                          : "border-line font-medium text-ink-soft hover:border-line-strong hover:text-ink"}`}
+                >
+                  {plan === "add" && <span aria-hidden>＋ </span>}
+                  {plan === "remove" && <span aria-hidden>− </span>}
+                  {label}
+                  {!plan && some && (
+                    <span className="ml-1 text-[10.5px] text-ink-faint">
+                      {have}/{products.length}
+                    </span>
+                  )}
+                  {!plan && all && <span aria-hidden> ✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 items-start gap-3">
+          <Field label="Case size" help="Blank = leave each as is">
+            <Input
+              value={caseSize}
+              inputMode="numeric"
+              placeholder="mixed"
+              onChange={(e) => setCaseSize(e.target.value.replace(/\D/g, ""))}
+            />
+          </Field>
+          <TriPick
+            label="Restock lists"
+            value={restockExclude}
+            onChange={setRestockExclude}
+            onLabel="Exclude all"
+            offLabel="Include all"
+          />
+        </div>
+        <TriPick
+          label="Blacklist"
+          value={blacklisted}
+          onChange={setBlacklisted}
+          onLabel="Blacklist all"
+          offLabel="Restore all"
+        />
+      </div>
+    </Drawer>
   );
 }

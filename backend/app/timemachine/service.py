@@ -25,6 +25,7 @@ from ..catalog.search import matches_search
 from ..config import Settings
 from ..models import (
     Product,
+    SalesDaily,
     StockLevel,
     StockSnapshot,
     StockSnapshotDay,
@@ -54,6 +55,9 @@ class TimeMachineItem:
     incoming_included: float = 0.0  # future mode: inbound units assumed received
     forecast_method: str = ""  # flat | trend | seasonal | analogy | none
     forecast_confidence: str = ""  # high | medium | low
+    # sales ON the requested day (past/today only; sales_daily retention window)
+    sold_qty: float | None = None  # gross units sold that day; None = no daily data
+    returned_qty: float | None = None  # refund units that day; None = split unknown
 
     def as_dict(self) -> dict:
         return {
@@ -69,6 +73,8 @@ class TimeMachineItem:
             "incoming_included": round(self.incoming_included, 2),
             "forecast_method": self.forecast_method,
             "forecast_confidence": self.forecast_confidence,
+            "sold_qty": self.sold_qty,
+            "returned_qty": self.returned_qty,
         }
 
 
@@ -79,6 +85,8 @@ class TimeMachineView:
     effective_date: date  # snapshot day actually shown (past), else requested
     confidence: dict = field(default_factory=dict)
     items: list[TimeMachineItem] = field(default_factory=list)
+    # what SOLD/came back on the requested day (past/today; None for future)
+    day_sales: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -87,6 +95,7 @@ class TimeMachineView:
             "effective_date": self.effective_date.isoformat(),
             "confidence": self.confidence,
             "items": [i.as_dict() for i in self.items],
+            "day_sales": self.day_sales,
         }
 
 
@@ -143,6 +152,55 @@ def _item_base(p: Product) -> dict:
     }
 
 
+def _day_sales(
+    db: Session, settings: Settings, target: date, today: date
+) -> tuple[dict[int, tuple[float, float | None]], dict]:
+    """What sold/came back ON `target`: per-product (gross_sold, returned)
+    plus honest totals. Gross sold = net units + returns (sales_daily stores
+    NET). `returned_units` is NULL on rows synced before returns capture —
+    reported as unknown, never as zero. Totals cover EVERY product that
+    traded that day, whether or not it appears in the stock table."""
+    window = settings.sales_daily_retention_days
+    if (today - target).days > window:
+        return {}, {
+            "available": False,
+            "note": f"daily sales are kept {window} days — this date is beyond the window",
+        }
+    per: dict[int, list] = {}  # pid -> [net, returned_sum, any_split_known]
+    for pid, units, returned in db.execute(
+        select(SalesDaily.product_id, SalesDaily.units, SalesDaily.returned_units)
+        .join(Product, Product.id == SalesDaily.product_id)
+        .where(SalesDaily.day == target, not_blacklisted())
+    ):
+        row = per.setdefault(pid, [0.0, 0.0, False])
+        row[0] += float(units or 0)
+        if returned is not None:
+            row[1] += float(returned)
+            row[2] = True
+    out: dict[int, tuple[float, float | None]] = {}
+    total_sold = total_returned = 0.0
+    split_known = True
+    for pid, (net, returned, known) in per.items():
+        gross = net + returned
+        out[pid] = (round(gross, 2), round(returned, 2) if known else None)
+        total_sold += gross
+        total_returned += returned
+        split_known = split_known and known
+    note = f"{len(per)} product(s) traded"
+    if target == today:
+        note += " so far today (fills in as the hourly sync runs)"
+    if per and not split_known:
+        note += " · returns split unknown for rows synced before returns capture"
+    return out, {
+        "available": True,
+        "total_sold": round(total_sold, 1),
+        "total_returned": round(total_returned, 1),
+        "products_sold": len(per),
+        "partial": target == today,
+        "note": note,
+    }
+
+
 def view(
     db: Session,
     settings: Settings,
@@ -155,9 +213,17 @@ def view(
     today = today or utcnow().date()
     delta = _month_delta(target, today)
     if target <= today:
-        if target == today:
-            return _today_view(db, target, category, q)
-        return _past_view(db, settings, target, category, q)
+        v = _today_view(db, target, category, q) if target == today else _past_view(
+            db, settings, target, category, q
+        )
+        # sales/returns always describe the REQUESTED day, even when the
+        # nearest stock snapshot shown is older
+        per_product, meta = _day_sales(db, settings, target, today)
+        v.day_sales = meta
+        for item in v.items:
+            if item.product_id in per_product:
+                item.sold_qty, item.returned_qty = per_product[item.product_id]
+        return v
     horizon = load_rules(db).horizon
     if delta > horizon:
         raise ValueError(

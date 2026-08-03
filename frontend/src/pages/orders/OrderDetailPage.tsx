@@ -21,7 +21,7 @@ import {
   Textarea,
   useToast,
 } from "../../design";
-import { OdooLink, QtyInput, WriteStatusChip, fmtQty, fmtWhen } from "../shared/OpsBits";
+import { OdooLink, QtyInput, WriteStatusChip, fmtQty, fmtWhen, productCode } from "../shared/OpsBits";
 import {
   AvailabilityBadge,
   OrderStatusChip,
@@ -229,7 +229,7 @@ export function OrderDetailPage() {
                   <div className="min-w-0">
                     <div className="font-medium text-on-surface">{l.name}</div>
                     <div className="text-[11.5px] text-on-surface-variant">
-                      <span className="font-mono">{l.sku}</span>
+                      <span className="font-mono">{productCode(l.barcode, l.sku)}</span>
                       {l.untracked && " · untracked"} · {money(l.unit_price)}
                     </div>
                   </div>

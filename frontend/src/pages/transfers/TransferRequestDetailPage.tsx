@@ -8,18 +8,24 @@ import type { OdooRefOut, TransferEventOut, TransferRequestOut } from "../../api
 import {
   Button,
   Card,
+  ContextMenu,
   Dialog,
   Input,
   PageHeader,
   Spinner,
+  isInteractiveTarget,
+  useContextMenu,
+  useRowSelection,
   useToast,
 } from "../../design";
+import { useAuth } from "../../auth/AuthContext";
 import {
   OdooLink,
   TransferStepper,
   WriteStatusChip,
   fmtQty,
   fmtWhen,
+  productCode,
 } from "../shared/OpsBits";
 
 export function TransferRequestDetailPage() {
@@ -50,6 +56,43 @@ function Detail({ req }: { req: TransferRequestOut }) {
 
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [note, setNote] = useState("");
+
+  // shift/cmd-click rows, then right-click: spin the selection into a fresh
+  // request (floor + admin — the /new route is theirs)
+  const { roles } = useAuth();
+  const canCreateTransfer = roles.has("shoppe_floor") || roles.has("admin");
+  const selection = useRowSelection(req.lines.map((l) => l.id));
+  const menu = useContextMenu();
+  const lineMenu = (lineId: number, e: React.MouseEvent) => {
+    if (!canCreateTransfer) return;
+    const ids = selection.forContext(lineId);
+    menu.open(e, [
+      {
+        label: `New transfer with ${ids.size} item${ids.size === 1 ? "" : "s"}`,
+        onSelect: () =>
+          navigate("/transfer-requests/new", {
+            state: {
+              prefill: {
+                notes: `Follow-up to ${req.display_name}`,
+                lines: req.lines
+                  .filter((l) => ids.has(l.id))
+                  .map((l) => ({
+                    product_id: l.product_id,
+                    sku: l.sku,
+                    barcode: l.barcode,
+                    name: l.name,
+                    category: l.category,
+                    qty: l.qty_requested,
+                    floor_qty: l.floor_qty,
+                    bwhse_qty: l.bwhse_qty,
+                    case_size: 1,
+                  })),
+              },
+            },
+          }),
+      },
+    ]);
+  };
 
   const a = req.actions;
   const onError = (e: Error) => toast.error(e.message);
@@ -167,11 +210,21 @@ function Detail({ req }: { req: TransferRequestOut }) {
                 </thead>
                 <tbody>
                   {req.lines.map((line) => (
-                    <tr key={line.id} className="border-b border-outline-variant/50 last:border-0">
+                    <tr
+                      key={line.id}
+                      aria-selected={selection.selected.has(line.id)}
+                      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+                      onClick={(e) => {
+                        if (!isInteractiveTarget(e)) selection.click(line.id, e);
+                      }}
+                      onContextMenu={(e) => lineMenu(line.id, e)}
+                      className={`border-b border-outline-variant/50 transition-colors last:border-0
+                        ${selection.selected.has(line.id) ? "bg-secondary-container/40" : ""}`}
+                    >
                       <td className="px-4 py-2.5">
                         <div className="font-medium">{line.name}</div>
                         <div className="flex items-center gap-2 font-mono text-[11.5px] text-on-surface-variant">
-                          {line.sku}
+                          {productCode(line.barcode, line.sku)}
                           <span className="font-sans tabular-nums">
                             floor {fmtQty(line.floor_qty)} · whse {fmtQty(line.bwhse_qty)}
                           </span>
@@ -214,6 +267,7 @@ function Detail({ req }: { req: TransferRequestOut }) {
           </Card>
 
           <OdooCard placement={req.placement} count={req.count} />
+          <ContextMenu menu={menu.menu} onClose={menu.close} />
         </div>
 
         {/* ---- timeline ---- */}

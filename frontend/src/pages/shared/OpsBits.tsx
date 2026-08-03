@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useProducts } from "../../api/hooks";
 import type { ProductOut, TransferStatus } from "../../api/types";
-import { Badge, Button, Input, Spinner, toneForLabel } from "../../design";
+import { Badge, Button, Dialog, Field, Input, Spinner, toneForLabel } from "../../design";
 import type { BadgeTone } from "../../design";
 
 /** The identifier the team actually uses on the floor: barcode when the
@@ -155,11 +155,17 @@ export function QtyInput({
   onChange,
   min = 0,
   ariaLabel,
+  inputRef,
+  onEnter,
 }: {
   value: number;
   onChange: (v: number) => void;
   min?: number;
   ariaLabel?: string;
+  /** for the keyboard flow: parents focus the field after an Enter-add */
+  inputRef?: React.Ref<HTMLInputElement>;
+  /** Enter inside the field — quick flows bounce focus back to search */
+  onEnter?: () => void;
 }) {
   return (
     <span className="inline-flex items-center gap-1">
@@ -173,13 +179,21 @@ export function QtyInput({
         −
       </Button>
       <Input
+        ref={inputRef}
         inputMode="numeric"
         aria-label={ariaLabel}
         className="!h-9 w-16 text-center tabular-nums"
         value={String(value)}
+        onFocus={(e) => e.target.select()}
         onChange={(e) => {
           const n = Number(e.target.value.replace(/[^0-9.]/g, ""));
           onChange(Number.isFinite(n) ? n : min);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && onEnter) {
+            e.preventDefault();
+            onEnter();
+          }
         }}
       />
       <Button
@@ -205,6 +219,7 @@ export interface PickedLine {
   qty: number;
   floor_qty: number;
   bwhse_qty: number;
+  case_size: number;
 }
 
 export function toPicked(p: ProductOut, qty = 1): PickedLine {
@@ -217,6 +232,7 @@ export function toPicked(p: ProductOut, qty = 1): PickedLine {
     qty,
     floor_qty: p.stock?.floor ?? 0,
     bwhse_qty: p.stock?.bwhse ?? 0,
+    case_size: p.case_size || 1,
   };
 }
 
@@ -227,14 +243,18 @@ export function ProductPicker({
   pickedIds,
   placeholder = "Search products by name, SKU, barcode…",
   excludeClothing = false,
+  inputRef,
 }: {
-  onPick: (line: PickedLine) => void;
+  /** viaEnter is true when the keyboard flow added the first result */
+  onPick: (line: PickedLine, viaEnter?: boolean) => void;
   pickedIds: Set<number>;
   placeholder?: string;
   /** PURCHASING surfaces (vendor rosters) never offer clothing — out of
    *  scope for buying. Catalogs and stock flows allow it, so this is
    *  opt-in. */
   excludeClothing?: boolean;
+  /** quick flows refocus the search after a qty is typed */
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const [search, setSearch] = useState("");
   const { data, isLoading } = useProducts({
@@ -253,8 +273,16 @@ export function ProductPicker({
   return (
     <div>
       <Input
+        ref={inputRef}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter = take the top result: type, enter, type qty, enter, repeat
+          if (e.key !== "Enter" || search.trim() === "") return;
+          e.preventDefault();
+          const first = results.find((p) => !pickedIds.has(p.id));
+          if (first) onPick(toPicked(first), true);
+        }}
         placeholder={placeholder}
         aria-label="Search products"
         className="w-full"
@@ -291,6 +319,9 @@ export function ProductPicker({
                       <span className="block truncate text-sm font-medium">{p.name}</span>
                       <span className="mt-0.5 flex items-center gap-2 text-[12px] text-on-surface-variant">
                         <span className="font-mono">{productCode(p.barcode, p.global_sku)}</span>
+                        {p.case_size > 1 && (
+                          <span className="whitespace-nowrap">case of {p.case_size}</span>
+                        )}
                         <Badge tone={toneForLabel(p.category)}>{p.category}</Badge>
                       </span>
                     </span>
@@ -306,6 +337,58 @@ export function ProductPicker({
         </div>
       )}
     </div>
+  );
+}
+
+/** "Set quantity…" for a multi-selection — one number applied to N lines.
+ *  Context menus across the order/transfer tables share this popup. */
+export function SetQtyDialog({
+  count,
+  noun = "item",
+  initial = 1,
+  min = 0,
+  onApply,
+  onClose,
+}: {
+  count: number;
+  noun?: string;
+  initial?: number;
+  min?: number;
+  onApply: (qty: number) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(String(initial));
+  const qty = Math.max(min, Math.round(Number(value) || 0));
+  const apply = () => {
+    onApply(qty);
+    onClose();
+  };
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Set quantity — ${count} ${noun}${count === 1 ? "" : "s"}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={apply}>Apply to {count}</Button>
+        </>
+      }
+    >
+      <Field label="Quantity" help={`Every selected ${noun} gets this quantity.`}>
+        <Input
+          type="number"
+          min={min}
+          value={value}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && apply()}
+        />
+      </Field>
+    </Dialog>
   );
 }
 

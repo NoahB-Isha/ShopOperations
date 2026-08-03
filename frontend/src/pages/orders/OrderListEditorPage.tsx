@@ -25,7 +25,7 @@ import {
   Textarea,
   useToast,
 } from "../../design";
-import { LowCountHint, ProductPicker, fmtQty } from "../shared/OpsBits";
+import { LowCountHint, ProductPicker, fmtQty, productCode } from "../shared/OpsBits";
 
 export function OrderListEditorPage() {
   const { id } = useParams();
@@ -45,6 +45,7 @@ export function OrderListEditorPage() {
 interface PickedProduct {
   product_id: number;
   sku: string;
+  barcode?: string;
   name: string;
   is_active: boolean;
   bwhse_qty: number;
@@ -54,6 +55,7 @@ function fromApi(ol: OrderListOut): PickedProduct[] {
   return ol.lines.map((l) => ({
     product_id: l.product_id,
     sku: l.sku,
+    barcode: l.barcode,
     name: l.name,
     is_active: l.is_active,
     bwhse_qty: l.bwhse_qty,
@@ -187,7 +189,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
                       )}
                     </div>
                     <div className="flex items-center gap-2 text-[12px] text-on-surface-variant">
-                      <span className="font-mono">{p.sku}</span>
+                      <span className="font-mono">{productCode(p.barcode, p.sku)}</span>
                       <span className="tabular-nums">
                         whse {fmtQty(p.bwhse_qty)} <LowCountHint qty={p.bwhse_qty} />
                       </span>

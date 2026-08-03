@@ -1,5 +1,7 @@
 export { Badge, StatusDot, toneForLabel } from "./Badge";
 export type { BadgeTone } from "./Badge";
+export { ContextMenu, isInteractiveTarget, useContextMenu, useRowSelection } from "./ContextMenu";
+export type { MenuAction } from "./ContextMenu";
 export { Button, Fab } from "./Button";
 export { Card, PageHeader, Stat } from "./Card";
 export { DataTable, Pagination } from "./DataTable";

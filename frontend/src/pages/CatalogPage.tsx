@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import {
   Badge,
   Button,
+  ContextMenu,
   DataTable,
   Dialog,
   Fab,
@@ -14,12 +15,14 @@ import {
   Pagination,
   Select,
   toneForLabel,
+  useContextMenu,
+  useRowSelection,
   useToast,
 } from "../design";
 import type { Column } from "../design";
 import { productCode } from "./shared/OpsBits";
 import { TAG_LABELS, TAG_TONES } from "./shared/tags";
-import { ProductDrawer } from "./ProductDrawer";
+import { BulkProductDrawer, ProductDrawer } from "./ProductDrawer";
 import { useSillyLabel } from "../silly";
 
 /* ---- variant grouping: rows whose names are ≥70% similar collapse into one
@@ -143,6 +146,7 @@ export function CatalogPage() {
   const { data: facets } = useFacets();
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
   const rows = useMemo<CatalogRow[]>(() => {
     const items = data?.items ?? [];
     if (sort.key !== "name") return items.map((p) => ({ kind: "product" as const, p }));
@@ -174,6 +178,37 @@ export function CatalogPage() {
     }
     return out;
   }, [data, sort.key, expandedGroups]);
+
+  // Premiere-style multi-select over the visible product rows (groups
+  // expand on plain click and stay out of selection)
+  const visibleProductIds = useMemo(
+    () => rows.filter((r) => r.kind === "product").map((r) => (r as { p: ProductOut }).p.id),
+    [rows],
+  );
+  const selection = useRowSelection(visibleProductIds);
+  const menu = useContextMenu();
+  const selectedProducts = useMemo(() => {
+    const byId = new Map((data?.items ?? []).map((p) => [p.id, p]));
+    return [...selection.selected].map((id) => byId.get(id)).filter((p): p is ProductOut => !!p);
+  }, [data, selection.selected]);
+  // a new page/filter shows different rows — stale selections would be invisible
+  useEffect(() => {
+    selection.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, category, tag, page]);
+
+  const rowMenu = (r: CatalogRow, e: React.MouseEvent) => {
+    if (r.kind !== "product") return;
+    const ids = selection.forContext(r.p.id);
+    if (!isAdmin) return; // bulk editing is the admin's tool
+    menu.open(e, [
+      {
+        label: `Edit ${ids.size} together…`,
+        onSelect: () => setBulkOpen(true),
+      },
+      { label: "Clear selection", onSelect: () => selection.clear() },
+    ]);
+  };
 
   const columns = useMemo<Column<CatalogRow>[]>(
     () => [
@@ -306,12 +341,37 @@ export function CatalogPage() {
         {isFetching && !isLoading && <span className="text-[13px] text-ink-faint">refreshing…</span>}
       </div>
 
+      {selection.selected.size > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-full bg-secondary-container/60 px-4 py-2">
+          <span className="text-[13px] font-semibold text-on-secondary-container">
+            {selection.selected.size} selected
+          </span>
+          {isAdmin && (
+            <Button size="sm" variant="secondary" onClick={() => setBulkOpen(true)}>
+              Edit together
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => selection.clear()}>
+            Clear
+          </Button>
+          <span className="ml-auto hidden text-[12px] text-on-secondary-container/80 sm:block">
+            shift-click: range · {navigator.platform.includes("Mac") ? "⌘" : "ctrl"}-click: toggle
+          </span>
+        </div>
+      )}
+
       <DataTable
         columns={columns}
         rows={rows}
         rowKey={(r) => (r.kind === "group" ? r.key : `p${r.p.id}`)}
         loading={isLoading}
-        onRowClick={(r) => {
+        rowClassName={(r) =>
+          r.kind === "product" && selection.selected.has(r.p.id)
+            ? "bg-secondary-container/40 hover:bg-secondary-container/50"
+            : ""
+        }
+        onRowContextMenu={rowMenu}
+        onRowClick={(r, e) => {
           if (r.kind === "group") {
             setExpandedGroups((prev) => {
               const next = new Set(prev);
@@ -319,8 +379,11 @@ export function CatalogPage() {
               else next.add(r.key);
               return next;
             });
+          } else if (e.shiftKey || e.metaKey || e.ctrlKey) {
+            selection.click(r.p.id, e); // build the selection, no drawer
           } else {
-            setSelected(r.p);
+            selection.click(r.p.id, e); // plain click anchors the range…
+            setSelected(r.p); // …and inspects, as always
           }
         }}
         sort={sort}
@@ -354,6 +417,10 @@ export function CatalogPage() {
       )}
 
       <ProductDrawer product={selected} onClose={() => setSelected(null)} isAdmin={isAdmin} />
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
+      {bulkOpen && selectedProducts.length > 0 && (
+        <BulkProductDrawer products={selectedProducts} onClose={() => setBulkOpen(false)} />
+      )}
       <NewItemDialog
         open={newOpen}
         onClose={() => setNewOpen(false)}

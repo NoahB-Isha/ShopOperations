@@ -42,6 +42,7 @@ class FloorItemOut(BaseModel):
     line_id: int
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     qty: float
@@ -54,6 +55,7 @@ class FloorItemOut(BaseModel):
 class BackItemOut(BaseModel):
     product_id: int
     sku: str
+    barcode: str = ""
     name: str
     category: str
     floor_qty: float
@@ -128,6 +130,7 @@ def get_restock(
                 line_id=item.line_id,
                 product_id=item.product_id,
                 sku=p.global_sku,
+                barcode=p.barcode or "",
                 name=p.name,
                 category=p.category,
                 qty=item.qty,
@@ -147,6 +150,7 @@ def get_restock(
             BackItemOut(
                 product_id=back_item.product_id,
                 sku=p.global_sku,
+                barcode=p.barcode or "",
                 name=p.name,
                 category=p.category,
                 floor_qty=back_item.floor_qty,
@@ -240,6 +244,7 @@ def check_floor_line(
         line_id=line.id,
         product_id=line.product_id,
         sku=p.global_sku if p else "",
+        barcode=(p.barcode or "") if p else "",
         name=p.name if p else "",
         category=p.category if p else "",
         qty=line.qty,
