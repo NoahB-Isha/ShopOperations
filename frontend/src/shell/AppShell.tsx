@@ -30,12 +30,14 @@ export function ILMark({ size = 36 }: { size?: number }) {
 }
 
 function Brand() {
+  // "Isha Life" is the org and stays; the app name is fair game
+  const s = useSillyLabel();
   return (
     <div className="flex items-center gap-2.5 px-1">
       <ILMark />
       <div className="leading-tight">
         <div className="display text-[15px]">Isha Life</div>
-        <div className="label-m">Shop Ops</div>
+        <div className="label-m">{s("Shop Ops")}</div>
       </div>
     </div>
   );
@@ -128,6 +130,9 @@ function SettingsButton() {
 
 function HealthChip() {
   const { data } = useHealth();
+  // only the healthy labels have dictionary entries — "Sync stale" and
+  // "Odoo auth failing!" pass through s() unchanged, staying serious
+  const s = useSillyLabel();
   if (!data) return null;
   const ok = data.status === "ok";
   const label =
@@ -139,7 +144,7 @@ function HealthChip() {
   return (
     <span className="inline-flex items-center rounded-(--radius-sm) border border-outline-variant
       bg-surface-container-low px-2.5 py-1">
-      <StatusDot ok={ok} warn={!ok && !data.odoo_auth_failed} label={label} />
+      <StatusDot ok={ok} warn={!ok && !data.odoo_auth_failed} label={s(label)} />
     </span>
   );
 }

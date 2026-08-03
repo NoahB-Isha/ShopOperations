@@ -48,6 +48,7 @@ import {
   toggledSort,
 } from "./orderingBits";
 import type { SortState } from "./orderingBits";
+import { useSillyLabel } from "../../silly";
 
 type Tab = "india" | "domestic";
 
@@ -486,12 +487,13 @@ function DomesticTab({
   );
   const [vendorId, setVendorId] = useState<number | null>(null);
   const selected = usable.find((v) => v.id === vendorId) ?? usable[0] ?? null;
+  const s = useSillyLabel();
 
   return (
     <div className="grid gap-6">
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="headline text-[20px]">Quick order</h2>
+          <h2 className="headline text-[20px]">{s("Quick order")}</h2>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {usable.length > 0 && (
               <Select
@@ -530,7 +532,7 @@ function DomesticTab({
       </Card>
 
       <section>
-        <h2 className="headline mb-3 text-[20px]">Domestic orders</h2>
+        <h2 className="headline mb-3 text-[20px]">{s("Domestic orders")}</h2>
         <OrdersTable
           kind="domestic"
           orders={orders}
@@ -799,9 +801,10 @@ function AnalogiesSection() {
   const dismiss = useDismissAnalogy();
   const toast = useToast();
   const rows = analogies.data ?? [];
+  const s = useSillyLabel();
   return (
     <div className="border-t border-outline-variant/60 pt-4">
-      <h3 className="label-m mb-1 text-on-surface-variant">Forecast analogies</h3>
+      <h3 className="label-m mb-1 text-on-surface-variant">{s("Forecast analogies")}</h3>
       <p className="mb-3 text-[13px] text-on-surface-variant">
         New products with no sales history borrow a similar product's demand until real data
         accumulates — then they graduate automatically. Create analogies from a draft's review

@@ -61,6 +61,7 @@ import {
   toggledSort,
 } from "./orderingBits";
 import type { SortState } from "./orderingBits";
+import { useSillyLabel } from "../../silly";
 
 const PAGE_SIZE = 100;
 
@@ -99,6 +100,7 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   const [analogyFor, setAnalogyFor] = useState<PurchaseOrderLineOut | null>(null);
   const [placeOpen, setPlaceOpen] = useState(false);
   const cancelAction = usePurchaseOrderAction("cancel");
+  const s = useSillyLabel();
 
   const categories = useMemo(
     () =>
@@ -164,7 +166,7 @@ function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name or SKU…"
+          placeholder={s("Search name or SKU…")}
           className="w-60"
           aria-label="Search lines"
         />

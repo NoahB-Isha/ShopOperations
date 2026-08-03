@@ -13,6 +13,7 @@ import {
   useToast,
 } from "../../design";
 import type { Column } from "../../design";
+import { useSillyLabel } from "../../silly";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -33,6 +34,7 @@ export function UsersPage() {
   const update = useUpdateUser();
   const toast = useToast();
   const [filter, setFilter] = useState("");
+  const s = useSillyLabel();
   const [inviteOpen, setInviteOpen] = useState(false);
 
   const columns = useMemo<Column<UserOut>[]>(
@@ -110,7 +112,7 @@ export function UsersPage() {
       />
       <div className="mb-4">
         <Input
-          placeholder="Filter by name, email, phone…"
+          placeholder={s("Filter by name, email, phone…")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="max-w-xs"

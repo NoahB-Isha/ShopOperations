@@ -12,6 +12,7 @@ import {
   useToast,
 } from "../../design";
 import type { Column } from "../../design";
+import { useSillyLabel } from "../../silly";
 
 const REASON_LABELS: Record<string, string> = {
   ambiguous_active: "active status unclear",
@@ -25,6 +26,7 @@ const REASON_LABELS: Record<string, string> = {
 export function CentersPage() {
   const [zoneId, setZoneId] = useState("");
   const [filter, setFilter] = useState("");
+  const s = useSillyLabel();
   const [onlyFollowup, setOnlyFollowup] = useState(false);
   const { data: zones } = useZones();
   const { data: centers, isLoading } = useCenters(
@@ -145,7 +147,7 @@ export function CentersPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <Input
-          placeholder="Filter centers…"
+          placeholder={s("Filter centers…")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="max-w-60"

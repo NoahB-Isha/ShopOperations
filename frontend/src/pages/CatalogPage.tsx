@@ -20,6 +20,7 @@ import type { Column } from "../design";
 import { productCode } from "./shared/OpsBits";
 import { TAG_LABELS, TAG_TONES } from "./shared/tags";
 import { ProductDrawer } from "./ProductDrawer";
+import { useSillyLabel } from "../silly";
 
 /* ---- variant grouping: rows whose names are ≥70% similar collapse into one
    expandable group (only meaningful in name order, where variants sit
@@ -120,6 +121,7 @@ export function CatalogPage() {
   const toast = useToast();
 
   const [search, setSearch] = useState("");
+  const s = useSillyLabel();
   const [category, setCategory] = useState("");
   const [tag, setTag] = useState("");
   const [page, setPage] = useState(1);
@@ -278,7 +280,7 @@ export function CatalogPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <Input
-          placeholder="Search products…"
+          placeholder={s("Search products…")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs [--control-radius:9999px]"

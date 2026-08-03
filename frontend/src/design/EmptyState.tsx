@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useSillyLabel } from "../silly";
 
 export function EmptyState({
   icon,
@@ -11,6 +12,9 @@ export function EmptyState({
   hint?: ReactNode;
   action?: ReactNode;
 }) {
+  // empty states are silly mode's sanctioned quirk zone; only exact
+  // dictionary matches convert, JSX hints pass through untouched
+  const s = useSillyLabel();
   return (
     <div
       className="flex flex-col items-center justify-center rounded-(--radius-xl)
@@ -32,8 +36,12 @@ export function EmptyState({
           </svg>
         )}
       </div>
-      <div className="headline text-on-surface">{title}</div>
-      {hint && <div className="mt-2 max-w-sm text-sm text-on-surface-variant">{hint}</div>}
+      <div className="headline text-on-surface">{s(title)}</div>
+      {hint && (
+        <div className="mt-2 max-w-sm text-sm text-on-surface-variant">
+          {typeof hint === "string" ? s(hint) : hint}
+        </div>
+      )}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );

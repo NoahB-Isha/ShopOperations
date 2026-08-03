@@ -195,8 +195,11 @@ export function OrderDetailPage() {
 
       {stored.summary && (order.reasonability_level === "warn" || order.reasonability_level === "info") && (
         <Card className="mb-4 flex flex-col gap-2">
+          {/* "Order Notes" is the user-facing name for the reasonability
+              assessment (Noah 2026-08-02) — API fields and testids keep the
+              old name, same UI-only-rebrand rule as Order lists→Catalogs */}
           <h3 data-testid="order-reasonability" className="display text-[20px]">
-            Reasonability:{" "}
+            Order Notes:{" "}
             {order.reasonability_level === "warn" ? "Worth a look" : "Minor notes"}
           </h3>
           <div className="text-[13.5px]">{stored.summary}</div>

@@ -153,7 +153,7 @@ test("an absurd order wears its warnings on the board and the detail", async ({ 
   await flagged.click();
 
   await expect(cpage.getByTestId("order-reasonability")).toBeVisible();
-  await expect(cpage.getByText(/Reasonability: Worth a look/)).toBeVisible();
+  await expect(cpage.getByText(/Order Notes: Worth a look/)).toBeVisible();
   // at least one concrete, terse rule badge is visible on the lines
   await expect(cpage.getByText(/× usual volume|only .* in stock/).first()).toBeVisible();
   await desktop.close();

@@ -507,6 +507,17 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   "Peeps", Reports/Sales→🤑🤑🤑, Restock→"The re-up", Vendors→"The plugs", Order
   history→"Receipts 🧾"…) — dynamic strings pass through untouched; toggle lives in
   Settings→Appearance; silly.test.ts FAILS if any role's nav label lacks an entry,
-  so new nav items need a silly name too. Browser-pane note: computer-tool coords =
+  so new nav items need a silly name too. Round 2 widened it to the sanctioned
+  quirk zones: EmptyState maps title+string-hint THROUGH the component (all empty
+  states app-wide — "Crickets 🦗", "Local scene's quiet"…), PageHeader maps string
+  subtitles, plus brand ("Shop Ops"→"Da Shop"), HEALTHY-only health-chip labels
+  ("Vibin' with Odoo" — "Sync stale"/"Odoo auth failing!" have NO entries, keep it
+  that way), Inbox ("The goss 📬"), 7 search placeholders (aria-labels stay
+  canonical), and Settings/Purchasing section headings ("The drip", "Speed run",
+  "Local hauls"). Failure text, confirm buttons, and table data never get entries.
+  **Reasonability → "Order Notes"** (Noah 2026-08-02): UI-ONLY rename of the
+  advisory assessment's one visible label (OrderDetailPage heading; e2e text
+  assertion updated) — backend module/API fields/testids keep `reasonability`,
+  and it's a REAL rename, not a silly-mode entry. Browser-pane note: computer-tool coords =
   screenshot px (= rendered image ÷ 2 at 1280×1400); ref-clicks are unreliable on
   small controls — probe with a JS click listener when clicks seem to miss.

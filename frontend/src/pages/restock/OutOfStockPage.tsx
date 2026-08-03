@@ -20,9 +20,11 @@ import type { AvailabilityItemOut, OosItemOut } from "../../api/types";
 import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Textarea, useToast } from "../../design";
 import { LowCountHint, OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
 import { matchesSearch } from "../../search";
+import { useSillyLabel } from "../../silly";
 
 function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [picked, setPicked] = useState<PickedLine | null>(null);
+  const s = useSillyLabel();
   const [note, setNote] = useState("");
   const mark = useMarkOos();
   const toast = useToast();
@@ -103,7 +105,7 @@ function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
         <ProductPicker
           pickedIds={new Set()}
           onPick={setPicked}
-          placeholder="Search the item that's actually out…"
+          placeholder={s("Search the item that's actually out…")}
         />
       )}
     </Dialog>

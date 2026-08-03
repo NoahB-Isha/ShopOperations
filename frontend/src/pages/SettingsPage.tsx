@@ -10,14 +10,15 @@ import type { BlacklistSweepOut, ProductOut } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Toggle, useToast } from "../design";
 import { PALETTES, currentPalette, setPalette } from "../theme";
-import { setSillyMode, useSillyMode } from "../silly";
+import { setSillyMode, useSillyLabel, useSillyMode } from "../silly";
 
 function AppearanceCard() {
   const [active, setActive] = useState(currentPalette);
   const silly = useSillyMode();
+  const s = useSillyLabel();
   return (
     <Card>
-      <h2 className="display mb-1 text-[16px]">Appearance</h2>
+      <h2 className="display mb-1 text-[16px]">{s("Appearance")}</h2>
       <p className="mb-3 text-[13px] text-on-surface-variant">
         Pick a light-mode palette. Dark mode is automatic and follows your system.
       </p>
@@ -67,9 +68,10 @@ function AppearanceCard() {
 
 function AccountCard() {
   const { user, roles } = useAuth();
+  const s = useSillyLabel();
   return (
     <Card>
-      <h2 className="display mb-1 text-[16px]">Account</h2>
+      <h2 className="display mb-1 text-[16px]">{s("Account")}</h2>
       <div className="flex flex-col gap-1.5 text-[13.5px]">
         <div>
           <span className="text-on-surface-variant">Signed in as </span>
@@ -144,11 +146,12 @@ function SweepBlock() {
       onError: (e) => toast.error(e.message),
     });
 
+  const s = useSillyLabel();
   return (
     <div className="mt-4 border-t border-outline-variant/60 pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="label-m text-on-surface-variant">Cleanup sweep</h3>
+          <h3 className="label-m text-on-surface-variant">{s("Cleanup sweep")}</h3>
           <p className="text-[12.5px] text-on-surface-variant">
             Finds items that have never had stock <b>and never sold</b> (except IL-Service)
             plus “- USA” duplicate entries. Preview first — nothing is hidden until you
@@ -251,10 +254,11 @@ function BlacklistCard() {
 
   const rows = blacklisted.data?.items ?? [];
   const matches = (candidates.data?.items ?? []).slice(0, 8);
+  const s = useSillyLabel();
 
   return (
     <Card>
-      <h2 className="display mb-1 text-[16px]">Product blacklist</h2>
+      <h2 className="display mb-1 text-[16px]">{s("Product blacklist")}</h2>
       <p className="mb-3 text-[13px] leading-5 text-on-surface-variant">
         Blacklisted items disappear from the whole app — catalogs, restock and OOS lists,
         ordering, reports, the time machine. Use it for stale Odoo entries and items that
@@ -264,7 +268,7 @@ function BlacklistCard() {
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search items to blacklist…"
+        placeholder={s("Search items to blacklist…")}
         aria-label="Search items to blacklist"
         className="mb-2 w-full"
       />
@@ -323,9 +327,10 @@ function BlacklistCard() {
 }
 
 function DesignCard() {
+  const s = useSillyLabel();
   return (
     <Card>
-      <h2 className="display mb-1 text-[16px]">Design pages</h2>
+      <h2 className="display mb-1 text-[16px]">{s("Design pages")}</h2>
       <p className="mb-3 text-[13px] text-on-surface-variant">
         The component styleguide and the full palette lab left the menu — they live here now.
       </p>

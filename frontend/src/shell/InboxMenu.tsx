@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, Spinner, useToast } from "../design";
 import { Icons } from "../nav";
 import { fmtWhen } from "../pages/shared/OpsBits";
+import { useSillyLabel } from "../silly";
 
 function Compose({ onDone }: { onDone: () => void }) {
   const post = usePostNotice();
@@ -54,6 +55,7 @@ function Compose({ onDone }: { onDone: () => void }) {
 export function InboxMenu() {
   const { roles } = useAuth();
   const isAdmin = roles.has("admin");
+  const s = useSillyLabel();
   const [open, setOpen] = useState(false);
   const inbox = useNotices();
   const markRead = useMarkNoticesRead();
@@ -99,7 +101,7 @@ export function InboxMenu() {
               rounded-(--radius-lg) bg-surface-container-high pt-2 pb-2 shadow-(--shadow-e2)"
           >
             <div className="px-4 pt-1 pb-2">
-              <span className="title-m text-on-surface">Inbox</span>
+              <span className="title-m text-on-surface">{s("Inbox")}</span>
             </div>
             <div className="min-h-0 grow overflow-y-auto px-1.5">
               {inbox.isLoading ? (
@@ -108,7 +110,11 @@ export function InboxMenu() {
                 </div>
               ) : items.length === 0 ? (
                 <p className="px-3 py-6 text-center text-[13px] text-on-surface-variant">
-                  Nothing here yet{isAdmin ? " — post the first notice below." : "."}
+                  {s(
+                    isAdmin
+                      ? "Nothing here yet — post the first notice below."
+                      : "Nothing here yet.",
+                  )}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">

@@ -40,4 +40,20 @@ describe("silly mode", () => {
       }
     }
   });
+
+  it("covers the quirk zones: empty states, placeholders, chrome", () => {
+    expect(sillyLabel("Nothing here", true)).toBe("Crickets 🦗");
+    expect(sillyLabel("Search products…", true)).toBe("Snoop the stash…");
+    expect(sillyLabel("Shop Ops", true)).toBe("Da Shop");
+    expect(sillyLabel("Synced · live Odoo", true)).toBe("Vibin' with Odoo");
+    // failure states must NEVER be renamed — no entries may exist for them
+    expect(sillyLabel("Odoo auth failing!", true)).toBe("Odoo auth failing!");
+    expect(sillyLabel("Sync stale", true)).toBe("Sync stale");
+  });
+
+  it("never maps an entry to itself", () => {
+    for (const [canonical, street] of Object.entries(SILLY_LABELS)) {
+      expect(street, `"${canonical}" maps to itself`).not.toBe(canonical);
+    }
+  });
 });

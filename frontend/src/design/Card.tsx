@@ -83,7 +83,11 @@ export function PageHeader({
     <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="display-l text-on-surface">{s(title)}</h1>
-        {subtitle && <p className="mt-2 text-[15px] text-on-surface-variant">{subtitle}</p>}
+        {subtitle && (
+          <p className="mt-2 text-[15px] text-on-surface-variant">
+            {typeof subtitle === "string" ? s(subtitle) : subtitle}
+          </p>
+        )}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>

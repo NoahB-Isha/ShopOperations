@@ -9,6 +9,7 @@ import { useComingSoon } from "../../api/hooks";
 import { Badge, EmptyState, Input, PageHeader, Spinner } from "../../design";
 import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
 import { matchesSearch } from "../../search";
+import { useSillyLabel } from "../../silly";
 
 const PICKING_STATE_LABEL: Record<string, string> = {
   draft: "draft",
@@ -21,6 +22,7 @@ export function ComingSoonPage() {
   const { data: items, isLoading } = useComingSoon();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const s = useSillyLabel();
 
   const visible = useMemo(
     () =>
@@ -39,7 +41,7 @@ export function ComingSoonPage() {
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by name, SKU, category…"
+        placeholder={s("Search by name, SKU, category…")}
         aria-label="Search items on the way"
         className="mb-3 w-full"
       />
