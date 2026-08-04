@@ -521,3 +521,43 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   and it's a REAL rename, not a silly-mode entry. Browser-pane note: computer-tool coords =
   screenshot px (= rendered image ÷ 2 at 1280×1400); ref-clicks are unreliable on
   small controls — probe with a JS click listener when clicks seem to miss.
+- Notes round (2026-08-03, same build-on rule): **Dept-orderable toggle left the
+  product drawer** (API/patch field stays; the flag is now managed via API or bulk
+  edit only). **sales_daily.returned_units** (migration `b4e7d19c3f82`, nullable —
+  NULL = pre-capture row, unknown ≠ zero): the sales sync splits POS refund lines
+  (qty<0) into the new column while `units` stays NET (restock semantics
+  untouched); the daily window rebuilds each sync so recent rows self-fill.
+  **Time machine day sales**: `timemachine/_day_sales` joins SalesDaily for the
+  REQUESTED date (past+today; retention-window honest, "so far today" partial
+  note; totals count products missing from the stock table too); items gain
+  sold_qty/returned_qty; view gains day_sales; the table went SLIM (identity =
+  name + productCode, Category column dropped — search covers it, Staging folded
+  into Total's title) + a Sold/Returned summary strip. **Barcode everywhere**
+  (floor identity; inspect panel + purchasing keep real SKUs/India refs):
+  `productCode(barcode, sku)` now renders on transfer create/detail lines,
+  restock rows + its transfer prefill, incoming, adjustments, catalog-editor
+  lines, center-order detail lines + place-order rows/search; barcode added to
+  the six Out models that lacked it (transfers LineOut + AdjustmentOut, restock
+  Floor/BackItemOut, orders LineOut, center_orders LineOut + CatalogItemOut).
+  **Case size in ordering flows**: PickedLine carries case_size (toPicked),
+  picker results + transfer lines show "case of N" (center-order rows already
+  did). **Multi-select + context menus**: design/ContextMenu.tsx =
+  `useRowSelection` (plain=single/toggle-off, cmd=toggle, shift=range over the
+  CALLER'S visible order; forContext keeps multi on right-click) + ContextMenu +
+  isInteractiveTarget; DataTable grew (row,e) clicks, onRowContextMenu,
+  rowClassName. Wired: transfer create (set-qty…/remove), place-order rows
+  (add/set-qty/remove), transfer detail ("New transfer with N items" → /new
+  prefill, floor+admin), PO draft review (set sea/air qty…, remove = zero both;
+  plain click still inspects — modifier clicks select), All SKUs (bar +
+  "Edit N together…"). **BulkProductDrawer** (ProductDrawer.tsx) = Premiere-style
+  bulk edit: only TOUCHED fields apply — tag chips stage add/remove-to-all
+  (expires add blocked, per-item dates; air/sea exclusivity enforced), case size
+  blank=leave, TriPick for restock-exclude + blacklist; per-item PATCH/PUT,
+  failures counted honestly. SetQtyDialog lives in OpsBits. **Enter-to-add flow**
+  (transfer create + place order): Enter in search adds the TOP result (case-size
+  default qty on center orders) and focuses its qty input (value pre-selected;
+  new-mount callback ref on transfers, qtyEls Map + rAF on place-order), Enter in
+  qty returns focus to search with text selected — type/enter/qty/enter loops.
+  QtyInput gained inputRef/onEnter + select-on-focus; ProductPicker gained
+  inputRef + Enter-pick (onPick's optional viaEnter arg). e2e phase2/3 selectors
+  (aria-labels, testids) deliberately untouched. Migration `b4e7d19c3f82`.

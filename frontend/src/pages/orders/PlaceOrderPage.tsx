@@ -48,6 +48,7 @@ function ItemRow({
   onSelect,
   onMenu,
   qtyEls,
+  pendingQtyFocus,
   onQtyEnter,
 }: {
   item: CatalogItemOut;
@@ -58,6 +59,8 @@ function ItemRow({
   onMenu: (e: React.MouseEvent) => void;
   /** live registry of qty inputs so the Enter flow can focus them */
   qtyEls: React.RefObject<Map<number, HTMLInputElement>>;
+  /** product waiting for its qty input to mount and take focus */
+  pendingQtyFocus: React.RefObject<number | null>;
   onQtyEnter: () => void;
 }) {
   const inCart = qty > 0;
@@ -88,8 +91,15 @@ function ItemRow({
             onChange={onQty}
             ariaLabel={`Quantity for ${item.name}`}
             inputRef={(el) => {
-              if (el) qtyEls.current.set(item.product_id, el);
-              else qtyEls.current.delete(item.product_id);
+              if (el) {
+                qtyEls.current.set(item.product_id, el);
+                if (pendingQtyFocus.current === item.product_id) {
+                  pendingQtyFocus.current = null;
+                  el.focus();
+                }
+              } else {
+                qtyEls.current.delete(item.product_id);
+              }
             }}
             onEnter={onQtyEnter}
           />
@@ -373,16 +383,19 @@ export function PlaceOrderPage() {
   // the qty bounces back to search — type, enter, qty, enter, repeat.
   const searchRef = useRef<HTMLInputElement>(null);
   const qtyEls = useRef(new Map<number, HTMLInputElement>());
-  const focusQty = (productId: number) =>
-    // rAF: a just-added item's qty input mounts on this render
-    requestAnimationFrame(() => qtyEls.current.get(productId)?.focus());
+  // a just-added item's qty input doesn't exist yet — its mount callback
+  // (in ItemRow) picks this up and focuses synchronously, no timers
+  const pendingQtyFocus = useRef<number | null>(null);
   const addFirstMatch = () => {
     const first = visible[0];
     if (!first) return;
-    if (!(qtys[first.product_id] ?? 0)) {
-      setQty(first.product_id, first.case_size > 1 ? first.case_size : 1);
+    const el = qtyEls.current.get(first.product_id);
+    if (el) {
+      el.focus(); // already in the cart — jump straight to its qty
+      return;
     }
-    focusQty(first.product_id);
+    pendingQtyFocus.current = first.product_id;
+    setQty(first.product_id, first.case_size > 1 ? first.case_size : 1);
   };
   const backToSearch = () => {
     searchRef.current?.focus();
@@ -556,6 +569,7 @@ export function PlaceOrderPage() {
               onSelect={(e) => selection.click(item.product_id, e)}
               onMenu={(e) => rowMenu(item.product_id, e)}
               qtyEls={qtyEls}
+              pendingQtyFocus={pendingQtyFocus}
               onQtyEnter={backToSearch}
             />
           ))}
