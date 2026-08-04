@@ -457,6 +457,17 @@ body {
   .m3-control::placeholder {
     color: var(--color-outline);
   }
+  /* iOS Safari zooms the whole page when a focused control's font-size is
+     under 16px — on touch screens every control simply wears 16px so the
+     viewport never jumps (the add-to-home-screen testing round caught this). */
+  @media (pointer: coarse) {
+    .m3-control,
+    input,
+    select,
+    textarea {
+      font-size: 1rem;
+    }
+  }
   .m3-control:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-on-surface) 4%, var(--color-field));
   }

@@ -1,3 +1,4 @@
+import { usePersistedState } from "../persist";
 import { useEffect, useMemo, useState } from "react";
 import type { ProductOut, TagOut } from "../api/types";
 import { useCreateManualProduct, useFacets, useProducts } from "../api/hooks";
@@ -123,12 +124,12 @@ export function CatalogPage() {
   const isAdmin = roles.has("admin");
   const toast = useToast();
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePersistedState("catalog.search", "");
   const s = useSillyLabel();
-  const [category, setCategory] = useState("");
-  const [tag, setTag] = useState("");
+  const [category, setCategory] = usePersistedState("catalog.category", "");
+  const [tag, setTag] = usePersistedState("catalog.tag", "");
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
+  const [sort, setSort] = usePersistedState<{ key: string; dir: "asc" | "desc" }>("catalog.sort", { key: "name", dir: "asc" });
   const [selected, setSelected] = useState<ProductOut | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 

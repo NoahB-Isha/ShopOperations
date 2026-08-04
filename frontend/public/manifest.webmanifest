@@ -1,0 +1,16 @@
+{
+  "name": "Isha Life Shop Ops",
+  "short_name": "Shop Ops",
+  "description": "Inventory, transfers, and ordering for Isha Life USA retail operations.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbfafd",
+  "theme_color": "#fbfafd",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

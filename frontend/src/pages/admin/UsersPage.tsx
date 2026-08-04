@@ -1,3 +1,4 @@
+import { usePersistedState } from "../../persist";
 import { useMemo, useState } from "react";
 import { useCenters, useInviteUser, useUpdateUser, useUsers, useZones } from "../../api/hooks";
 import type { UserOut } from "../../api/types";
@@ -33,7 +34,7 @@ export function UsersPage() {
   const { data: users, isLoading } = useUsers();
   const update = useUpdateUser();
   const toast = useToast();
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = usePersistedState("users.filter", "");
   const s = useSillyLabel();
   const [inviteOpen, setInviteOpen] = useState(false);
 

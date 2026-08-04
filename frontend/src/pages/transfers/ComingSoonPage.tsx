@@ -3,7 +3,8 @@
    transfers someone made directly in Odoo (drafts included; the transfers
    sync discovers those). The answer to "should I request this?" before
    anyone requests it twice. */
-import { useMemo, useState } from "react";
+import { usePersistedState } from "../../persist";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
 import { Badge, EmptyState, Input, PageHeader, Spinner } from "../../design";
@@ -21,7 +22,7 @@ const PICKING_STATE_LABEL: Record<string, string> = {
 export function ComingSoonPage() {
   const { data: items, isLoading } = useComingSoon();
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePersistedState("comingsoon.search", "");
   const s = useSillyLabel();
 
   const visible = useMemo(

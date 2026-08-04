@@ -6,6 +6,7 @@
      "USA-III: Inventory Adj Reduction" picking a human validates in Odoo.
    - Everywhere / Warehouse: the org-wide OOS lists over the stock snapshot,
      read-only, with "last in stock" and incoming labels. */
+import { usePersistedState } from "../../persist";
 import { useMemo, useState } from "react";
 import {
   useAvailabilityOos,
@@ -316,20 +317,21 @@ export function OutOfStockPage() {
   const { roles } = useAuth();
   const isFloorRole = roles.has("shoppe_floor") || roles.has("floor_rotating");
   // floor folk land on their board; warehouse on their shelves; admin org-wide
-  const [scope, setScope] = useState<Scope>(
+  const [scope, setScope] = usePersistedState<Scope>(
+    "oos.scope",
     isFloorRole ? "floor" : roles.has("warehouse") ? "bwhse" : "org",
   );
   const boardMode = scope === "floor";
   // never-stocked items (no snapshot has ever seen them in stock) are hidden
   // from the scoped lists by default — this is the peek switch
-  const [includeNeverStocked, setIncludeNeverStocked] = useState(false);
+  const [includeNeverStocked, setIncludeNeverStocked] = usePersistedState("oos.includeNever", false);
   const { data: items, isLoading } = useOosList();
   const scoped = useAvailabilityOos(scope, !boardMode, includeNeverStocked);
   const [markOpen, setMarkOpen] = useState(false);
   // page-level: the list refetch removes the row (and would unmount a dialog
   // nested inside it) the moment the mark is gone — the dialog outlives that
   const [restockTarget, setRestockTarget] = useState<OosItemOut | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePersistedState("oos.search", "");
 
   const visible = useMemo(
     () =>

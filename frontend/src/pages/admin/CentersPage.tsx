@@ -1,3 +1,4 @@
+import { usePersistedState } from "../../persist";
 import { useMemo, useState } from "react";
 import { useCenters, useImportCoordinators, useZones } from "../../api/hooks";
 import type { CenterOut, ImportReportOut } from "../../api/types";
@@ -25,7 +26,7 @@ const REASON_LABELS: Record<string, string> = {
 
 export function CentersPage() {
   const [zoneId, setZoneId] = useState("");
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = usePersistedState("centers.filter", "");
   const s = useSillyLabel();
   const [onlyFollowup, setOnlyFollowup] = useState(false);
   const { data: zones } = useZones();

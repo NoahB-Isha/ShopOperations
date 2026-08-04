@@ -7,8 +7,9 @@
    Keyboard flow for fast entry: type, Enter (adds the top result and jumps
    to its qty), type the qty, Enter (back to search). Rows multi-select with
    shift/cmd-click; right-click for set-qty / remove. */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { clearPersisted, usePersistedState } from "../../persist";
 import { useCreateTransferRequest } from "../../api/hooks";
 import type { TransferRequestOut } from "../../api/types";
 import {
@@ -42,8 +43,17 @@ export interface TransferPrefill {
 export function NewTransferRequestPage() {
   const location = useLocation();
   const prefill = (location.state as { prefill?: TransferPrefill } | null)?.prefill;
-  const [lines, setLines] = useState<PickedLine[]>(() => prefill?.lines ?? []);
-  const [notes, setNotes] = useState(prefill?.notes ?? "");
+  // the draft survives menu navigation (a half-built pull list is real work);
+  // a prefill (restock / detail-page selection) deliberately replaces it
+  const [lines, setLines] = usePersistedState<PickedLine[]>("transfer.new.lines", []);
+  const [notes, setNotes] = usePersistedState("transfer.new.notes", "");
+  const prefillApplied = useRef(false);
+  useEffect(() => {
+    if (!prefill || prefillApplied.current) return;
+    prefillApplied.current = true;
+    setLines(prefill.lines);
+    setNotes(prefill.notes ?? "");
+  }, [prefill, setLines, setNotes]);
   const create = useCreateTransferRequest();
   const toast = useToast();
   const navigate = useNavigate();
@@ -57,9 +67,16 @@ export function NewTransferRequestPage() {
   const pickedIds = useMemo(() => new Set(lines.map((l) => l.product_id)), [lines]);
   const totalQty = lines.reduce((sum, l) => sum + l.qty, 0);
 
+  // taps ask for the quantity up front, then hand focus back to search —
+  // the phone-in-the-aisle loop. Enter keeps the inline keyboard flow.
+  const [tapPick, setTapPick] = useState<PickedLine | null>(null);
   const addLine = (line: PickedLine, viaEnter?: boolean) => {
-    setLines((prev) => [...prev, line]);
-    if (viaEnter) pendingQtyFocus.current = line.product_id;
+    if (viaEnter) {
+      pendingQtyFocus.current = line.product_id;
+      setLines((prev) => [...prev, line]);
+    } else {
+      setTapPick(line);
+    }
   };
   const backToSearch = () => {
     searchRef.current?.focus();
@@ -95,6 +112,9 @@ export function NewTransferRequestPage() {
       },
       {
         onSuccess: (req) => {
+          // imperative: a setState's write effect can miss when navigation
+          // unmounts the page — the stored draft must not resurrect
+          clearPersisted("transfer.new.lines", "transfer.new.notes");
           toast.success("Request placed — the warehouse board has it.");
           navigate(`/transfer-requests/${(req as TransferRequestOut).id}`);
         },
@@ -212,6 +232,21 @@ export function NewTransferRequestPage() {
       </Card>
 
       <ContextMenu menu={menu.menu} onClose={menu.close} />
+      {tapPick && (
+        <SetQtyDialog
+          count={1}
+          title={`How many — ${tapPick.name}?`}
+          help={tapPick.case_size > 1 ? `Comes in cases of ${tapPick.case_size}.` : null}
+          initial={tapPick.case_size > 1 ? tapPick.case_size : 1}
+          min={1}
+          applyLabel="Add to request"
+          onApply={(qty) => setLines((prev) => [...prev, { ...tapPick, qty }])}
+          onClose={() => {
+            setTapPick(null);
+            backToSearch();
+          }}
+        />
+      )}
       {setQtyFor && (
         <SetQtyDialog
           count={setQtyFor.size}

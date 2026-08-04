@@ -2,6 +2,7 @@
  * report shape). Numbers come straight from the app's sales snapshot;
  * generated copy (narrative + Q&A) is clearly labeled with its source and
  * never blocks the numbers. */
+import { usePersistedState } from "../../persist";
 import { useMemo, useState } from "react";
 import {
   useAskQuestion,
@@ -57,9 +58,9 @@ const SCOPES = [
 ];
 
 export function ReportsPage() {
-  const [period, setPeriod] = useState("3m");
-  const [scope, setScope] = useState("all");
-  const [dim, setDim] = useState("category");
+  const [period, setPeriod] = usePersistedState("reports.period", "3m");
+  const [scope, setScope] = usePersistedState("reports.scope", "all");
+  const [dim, setDim] = usePersistedState("reports.dim", "category");
   const [chartView, setChartView] = useState<"chart" | "table">("chart");
   const overview = useSalesOverview(period, scope);
   const drill = useBreakdown(period, dim, scope);

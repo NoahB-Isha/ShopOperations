@@ -347,6 +347,9 @@ export function SetQtyDialog({
   noun = "item",
   initial = 1,
   min = 0,
+  title,
+  help,
+  applyLabel,
   onApply,
   onClose,
 }: {
@@ -354,6 +357,11 @@ export function SetQtyDialog({
   noun?: string;
   initial?: number;
   min?: number;
+  /** override the default "Set quantity — N items" title (tap-to-add flow) */
+  title?: string;
+  /** override the helper line; null hides it */
+  help?: string | null;
+  applyLabel?: string;
   onApply: (qty: number) => void;
   onClose: () => void;
 }) {
@@ -367,17 +375,20 @@ export function SetQtyDialog({
     <Dialog
       open
       onClose={onClose}
-      title={`Set quantity — ${count} ${noun}${count === 1 ? "" : "s"}`}
+      title={title ?? `Set quantity — ${count} ${noun}${count === 1 ? "" : "s"}`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={apply}>Apply to {count}</Button>
+          <Button onClick={apply}>{applyLabel ?? `Apply to ${count}`}</Button>
         </>
       }
     >
-      <Field label="Quantity" help={`Every selected ${noun} gets this quantity.`}>
+      <Field
+        label="Quantity"
+        help={help === null ? undefined : (help ?? `Every selected ${noun} gets this quantity.`)}
+      >
         <Input
           type="number"
           min={min}

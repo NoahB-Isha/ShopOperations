@@ -1,6 +1,7 @@
 /* The morning restock checklists, phone-first. Floor list = the ILscripts
    accumulator (sold enough since last restock → bring more out). Back list =
    floor cover running thin vs the warehouse. Check-off resets daily. */
+import { usePersistedState } from "../../persist";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCheckRestock, useResetFloorRestock, useRestock } from "../../api/hooks";
@@ -11,7 +12,7 @@ import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
 
 export function RestockPage() {
   const { data, isLoading } = useRestock();
-  const [tab, setTab] = useState<"floor" | "back">("floor");
+  const [tab, setTab] = usePersistedState<"floor" | "back">("restock.tab", "floor");
 
   const floorOpen = (data?.floor ?? []).filter((i) => !i.checked).length;
   const backOpen = (data?.back ?? []).length; // no check-off — the action is a transfer

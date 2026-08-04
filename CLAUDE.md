@@ -561,3 +561,32 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   QtyInput gained inputRef/onEnter + select-on-focus; ProductPicker gained
   inputRef + Enter-pick (onPick's optional viaEnter arg). e2e phase2/3 selectors
   (aria-labels, testids) deliberately untouched. Migration `b4e7d19c3f82`.
+- Mobile/PWA round (2026-08-04, same build-on rule): **Page-state persistence**
+  — `src/persist.ts` `usePersistedState(key, initial)` = useState mirrored to
+  sessionStorage (per-tab/app-session on purpose: fresh launch starts clean;
+  key CHANGE re-seeds via render-time derived-state, setter identity stable)
+  + `clearPersisted(...keys)` for submit flows (imperative — a setState write
+  effect can miss when navigation unmounts). Wired: catalog search/category/
+  tag/sort, place-order CART per center (`order.cart.{centerId}`) + notes +
+  search/category (duplicate-prefill overrides stored; placing clears), new-
+  transfer draft lines+notes (`transfer.new.*`, prefill replaces, submit
+  clears), PO review filters per order (`po.{id}.*`), TM category/search, OOS
+  scope/search/includeNever, restock tab, transfers filter, coming-soon
+  search, reports period/scope/dim, purchasing tab + per-kind status, users/
+  centers filters. Selections/menus stay ephemeral; list pages reset to page 1
+  by design. **PWA (add-to-home-screen)**: public/manifest.webmanifest
+  (standalone, portrait, icons 192/512 + 512-maskable generated from
+  il-mark.png via `uv run --with pillow`, bg #fbfafd) + apple-touch-icon-180
+  + apple-mobile-web-app metas + theme-color light/dark (#fbfafd/#131523) in
+  index.html; viewport gained `viewport-fit=cover` and the mobile top bar
+  wears `pt-[max(0.75rem,env(safe-area-inset-top))]` (BottomNav already had
+  the bottom inset). **iOS focus-zoom fix**: `@media (pointer: coarse)` in
+  tokens.css puts 16px on `.m3-control, input, select, textarea` — Safari
+  zooms any focused control under 16px (the A2HS test round caught it); no
+  maximum-scale hack, pinch-zoom stays. **Transfer tap flow**: tapping a
+  picker result now opens SetQtyDialog ("How many — {name}?", case-size
+  default, number pad, Enter applies, "Add to request") then returns focus
+  to search — the phone-in-the-aisle loop; the Enter keyboard flow is
+  unchanged (viaEnter branch). SetQtyDialog gained title/help(null hides)/
+  applyLabel overrides. No service worker yet (offline semantics vs auth +
+  polling deliberately punted).

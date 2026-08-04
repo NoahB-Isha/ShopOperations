@@ -4,6 +4,7 @@
    catalogs, honest availability on every row, a sticky cart bar, and a
    review sheet with the gentle reasonability check before the big button.
    Duplicate orders arrive prefilled via router state from Order history. */
+import { clearPersisted, usePersistedState } from "../../persist";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -325,13 +326,17 @@ export function PlaceOrderPage() {
 
   const { data: catalog, isLoading: loadingCatalog } = useOrderCatalog(centerId);
 
-  const [qtys, setQtys] = useState<Record<number, number>>({});
-  const [notes, setNotes] = useState(prefill?.notes ?? "");
+  // cart, notes and filters persist across menu navigation, per center —
+  // walking away to check stock must not empty a half-built order
+  const cartKey = `order.cart.${centerId ?? "none"}`;
+  const notesKey = `order.notes.${centerId ?? "none"}`;
+  const [qtys, setQtys] = usePersistedState<Record<number, number>>(cartKey, {});
+  const [notes, setNotes] = usePersistedState(notesKey, "");
   const [duplicateOfId, setDuplicateOfId] = useState<number | null>(
     prefill?.duplicate_of_id ?? null,
   );
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
+  const [search, setSearch] = usePersistedState("order.search", "");
+  const [category, setCategory] = usePersistedState("order.category", "");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [placed, setPlaced] = useState<CenterOrderOut | null>(null);
   const prefillApplied = useRef(false);
@@ -348,10 +353,11 @@ export function PlaceOrderPage() {
       else dropped += 1;
     }
     setQtys(next);
+    if (prefill.notes) setNotes(prefill.notes);
     if (dropped > 0) {
       toast.info(`${dropped} item(s) from the old order aren't on your catalog anymore.`);
     }
-  }, [prefill, catalog, toast]);
+  }, [prefill, catalog, toast, setQtys, setNotes]);
 
   const setQty = (productId: number, q: number) =>
     setQtys((prev) => {
@@ -628,6 +634,9 @@ export function PlaceOrderPage() {
           onPlaced={(order) => {
             setReviewOpen(false);
             setPlaced(order);
+            setQtys({});
+            setNotes("");
+            clearPersisted(cartKey, notesKey);
           }}
         />
       )}

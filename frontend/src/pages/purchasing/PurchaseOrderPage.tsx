@@ -1,3 +1,4 @@
+import { usePersistedState } from "../../persist";
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -93,12 +94,14 @@ export function PurchaseOrderPage() {
 function DraftReview({ detail }: { detail: PurchaseOrderDetailOut }) {
   const { order, lines } = detail;
   const toast = useToast();
-  const [search, setSearch] = useState("");
-  const [flagFilter, setFlagFilter] = useState<string>("");
-  const [category, setCategory] = useState("");
-  const [onlyOrdering, setOnlyOrdering] = useState(false);
+  // review-table filters persist per order — stepping out to All SKUs and
+  // back mid-review keeps your place
+  const [search, setSearch] = usePersistedState(`po.${order.id}.search`, "");
+  const [flagFilter, setFlagFilter] = usePersistedState<string>(`po.${order.id}.flag`, "");
+  const [category, setCategory] = usePersistedState(`po.${order.id}.category`, "");
+  const [onlyOrdering, setOnlyOrdering] = usePersistedState(`po.${order.id}.onlyOrdering`, false);
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<SortState | null>(null);
+  const [sort, setSort] = usePersistedState<SortState | null>(`po.${order.id}.sort`, null);
   const [inspecting, setInspecting] = useState<PurchaseOrderLineOut | null>(null);
   const [analogyFor, setAnalogyFor] = useState<PurchaseOrderLineOut | null>(null);
   const [placeOpen, setPlaceOpen] = useState(false);

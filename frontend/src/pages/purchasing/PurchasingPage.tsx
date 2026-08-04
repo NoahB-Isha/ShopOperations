@@ -1,3 +1,4 @@
+import { usePersistedState } from "../../persist";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -53,7 +54,7 @@ import { useSillyLabel } from "../../silly";
 type Tab = "india" | "domestic";
 
 export function PurchasingPage() {
-  const [tab, setTab] = useState<Tab>("india");
+  const [tab, setTab] = usePersistedState<Tab>("purchasing.tab", "india");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const orders = usePurchaseOrders("");
   const domesticPending = (orders.data ?? []).filter(
@@ -226,7 +227,7 @@ function OrdersTable({
   empty: React.ReactNode;
 }) {
   const navigate = useNavigate();
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = usePersistedState(`purchasing.${kind}.status`, "");
   const rows = orders.filter(
     (o) =>
       (o.order_type === "import") === (kind === "india") && (!status || o.status === status),

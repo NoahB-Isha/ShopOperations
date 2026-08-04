@@ -190,9 +190,10 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         <NavList items={items} />
       </aside>
 
-      {/* mobile top app bar */}
+      {/* mobile top app bar — standalone (home-screen) mode draws under the
+          status bar, so the top edge honors the safe-area inset */}
       <div className="sticky top-0 z-30 flex items-center justify-between bg-surface-container-low
-        px-4 py-3 md:hidden">
+        px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
         <Brand />
         <div className="flex items-center gap-1">
         <InboxMenu />

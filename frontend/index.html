@@ -2,10 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the standalone app draw under the notch;
+         safe-area padding in the shell keeps content clear of it -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Isha Life Ops</title>
     <!-- the brand flower from the iL mark -->
     <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- installable app: Add to Home Screen opens full screen, no browser nav -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Shop Ops" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfafd" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131523" />
   </head>
   <body>
     <div id="root"></div>

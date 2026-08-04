@@ -2,6 +2,7 @@
  * Past dates replay captured snapshot history (live-captured or backfilled
  * from Odoo's move ledger); future dates run the ordering engine's
  * projection net of incoming. */
+import { usePersistedState } from "../../persist";
 import { useEffect, useMemo, useState } from "react";
 import {
   useFacets,
@@ -52,7 +53,7 @@ export function TimeMachinePage() {
   const { roles } = useAuth();
   const backfill = useStartHistoryBackfill();
   const toast = useToast();
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = usePersistedState("tm.category", "");
   // the slider drags `pending`; the query follows 250ms behind
   const [pending, setPending] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
@@ -213,7 +214,7 @@ export function TimeMachinePage() {
     ];
   }, [v?.mode, hasDaySales]);
 
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = usePersistedState("tm.search", "");
 
   const eraClass =
     v?.mode === "past" ? "tm-era-past" : v?.mode === "future" ? "tm-era-future" : "";

@@ -1,7 +1,7 @@
 /* The BWHSE→Floor board — live like a food-POS screen (the query layer polls
    every few seconds, and the backend listens for Odoo barcode validations on
    each refresh). Orders carry their Odoo picking names. */
-import { useState } from "react";
+import { usePersistedState } from "../../persist";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useTransferRequests } from "../../api/hooks";
@@ -30,7 +30,7 @@ const ACTIVE = "requested,working_on_it,sent,counting";
 export function TransferRequestsPage() {
   const { roles } = useAuth();
   const isFloor = roles.has("shoppe_floor") || roles.has("admin");
-  const [filter, setFilter] = useState<string>("active");
+  const [filter, setFilter] = usePersistedState<string>("transfers.filter", "active");
   const { data, isLoading, dataUpdatedAt } = useTransferRequests(
     filter === "active" ? ACTIVE : filter,
   );
