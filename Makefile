@@ -4,7 +4,7 @@
 COMPOSE := docker compose -f infra/compose.yaml --project-directory . --project-name shopops
 
 .PHONY: help dev logs down nuke seed fixtures test test-backend test-frontend \
-        lint typecheck format e2e migrate revision
+        lint typecheck format e2e migrate revision openapi
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -45,6 +45,9 @@ test-backend: ## Backend unit + integration tests (no Docker needed)
 
 test-frontend: ## Frontend typecheck + unit tests
 	cd frontend && npm run --silent typecheck && npm run --silent test
+
+openapi: ## Regenerate docs/api/openapi.json from the FastAPI app
+	cd backend && uv run python scripts/export_openapi.py
 
 lint: ## Ruff + ESLint
 	uv run ruff check backend worker
