@@ -171,11 +171,21 @@ Nothing extra to create — `render.yaml` declares `shopops-frontend` (static bu
 
 1. **Import the repo** in Vercel → set **Root Directory = `frontend`**. It auto-detects Vite (`npm run build`, output `dist`). `frontend/vercel.json` (committed) already carries the SPA rewrite so deep links like `/settings` load.
 2. **Environment variable**: `VITE_API_BASE=https://<backend-host>` — the API client falls back to same-origin when unset, which only works when something proxies `/api` (dev, or the campus-box Caddy setup). On Vercel it must be set. Build-time only: change it → redeploy.
-3. Deploy. Add the resulting domain to the backend's `CORS_ORIGINS` (step 2) and redeploy the backend if you set it before knowing the domain.
+3. **Fill in the CSP origins — the app will not work until you do.** `frontend/vercel.json` ships a
+   Content-Security-Policy whose `connect-src` contains the literal placeholders `API_ORIGIN` and
+   `SUPABASE_ORIGIN`. Replace them with your real hosts (the same values as `VITE_API_BASE` and
+   `SUPABASE_URL`, without the scheme duplicated). Google OAuth needs the Supabase origin here;
+   leave `form-action 'self'` alone. `infra/Caddyfile` carries the same placeholder for the
+   on-campus profile. Symptom of forgetting: the page loads but every request fails, with CSP
+   violations in the browser console.
+4. Deploy. Add the resulting domain to the backend's `CORS_ORIGINS` (step 2) and redeploy the backend if you set it before knowing the domain.
 
 ## Step 4 — First-boot checklist
 
-1. `https://<backend-host>/api/v1/health` → `{"status": "ok", "db": true, ...}`.
+1. `https://<backend-host>/api/v1/health` → exactly `{"status": "ok", "db": true}`. It is a
+   liveness probe on purpose — the detailed payload (Odoo mode, sync freshness, whether writes
+   are enabled) moved to `/api/v1/health/detail` behind a session, because anonymous callers
+   should not be able to read this stack's write posture.
 2. Log in as an admin → **Status** page: Odoo connection "Live", trigger **Sync now** on products, then stock/sales/incoming (first sales run does the 24-month backfill — give it time).
 3. Confirm every `write_*` / `*_live` **feature flag is OFF**, and `ODOO_WRITES_ENABLED=false` until you deliberately re-canary each write operation **from this deployment** (Status page → canary), then enable.
 4. Time machine → **Backfill history** to reconstruct past stock from Odoo's move ledger.

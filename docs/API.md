@@ -9,7 +9,8 @@ a tool on top of it. It pairs with the machine-readable contract:
 | **OpenAPI spec (committed copy)** | [`docs/api/openapi.json`](api/openapi.json) — regenerate with `make openapi` |
 | **OpenAPI spec (live)** | `{BASE}/api/openapi.json` |
 | **Interactive docs (Swagger UI)** | `{BASE}/api/docs` — try requests in the browser |
-| **Health check** | `{BASE}/api/v1/health` (no auth) |
+| **Health check** | `{BASE}/api/v1/health` (no auth) — liveness only: `{"status","db"}` |
+| **Detailed status** | `{BASE}/api/v1/health/detail` (any signed-in user) — Odoo mode, sync freshness, write posture |
 
 `{BASE}` today:
 

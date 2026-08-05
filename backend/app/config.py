@@ -178,7 +178,11 @@ class Settings(BaseSettings):
     app_public_url: str = "http://localhost:5173"
 
     # --- seeds ---
-    seed_coordinator_xlsx: str = "docs/reference/IL City Coordinators.xlsx"
+    # Volunteer PII (names, emails, phones, addresses, Stripe terminal serials),
+    # so the workbook is in neither the repo nor the image: drop it in ./private/
+    # (gitignored, mounted read-only) or give an absolute host path. A missing
+    # file degrades gracefully — the seed skips the roster, the import 404s.
+    seed_coordinator_xlsx: str = "private/IL City Coordinators.xlsx"
 
     # --- web ---
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

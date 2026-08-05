@@ -62,8 +62,38 @@ test("styleguide renders every section", async ({ page }) => {
   }
 });
 
-test("health endpoint reports mode and staleness honestly", async ({ request }) => {
+test("public health is a thin liveness probe and leaks no posture", async ({ request }) => {
+  // The detailed payload used to be anonymous, which told any caller whether
+  // this stack was on live Odoo with writes enabled. It moved to /health/detail.
   const health = await (await request.get("/api/v1/health")).json();
+  expect(health.status).toBe("ok");
+  expect(health.db).toBe(true);
+  expect(health.odoo_mode).toBeUndefined();
+  expect(health.writes_enabled).toBeUndefined();
+  expect(health.sync).toBeUndefined();
+});
+
+test("detailed health needs a session and reports mode and staleness honestly", async ({
+  request,
+}) => {
+  expect((await request.get("/api/v1/health/detail")).status()).toBe(401);
+
+  const { dev_code } = await (
+    await request.post("/api/v1/auth/request-code", {
+      data: { identifier: "admin@demo.ishalife.test" },
+    })
+  ).json();
+  const { token } = await (
+    await request.post("/api/v1/auth/verify", {
+      data: { identifier: "admin@demo.ishalife.test", code: dev_code },
+    })
+  ).json();
+
+  const health = await (
+    await request.get("/api/v1/health/detail", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).json();
   // Works against fixture-mode demos AND live-credential dev stacks: what we
   // assert is the honest-reporting contract, not which mode we're in.
   expect(["fixture", "live"]).toContain(health.odoo_mode);

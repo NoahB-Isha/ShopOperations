@@ -11,7 +11,7 @@
           "health"
         ],
         "summary": "Health",
-        "description": "Unauthenticated app + sync health: reports snapshot age and staleness\nhonestly (no credentials, no PII).",
+        "description": "Public liveness probe \u2014 deliberately thin. Load balancers, the compose\nhealthcheck and Render need \"is this process up and is the DB reachable\",\nnothing more.\n\nThe full payload used to live here, which told any anonymous caller whether\nthis stack is pointed at live Odoo and whether writes are enabled: free\nreconnaissance for anyone deciding whether to keep poking. It moved to\n/health/detail behind a session (see below).",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -27,6 +27,35 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/health/detail": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Detail",
+        "description": "App + sync health for signed-in users (any role): snapshot age and\nstaleness reported honestly, plus Odoo mode / write posture. No\ncredentials, no PII \u2014 but not for anonymous callers either.",
+        "operationId": "health_detail_api_v1_health_detail_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Detail Api V1 Health Detail Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/config": {
@@ -138,7 +167,7 @@
           "auth"
         ],
         "summary": "Exchange",
-        "description": "Supabase mode: swap a verified Supabase session for an app session.",
+        "description": "Supabase mode: swap a verified Supabase session for an app session. This\nis the landing point for Google OAuth as well as email/SMS OTP \u2014 the app\nonly ever sees the resulting Supabase JWT, never a Google credential.",
         "operationId": "exchange_api_v1_auth_exchange_post",
         "requestBody": {
           "content": {
@@ -200,6 +229,26 @@
         ]
       }
     },
+    "/api/v1/auth/logout-everywhere": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout Everywhere",
+        "description": "Retire every session for the caller, including this one \u2014 the answer to\n\"I lost my phone\". Ordinary sign-out stays client-side.",
+        "operationId": "logout_everywhere_api_v1_auth_logout_everywhere_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/products": {
       "get": {
         "tags": [
@@ -219,6 +268,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "maxLength": 200,
               "default": "",
               "title": "Search"
             }
@@ -229,6 +279,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "maxLength": 100,
               "default": "",
               "title": "Category"
             }
@@ -239,6 +290,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "maxLength": 100,
               "default": "",
               "title": "Tag"
             }
@@ -249,6 +301,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "maxLength": 100,
               "default": "",
               "title": "Source"
             }
@@ -1382,6 +1435,18 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
             }
           }
         ],
@@ -5767,6 +5832,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
               "default": 50,
               "title": "Limit"
             }
@@ -6037,6 +6104,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
               "default": 100,
               "title": "Limit"
             }
@@ -6485,6 +6554,19 @@
             "type": "string",
             "title": "Supabase Anon Key",
             "default": ""
+          },
+          "oauth_providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Oauth Providers",
+            "default": []
+          },
+          "otp_enabled": {
+            "type": "boolean",
+            "title": "Otp Enabled",
+            "default": true
           }
         },
         "type": "object",
@@ -7414,6 +7496,7 @@
               "$ref": "#/components/schemas/LineIn"
             },
             "type": "array",
+            "maxItems": 500,
             "minItems": 1,
             "title": "Lines"
           }
@@ -9346,7 +9429,9 @@
           "counted_qty": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 100000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -11406,6 +11491,7 @@
               "$ref": "#/components/schemas/LineIn"
             },
             "type": "array",
+            "maxItems": 500,
             "minItems": 1,
             "title": "Lines"
           },

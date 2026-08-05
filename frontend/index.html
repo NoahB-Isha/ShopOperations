@@ -25,8 +25,9 @@
              `script-src 'self'` with no sha256 hash to recompute on every edit;
          (2) it must stay a CLASSIC script — type="module" or defer would run it
              after first paint;
-         (3) it must stay in <head>: a blocking script in <body> can be preceded
-             by a paint of the head's stylesheet, i.e. one default-palette frame.
+         (3) it must stay in the document head: a blocking script in the body
+             can be preceded by a paint of the head's stylesheet — one frame of
+             the default palette.
          Its palette ids stay in lockstep with styles/tokens.css and
          styles/palette-lab.css. -->
     <script src="/palette.js"></script>
