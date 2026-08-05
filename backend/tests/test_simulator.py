@@ -15,9 +15,9 @@ def test_search_read_filters(sim):
     assert len(rows) == 2  # duplicate variant fixture included
     rows = sim.search_read("product.product", [["name", "ilike", "toothpaste"]], ["name"])
     assert rows[0]["name"] == "Neem Toothpaste"
-    # bwhse, floor, staging, staging2 + the bwhse bin (subtree-matching
+    # bwhse, floor, staging, staging2, SHIP + the bwhse bin (subtree-matching
     # fixture) + 2 CityCenter
-    assert sim.search_count("stock.location", [["usage", "=", "internal"]]) == 7
+    assert sim.search_count("stock.location", [["usage", "=", "internal"]]) == 8
 
 
 def test_dotted_domain_via_relation(sim):

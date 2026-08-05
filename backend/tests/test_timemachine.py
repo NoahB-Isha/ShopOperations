@@ -226,14 +226,17 @@ def test_backfill_reconstructs_weekly_history(db, settings_env):
     assert days[TODAY].source == "sync"  # live capture untouched
 
     # the simulator serves current quants for any as-of date — the copper
-    # bottle's bwhse total (120 root + 30 bin) lands under the right key
+    # bottle's bwhse total (120 root + 30 bin + 25 folded in from SHIP)
+    # lands under the right key
     week_ago = TODAY - timedelta(weeks=1)
     skus = {p.id: p.global_sku for p in db.scalars(select(Product))}
     recon = {
         (skus[s.product_id], s.location_key): s.qty
         for s in db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == week_ago))
     }
-    assert recon[("CA0023000009", "bwhse")] == 150.0
+    assert recon[("CA0023000009", "bwhse")] == 175.0
+    # SHIP-only stock (the live sesame-oil shape) reconstructs as bwhse too
+    assert recon[("BL0000000021", "bwhse")] == 18.0
 
     # the past view labels reconstructed days honestly, never "high"
     settings = get_settings()

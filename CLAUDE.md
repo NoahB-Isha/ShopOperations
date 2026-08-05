@@ -109,7 +109,11 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   subtree (`child_of` + path-prefix classification in `app/sync/stock.py`), never by exact
   location id. Floor has a `Vending Machine` child (counts as floor). Also live:
   `III/CityCenter/<City>` per-center internal locations (54+ — the transfer target for
-  city-center flows in later phases) and `III/Stock/SHIP`.
+  city-center flows in later phases) and `III/Stock/SHIP` (live id 1234) — the
+  online-fulfillment stock area, which FOLDS INTO bwhse totals (see the 2026-08-04 fix
+  below): `ODOO_FOLDED_LOCATION_NAMES` in models/snapshots.py, quant classification only,
+  never the canonical bwhse OdooLocation row (transfer drafts must keep sourcing from the
+  real BWHSE).
 - Foundation modules to build on (never around): `app/odoo/writer.py` (all writes; add new
   operations to `OPERATION_FLAGS` + a typed method), `app/odoo/simulator.py` (extend RELATIONS /
   ONE2MANY registries for new query shapes), `app/sync/runner.py` (new sync domains register in
@@ -590,3 +594,26 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   unchanged (viaEnter branch). SetQtyDialog gained title/help(null hides)/
   applyLabel overrides. No service worker yet (offline semantics vs auth +
   polling deliberately punted).
+- SHIP-folds-into-bwhse fix (2026-08-04, same build-on rule): warehouse quantities
+  were understated because `III/Stock/SHIP` (the online-fulfillment stock area,
+  live id 1234 — **772 products / ~80k units**, incl. both sesame oils at ~2.1k
+  and 2.4k with ZERO under BWHSE) was outside the four synced roots. Noah's call:
+  SHIP counts as warehouse. `ODOO_FOLDED_LOCATION_NAMES` (models/snapshots.py) =
+  complete_name → key it folds into; the stock sync fetches/classifies folded
+  subtrees like roots but they NEVER become the key's canonical OdooLocation row
+  (writer._resolve_location feeds transfer drafts — bwhse must stay the real
+  BWHSE; the fold test locks this). Missing folded locations don't fail the sync;
+  they land in sync_state.extra `missing_folded_locations` (a SHIP rename =
+  ~80k units silently gone, so it must surface) and found ones in
+  `folded_locations`. The time-machine backfill folds them too (resolves by name
+  live — no OdooLocation row — and ACCUMULATES per (product, key), one extra
+  qty_available read per day). Downstream (ordering on-hand, OOS scopes, restock
+  back-stock, TM today, drawer graph) inherits via StockLevel/snapshots — no
+  other code changed. Fixtures: SHIP location + 2 quants (one folds onto existing
+  bwhse stock, one SHIP-only like live sesame oil); generate.py seeds SHIP quants
+  from its OWN rng stream so the seeded demo data elsewhere is untouched. Stock
+  snapshot rows before 2026-08-04 predate the fold — bwhse history jumps that
+  day, honestly. Still deliberately UNTRACKED: 190 stray units sitting directly
+  at the `III/Stock` root (put-away hygiene, not app scope), and Castor/Neem-Oil
+  6L SHIP counts (31k/20k) look physically implausible — Odoo-side data to audit,
+  not app bugs.

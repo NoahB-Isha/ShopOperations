@@ -56,6 +56,8 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 15, "complete_name": "III/Stock/BWHSE/A/1/1/1", "usage": "internal"},
         # the warehouse's consolidation staging (top-level sibling, like live)
         {"id": 16, "complete_name": "III/Staging2", "usage": "internal"},
+        # online-fulfillment stock: folds into bwhse totals (never a root)
+        {"id": 17, "complete_name": "III/Stock/SHIP", "usage": "internal"},
         # per-center locations: stock sync maps these to centers by leaf name
         {"id": 21, "complete_name": "III/CityCenter", "usage": "view"},
         {"id": 22, "complete_name": "III/CityCenter/Austin", "usage": "internal"},
@@ -86,6 +88,10 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         # picked into the warehouse's consolidation staging, pallet pending
         _q(9, 202, "Rudraksha Mala — 5mm", 16, "III/Staging2", 15),
         _q(10, 205, "Neem Toothpaste", 16, "III/Staging2", 36),
+        # SHIP folds into bwhse: one product that also has bin stock, and one
+        # (like live sesame oil) whose ONLY warehouse stock sits in SHIP
+        _q(11, 201, "Copper Water Bottle — 950ml", 17, "III/Stock/SHIP", 25),
+        _q(12, 206, "Bloom Ghee", 17, "III/Stock/SHIP", 18),
     ]
 
     pos_orders = [
@@ -221,7 +227,8 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         # sku -> products.sourcing after the sync (everything else "")
         "expected_sourcing": {"US-SN0001": "india", "OC0000000042": "domestic"},
         "expected_stock": {
-            ("CA0023000009", "bwhse"): 150.0,  # 120 at the root + 30 in bin A/1/1/1
+            # 120 at the root + 30 in bin A/1/1/1 + 25 folded in from SHIP
+            ("CA0023000009", "bwhse"): 175.0,
             ("CA0023000009", "floor"): 12.0,
             ("RU0000000005", "bwhse"): 40.0,
             ("RU0000000005", "staging2"): 15.0,
@@ -229,6 +236,7 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
             ("IN0000000777", "staging"): 4.0,
             ("OC0000000042", "staging2"): 36.0,
             ("US-SN0001", "bwhse"): 300.0,
+            ("BL0000000021", "bwhse"): 18.0,  # SHIP-only, the sesame-oil shape
         },
         # channels assume a Center named "Austin" exists in the app DB (the
         # sales test seeds it); without one the Austin config would honestly

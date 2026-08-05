@@ -29,6 +29,8 @@ LOCATIONS = [
     # the warehouse's pallet consolidation staging (live id 2030, a top-level
     # sibling of III/Stock — verified 2026-07-27)
     {"id": 19, "complete_name": "III/Staging2", "usage": "internal"},
+    # online-fulfillment stock — folds into bwhse totals (live id 1234)
+    {"id": 20, "complete_name": "III/Stock/SHIP", "usage": "internal"},
     {"id": 30, "complete_name": "III/CityCenter", "usage": "view"},
 ]
 
@@ -199,6 +201,13 @@ def generate_fixtures(
         if rng.random() < 0.012:
             qid += 1
             quants.append(_quant(qid, p, 13, "III/Stock/III-FLOOR-STAGING", float(rng.randint(1, 24))))
+    # SHIP (online-fulfillment stock, folds into bwhse) draws from its OWN rng
+    # stream so adding it never reshuffles the seeded demo data above/below.
+    ship_rng = random.Random(seed * 7919 + 17)
+    for p in products:
+        if ship_rng.random() < 0.15:
+            qid += 1
+            quants.append(_quant(qid, p, 20, "III/Stock/SHIP", float(ship_rng.randint(5, 400))))
 
     # ------------------------------------------------------------- sales
     # Orders shaped like production: many small orders per month per config,

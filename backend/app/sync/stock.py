@@ -1,9 +1,14 @@
-"""Stock sync: quants under the three app locations -> stock_levels.
+"""Stock sync: quants under the app locations -> stock_levels.
 
 Quants are matched by location SUBTREE (`child_of`), because on the live
 instance BWHSE stock actually sits in bin sub-locations like
 III/Stock/BWHSE/A/1/1/1, and the floor has children too (Vending Machine —
 still floor stock). Each quant is classified to its root by path prefix.
+
+Some locations FOLD INTO another key's totals (ODOO_FOLDED_LOCATION_NAMES:
+III/Stock/SHIP counts as bwhse — it's the online-fulfillment stock). Folded
+locations contribute quants only; they never become the key's canonical
+OdooLocation row, so transfer drafts keep sourcing from the real BWHSE.
 
 The whole snapshot is replaced inside the runner's transaction, so a failed
 pull can never leave a half-written table — the last good snapshot survives.
@@ -17,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import (
+    ODOO_FOLDED_LOCATION_NAMES,
     ODOO_LOCATION_NAMES,
     OPTIONAL_LOCATION_KEYS,
     Center,
@@ -39,15 +45,26 @@ CITY_CENTER_PREFIX = "III/CityCenter/"
 def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: SyncState) -> int:
     locations = conn.search_read(
         "stock.location",
-        [["complete_name", "in", list(ODOO_LOCATION_NAMES.keys())]],
+        [
+            [
+                "complete_name",
+                "in",
+                list(ODOO_LOCATION_NAMES) + list(ODOO_FOLDED_LOCATION_NAMES),
+            ]
+        ],
         ["complete_name"],
     )
     # key -> (complete_name, odoo id); a key may be reachable via several
     # spellings and the first match wins.
     roots: dict[str, tuple[str, int]] = {}
+    # extra roots whose quants count toward a key without owning it
+    folded: list[tuple[str, int, str]] = []  # (complete_name, odoo id, key)
     for loc in locations:
-        key = ODOO_LOCATION_NAMES[loc["complete_name"]]
-        roots.setdefault(key, (loc["complete_name"], loc["id"]))
+        name = loc["complete_name"]
+        if name in ODOO_LOCATION_NAMES:
+            roots.setdefault(ODOO_LOCATION_NAMES[name], (name, loc["id"]))
+        else:
+            folded.append((name, loc["id"], ODOO_FOLDED_LOCATION_NAMES[name]))
     missing = sorted(set(ODOO_LOCATION_NAMES.values()) - set(roots))
     missing_required = [k for k in missing if k not in OPTIONAL_LOCATION_KEYS]
     if missing_required:
@@ -69,7 +86,14 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
 
     quants = conn.search_read(
         "stock.quant",
-        [["location_id", "child_of", [odoo_id for _, odoo_id in roots.values()]]],
+        [
+            [
+                "location_id",
+                "child_of",
+                [odoo_id for _, odoo_id in roots.values()]
+                + [odoo_id for _, odoo_id, _ in folded],
+            ]
+        ],
         ["product_id", "location_id", "quantity"],
     )
 
@@ -81,9 +105,11 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
     }
 
     # Longest root name first so a sibling whose name merely extends another's
-    # (III-FLOOR vs III-FLOOR-STAGING) can never swallow its quants.
+    # (III-FLOOR vs III-FLOOR-STAGING) can never swallow its quants. Folded
+    # locations classify exactly like roots — only the resulting key differs
+    # from the location's own identity.
     ordered_roots = sorted(
-        ((name, odoo_id, key) for key, (name, odoo_id) in roots.items()),
+        [(name, odoo_id, key) for key, (name, odoo_id) in roots.items()] + folded,
         key=lambda t: -len(t[0]),
     )
 
@@ -127,6 +153,17 @@ def sync_stock(db: Session, settings: Settings, conn: OdooConnection, state: Syn
         extra["missing_optional_locations"] = missing_optional
     else:
         extra.pop("missing_optional_locations", None)
+    # A folded location going missing means its stock silently left the
+    # totals (a rename, most likely) — keep it visible on the status page.
+    missing_folded = sorted(set(ODOO_FOLDED_LOCATION_NAMES) - {n for n, _, _ in folded})
+    if missing_folded:
+        extra["missing_folded_locations"] = missing_folded
+    else:
+        extra.pop("missing_folded_locations", None)
+    if folded:
+        extra["folded_locations"] = {name: key for name, _, key in folded}
+    else:
+        extra.pop("folded_locations", None)
     state.extra = extra
     return len(totals)
 

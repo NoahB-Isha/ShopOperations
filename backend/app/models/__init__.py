@@ -80,6 +80,7 @@ from .reporting import (
     StockSnapshotDay,
 )
 from .snapshots import (
+    ODOO_FOLDED_LOCATION_NAMES,
     ODOO_LOCATION_NAMES,
     OPTIONAL_LOCATION_KEYS,
     SHOPPE_CHANNELS,
@@ -176,6 +177,7 @@ __all__ = [
     "TagName",
     "not_blacklisted",
     "not_clothing",
+    "ODOO_FOLDED_LOCATION_NAMES",
     "ODOO_LOCATION_NAMES",
     "OPTIONAL_LOCATION_KEYS",
     "SHOPPE_CHANNELS",

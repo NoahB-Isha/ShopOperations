@@ -50,6 +50,18 @@ ODOO_LOCATION_NAMES = {
 # missing OPTIONAL key is noted in sync_state.extra instead of failing.
 OPTIONAL_LOCATION_KEYS = {LocationKey.STAGING2.value}
 
+# Odoo locations whose quants FOLD INTO another key's stock totals without
+# becoming that key's canonical OdooLocation row. III/Stock/SHIP is where the
+# warehouse keeps stock for online-order fulfillment — it counts as warehouse
+# stock (Noah's call 2026-08-04; ~80k units / 772 products lived there
+# invisibly before this). Folded locations contribute quants only: transfer
+# drafts, pallets, and every other write keep resolving the canonical
+# location (bwhse must stay III/Stock/BWHSE). Missing folded locations never
+# fail a sync — they're noted in sync_state.extra so a rename surfaces.
+ODOO_FOLDED_LOCATION_NAMES = {
+    "III/Stock/SHIP": LocationKey.BWHSE.value,
+}
+
 
 class OdooLocation(Base):
     """Odoo stock.location ids discovered by sync, mapped to app keys."""

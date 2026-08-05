@@ -9,7 +9,8 @@ allowed — but it's a heavy computation for Odoo, so the protocol is polite:
   * an ADMIN requests it (never automatic), picking how many weeks back;
   * the request becomes a queue in the `timemachine_backfill_state`
     AppSetting; the WORKER processes ONE weekly date per loop pass
-    (~3 reads each, minutes apart in wall-clock terms);
+    (one read per app location incl. folded ones, minutes apart in
+    wall-clock terms);
   * reconstructed days are marked source='reconstructed' and the past view
     says so — they never impersonate live-captured snapshots, and a date the
     live capture already covers is never overwritten.
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import (
+    ODOO_FOLDED_LOCATION_NAMES,
     OdooLocation,
     Product,
     StockSnapshot,
@@ -123,9 +125,19 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
     if existing is not None and existing.source != "reconstructed":
         return 0  # live capture wins, always
 
-    roots = {loc.key: loc.odoo_id for loc in db.scalars(select(OdooLocation))}
-    if not roots:
+    reads = [(loc.key, loc.odoo_id) for loc in db.scalars(select(OdooLocation))]
+    if not reads:
         raise RuntimeError("no Odoo locations mapped yet — run a stock sync first")
+    # Folded locations (III/Stock/SHIP -> bwhse) count toward their key in
+    # reconstructed history too, so past days mean the same thing live
+    # captures do. Resolved by name here — they have no OdooLocation row.
+    if ODOO_FOLDED_LOCATION_NAMES:
+        for loc in conn.search_read(
+            "stock.location",
+            [["complete_name", "in", list(ODOO_FOLDED_LOCATION_NAMES)]],
+            ["complete_name"],
+        ):
+            reads.append((ODOO_FOLDED_LOCATION_NAMES[loc["complete_name"]], loc["id"]))
     id_by_odoo_pid = {
         odoo_id: pid
         for pid, odoo_id in db.execute(
@@ -134,7 +146,7 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
     }
 
     totals: dict[tuple[int, str], float] = {}
-    for key, odoo_loc_id in roots.items():
+    for key, odoo_loc_id in reads:
         records = conn.call_kw(
             "product.product",
             "search_read",
@@ -147,7 +159,7 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
                 continue
             qty = float(r.get("qty_available") or 0.0)
             if qty > 0:
-                totals[(product_id, key)] = qty
+                totals[(product_id, key)] = totals.get((product_id, key), 0.0) + qty
 
     now = utcnow()
     db.execute(delete(StockSnapshot).where(StockSnapshot.snapshot_date == day))

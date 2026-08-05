@@ -91,6 +91,43 @@ def test_stock_sync_aggregates_by_location(db, settings_env):
     assert got == settings_env._test_expectations["expected_stock"]
 
 
+def test_stock_sync_folds_ship_into_bwhse_without_owning_the_key(db, settings_env):
+    """III/Stock/SHIP quants count as warehouse stock, but the canonical
+    bwhse OdooLocation row must stay the REAL BWHSE — transfer drafts source
+    from it. A vanished SHIP degrades visibly, never fatally."""
+    from app.models import OdooLocation
+
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+
+    bwhse = db.scalar(select(OdooLocation).where(OdooLocation.key == "bwhse"))
+    assert bwhse.complete_name == "III/Stock/BWHSE"  # never SHIP
+    assert db.scalar(
+        select(OdooLocation).where(OdooLocation.complete_name == "III/Stock/SHIP")
+    ) is None  # folded locations get no canonical row
+    state = db.get(SyncState, "stock")
+    assert state.extra["folded_locations"] == {"III/Stock/SHIP": "bwhse"}
+
+    # SHIP renamed/deleted in Odoo: sync still succeeds, SHIP's stock drops
+    # out of the totals, and the status page can see why
+    sim.tables["stock.location"] = [
+        r for r in sim.tables["stock.location"] if r["complete_name"] != "III/Stock/SHIP"
+    ]
+    sim.tables["stock.quant"] = [
+        r for r in sim.tables["stock.quant"] if r["location_id"][0] != 17
+    ]
+    run = run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+    assert run.status == "success", run.error
+    state = db.get(SyncState, "stock")
+    assert state.extra["missing_folded_locations"] == ["III/Stock/SHIP"]
+    assert "folded_locations" not in state.extra
+    skus = {p.id: p.global_sku for p in db.scalars(select(Product))}
+    got = {(skus[s.product_id], s.location_key): s.qty for s in db.scalars(select(StockLevel))}
+    assert got[("CA0023000009", "bwhse")] == 150.0  # 120 root + 30 bin, no SHIP
+    assert ("BL0000000021", "bwhse") not in got  # SHIP-only stock left with it
+
+
 def test_stock_sync_captures_daily_history(db, settings_env):
     sim = _sim(settings_env)
     run_domain(db, settings_env, "products", conn=sim, trigger="manual")
