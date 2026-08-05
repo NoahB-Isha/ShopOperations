@@ -249,13 +249,13 @@ def polish_with_llm(settings: Settings, a: Assessment, context: dict) -> Assessm
     """Rewrite the order-level summary with the Anthropic API. Best-effort:
     any failure leaves the rules result untouched. The LLM may raise the
     level but never lower it below what the rules found."""
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_api_key.get_secret_value():
         return a
     try:
         import anthropic
 
         client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.anthropic_api_key.get_secret_value(),
             timeout=settings.reasonability_llm_timeout_seconds,
             max_retries=0,  # this is a live request path; degrade fast instead
         )

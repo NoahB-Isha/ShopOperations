@@ -44,11 +44,14 @@ envVarGroups:
         value: "30"
       - key: OTP_EXP_MINUTES
         value: "10"
-      # Start on "dev" to verify the deployment (codes shown on screen — anyone
-      # with the URL can log in as anyone, keep this window short and the URL
-      # private). Switch to "supabase" + fill SUPABASE_* before real users.
+      # MUST be set deliberately, to "supabase" (and SUPABASE_URL /
+      # SUPABASE_ANON_KEY / SUPABASE_JWT_SECRET filled in). This used to ship
+      # hardcoded as "dev" on an ENV=prod service, which returns login codes in
+      # the API response — anyone with the URL could sign in as anyone,
+      # including admin. The app now refuses to boot with dev auth outside a
+      # dev/test/local ENV, so a wrong value fails loudly instead of quietly.
       - key: AUTH_MODE
-        value: dev
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
@@ -93,9 +96,15 @@ envVarGroups:
       - key: SALES_BACKFILL_MONTHS
         value: "24"
 
-      # ── seeds / reference files (baked into the image) ──
+      # ── seeds / reference files ──
+      # The coordinator roster carries personal data, so it is neither in the
+      # repo nor in the image — and Render has no host mount to drop it on.
+      # Leave this BLANK unless you have attached a Render disk holding the
+      # workbook; then set the path on the disk and trigger the roster import
+      # deliberately with POST /api/v1/admin/import/coordinators (admin
+      # session), which reads exactly this path. Blank = no roster import.
       - key: SEED_COORDINATOR_XLSX
-        value: docs/reference/IL City Coordinators.xlsx
+        sync: false
 
       # ── public URL (the frontend's) — notification links point here ──
       - key: APP_PUBLIC_URL

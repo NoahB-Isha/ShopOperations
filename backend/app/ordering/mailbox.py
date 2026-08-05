@@ -88,7 +88,7 @@ def poll_mailbox(db: Session, settings: Settings) -> int:
     last_uid = int(state.get("last_uid") or 0)
 
     with imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port) as imap:
-        imap.login(settings.imap_username, settings.imap_password)
+        imap.login(settings.imap_username, settings.imap_password.get_secret_value())
         imap.select(settings.imap_folder, readonly=True)  # READ-ONLY, always
         status, data = imap.uid("search", f"UID {last_uid + 1}:*")
         if status != "OK":

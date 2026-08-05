@@ -26,10 +26,21 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ilops:ilops@db:5432/ilops}
+      # Uvicorn trusts X-Forwarded-For only from this address (see
+      # infra/docker/backend-entrypoint.sh). Under the prod profile the proxy is
+      # the caddy container, so set FORWARDED_ALLOW_IPS to its address/subnet —
+      # never "*", which lets any caller spoof its IP past the rate limiter.
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback-only on purpose: a dev stack runs dev auth, which hands out
+      # login codes in the API response — it must not be reachable from the LAN.
+      # (The prod profile publishes through caddy below instead.)
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
-      - ./docs:/app/docs:ro # coordinator workbook for the roster import
+      - ./docs:/app/docs:ro # reference files (parity workbook, notes)
+      # PII workbooks live here, gitignored and never in an image: the
+      # coordinator roster (~58 emails, ~66 phones, Stripe serials) is copied
+      # onto each host by hand. Read-only — the app only ever imports from it.
+      - ./private:/app/private:ro
       - appdata:/app/backend/data # generated demo fixtures, shared with the worker
     depends_on:
       db:
@@ -53,6 +64,7 @@ services:
       RUN_MIGRATIONS: "0" # backend owns migrations
     volumes:
       - ./docs:/app/docs:ro
+      - ./private:/app/private:ro # gitignored PII workbooks (see backend)
       - appdata:/app/backend/data
     depends_on:
       backend:
@@ -69,7 +81,9 @@ services:
       # bind-mount file events don't always reach the container; poll instead
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      # Loopback-only: same reason as the API above (dev auth). Reach a dev
+      # stack from another device over an SSH tunnel, not by binding 0.0.0.0.
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
@@ -86,6 +100,9 @@ services:
       target: prod
     restart: unless-stopped
     ports:
+      # Deliberately on all interfaces: this is the one entry point the
+      # Cloudflare Tunnel (or the LAN) is meant to reach. It fronts a stack that
+      # must be running AUTH_MODE=supabase, never dev auth.
       - "80:80"
     volumes:
       - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..auth.deps import AuthedUser, get_current_user, require_roles
 from ..config import Settings, get_settings
 from ..db import get_db
+from ..downloads import attachment_headers, download_response
 from ..models import (
     AnalogyStatus,
     ForecastAnalogy,
@@ -437,6 +438,9 @@ def create_order_from_upload(
 @router.get("/orders", response_model=list[OrderSummaryOut])
 def list_orders(
     status: str | None = None,
+    # every summary eagerly loads every line of its order, so the page ceiling
+    # is what keeps a listing from materializing the whole order history
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     query = (
@@ -446,7 +450,7 @@ def list_orders(
     )
     if status:
         query = query.where(PurchaseOrder.status == status)
-    orders = db.execute(query).scalars().all()
+    orders = db.execute(query.limit(limit)).scalars().all()
     pending = _pending_counts(db, [o.id for o in orders])
     return [_summary(o, pending.get(o.id, 0)) for o in orders]
 
@@ -651,9 +655,7 @@ def export_csv(order_id: int, db: Session = Depends(get_db)):
     return Response(
         content=rows_to_csv(rows),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="{order.display_name} ORDER LIST.csv"'
-        },
+        headers=attachment_headers(f"{order.display_name} ORDER LIST.csv"),
     )
 
 
@@ -664,9 +666,7 @@ def export_xlsx(order_id: int, db: Session = Depends(get_db)):
     return Response(
         content=rows_to_xlsx(rows, order.display_name),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{order.display_name} ORDER LIST.xlsx"'
-        },
+        headers=attachment_headers(f"{order.display_name} ORDER LIST.xlsx"),
     )
 
 
@@ -749,11 +749,9 @@ def download_attachment(order_id: int, attachment_id: int, db: Session = Depends
     attachment = db.get(OrderAttachment, attachment_id)
     if attachment is None or attachment.order_id != order_id:
         raise HTTPException(404, "attachment not found")
-    return Response(
-        content=attachment.data,
-        media_type=attachment.content_type,
-        headers={"Content-Disposition": f'attachment; filename="{attachment.filename}"'},
-    )
+    # filename AND content type came from an inbound email — both sanitized,
+    # and an unlisted type downloads as opaque bytes rather than rendering.
+    return download_response(attachment.data, attachment.filename, attachment.content_type)
 
 
 @router.post("/proposals/{proposal_id}/decide", response_model=TimelineOut)
@@ -980,11 +978,7 @@ def download_product_list(db: Session = Depends(get_db)):
     if stored is None:
         raise HTTPException(404, "no product list uploaded")
     filename, data = stored
-    return Response(
-        content=data,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return download_response(data, filename)
 
 
 @router.delete("/product-list", status_code=204)

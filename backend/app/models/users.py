@@ -131,6 +131,10 @@ class User(Base, TimestampMixin):
     auth_uid: Mapped[str | None] = mapped_column(String(64), unique=True)  # Supabase user id
     invited_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Bumped to invalidate every existing session for this user (logout
+    # everywhere, role change, suspected compromise). Session tokens carry the
+    # epoch they were minted at; a mismatch is a 401.
+    token_epoch: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     roles: Mapped[list[RoleAssignment]] = relationship(
         back_populates="user", cascade="all, delete-orphan", foreign_keys="RoleAssignment.user_id"

@@ -1,7 +1,7 @@
 """Admin: sync status & triggers, feature flags, audit log, canary, imports."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from ..notify import service as notify_service
 from ..odoo.canary import run_canary_create_internal_transfer
 from ..odoo.connection import get_connection
 from ..odoo.contract import check_contract
+from ..ratelimit import rate_limit
 from ..sync.runner import run_all, run_domain
 from ..sync.status import domain_statuses, health_payload, recent_runs
 from ..timemachine.backfill import backfill_state, request_backfill
@@ -56,12 +57,18 @@ def status(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
 
 
 @router.get("/notifications")
-def list_notifications(limit: int = 50, db: Session = Depends(get_db)) -> list[dict]:
+def list_notifications(
+    limit: int = Query(50, ge=1, le=500), db: Session = Depends(get_db)
+) -> list[dict]:
     """The outbox, newest first — who was (or would have been) told what."""
     return notify_service.recent_notifications(db, limit)
 
 
-@router.post("/sync/sales/rebuild")  # BEFORE /sync/{domain} — route order matters
+# Heavy Odoo pulls: a slow ceiling that still lets an operator retry.
+@router.post(  # BEFORE /sync/{domain} — route order matters
+    "/sync/sales/rebuild",
+    dependencies=[Depends(rate_limit("admin:sync-rebuild", limit=3, per_seconds=3600))],
+)
 def rebuild_sales_history(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -101,7 +108,10 @@ def start_history_backfill(
     }
 
 
-@router.post("/sync/{domain}")
+@router.post(
+    "/sync/{domain}",
+    dependencies=[Depends(rate_limit("admin:sync", limit=20, per_seconds=300))],
+)
 def trigger_sync(
     domain: str,
     db: Session = Depends(get_db),
@@ -152,9 +162,11 @@ def set_flag(
 
 
 @router.get("/audit")
-def audit_log(limit: int = 100, db: Session = Depends(get_db)) -> list[dict]:
+def audit_log(
+    limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)
+) -> list[dict]:
     rows = db.scalars(
-        select(OdooWriteAudit).order_by(OdooWriteAudit.id.desc()).limit(min(limit, 500))
+        select(OdooWriteAudit).order_by(OdooWriteAudit.id.desc()).limit(limit)
     ).all()
     return [
         {

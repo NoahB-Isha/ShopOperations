@@ -16,6 +16,7 @@ outright). Every operation here:
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -220,8 +221,10 @@ class OdooWriter:
         transfer_lines: list[TransferLine] = []
         for line in lines:
             qty = float(line.get("qty", 0))
-            if qty <= 0:
-                raise WriterValidationError(f"Quantity must be positive (got {qty}).")
+            # NaN fails EVERY comparison, so `qty <= 0` let it through and it
+            # reached the move payload; inf would too. Check finiteness first.
+            if not math.isfinite(qty) or not qty > 0:
+                raise WriterValidationError(f"Quantity must be a positive number (got {qty}).")
             product = self.db.get(Product, int(line.get("product_id", 0)))
             if product is None:
                 raise WriterValidationError(f"Unknown product id {line.get('product_id')}.")
@@ -470,8 +473,10 @@ class OdooWriter:
         discipline, opposite directions."""
         started = time.monotonic()
 
-        if qty <= 0:
-            raise WriterValidationError(f"Quantity must be positive (got {qty:g}).")
+        # NaN fails EVERY comparison, so `qty <= 0` let it through onto a real
+        # adjustment draft; inf would too. Check finiteness first.
+        if not math.isfinite(qty) or not qty > 0:
+            raise WriterValidationError(f"Quantity must be a positive number (got {qty:g}).")
         product = self.db.get(Product, int(product_id))
         if product is None:
             raise WriterValidationError(f"Unknown product id {product_id}.")

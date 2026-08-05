@@ -16,6 +16,9 @@ def get_engine():
     if _engine is None:
         settings = get_settings()
         kwargs: dict = {"pool_pre_ping": True}
+        # Explicit, small pool: the API is one process and Supabase's transaction
+        # pooler counts every connection. pool_recycle survives its idle timeout.
+        kwargs.update(pool_size=5, max_overflow=5, pool_recycle=1800, pool_timeout=10)
         if settings.database_url.startswith("sqlite"):
             kwargs = {"connect_args": {"check_same_thread": False}}
         _engine = create_engine(settings.database_url, **kwargs)

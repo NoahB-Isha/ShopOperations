@@ -130,11 +130,43 @@ def staging2_snapshot(db: Session, settings: Settings) -> Staging2Snapshot:
     return Staging2Snapshot(items=items, source=source, note=note)
 
 
+def open_pallet(db: Session) -> PalletTransfer | None:
+    """The pallet still awaiting validation in Odoo, if there is one. 'Open'
+    means the app rendered a picking (created live, or simulated when writes
+    are gated) and the validation listener hasn't seen it land or cancel."""
+    return db.scalars(
+        select(PalletTransfer)
+        .where(
+            PalletTransfer.status == "open",
+            PalletTransfer.picking_status.in_(
+                (OdooWriteOutcome.CREATED.value, OdooWriteOutcome.SIMULATED.value)
+            ),
+        )
+        .order_by(PalletTransfer.id.desc())
+    ).first()
+
+
 def create_pallet(
     db: Session, settings: Settings, actor_user_id: int | None
 ) -> tuple[PalletTransfer, Staging2Snapshot]:
     """Render the pallet: ONE draft internal transfer moving everything in
     staging2 to floor staging. Draft only — a human validates in Odoo."""
+    # One open pallet at a time. Each pallet gets its OWN ILAPP-PLT- reference,
+    # so the writer's origin-keyed dedupe cannot catch a double send-all: two
+    # clicks would render two drafts over the same staging2 stock. The check
+    # has to live here.
+    existing = open_pallet(db)
+    if existing is not None:
+        name = existing.odoo_picking_name or existing.picking_reference
+        if existing.picking_status == OdooWriteOutcome.SIMULATED.value:
+            raise ValueError(
+                f"Pallet {name} is still open and was only simulated (Odoo writes are "
+                "gated) — nothing reached Odoo, so a second pallet would be noise too."
+            )
+        raise ValueError(
+            f"Pallet {name} is still waiting to be validated — validate or cancel it "
+            "in Odoo, then send the next one."
+        )
     snapshot = staging2_snapshot(db, settings)
     if snapshot.source == "unmapped":
         raise ValueError(snapshot.note)

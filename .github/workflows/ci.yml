@@ -13,8 +13,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      # --frozen: a uv.lock that no longer matches pyproject.toml must FAIL the
+      # build, not get silently re-resolved to versions nobody reviewed (which
+      # is also what the Docker images install with `uv sync --frozen`).
       - name: Install
-        run: uv sync --all-packages
+        run: uv sync --all-packages --frozen
       - name: Lint (ruff)
         run: uv run ruff check backend worker
       - name: Typecheck (mypy)
@@ -45,3 +48,45 @@ jobs:
         run: npm test
       - name: Build
         run: npx vite build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — gitleaks scans history, not just the tip commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # Audit exactly what the images install: the locked, non-dev runtime set.
+      - name: Python dependency audit (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # --ignore-scripts: never run a dependency's install hooks just to audit it.
+      - name: JS dependency audit (npm audit)
+        working-directory: frontend
+        run: |
+          npm ci --omit=dev --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+
+      # Secret scan over the full history. NOTE: gitleaks-action v2 requires a
+      # GITLEAKS_LICENSE for repositories owned by an ORGANIZATION (free for
+      # personal repos). If a license is not wanted, drop this step and run the
+      # container directly instead — no license, no telemetry:
+      #   - name: Secret scan (gitleaks)
+      #     run: >-
+      #       docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest
+      #       detect --source=/repo --redact --no-banner
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

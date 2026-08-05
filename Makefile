@@ -9,9 +9,14 @@ COMPOSE := docker compose -f infra/compose.yaml --project-directory . --project-
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
+# Only runs when .env is absent, so an existing file is never clobbered.
+# .env.example ships APP_JWT_SECRET empty (a committed secret is a public
+# secret); fill it with a fresh random value here so local sessions survive
+# restarts without anyone reusing a value out of the repo.
 .env:
 	cp .env.example .env
-	@echo "Created .env from .env.example (safe local defaults — fixture mode, dev auth)."
+	@python3 -c 'import pathlib, secrets; p = pathlib.Path(".env"); p.write_text(p.read_text().replace("APP_JWT_SECRET=\n", "APP_JWT_SECRET=" + secrets.token_urlsafe(48) + "\n", 1))'
+	@echo "Created .env from .env.example (fixture mode, dev auth) with a fresh APP_JWT_SECRET."
 
 dev: .env ## Bring up the full stack (db, backend, worker, frontend)
 	$(COMPOSE) up --build -d

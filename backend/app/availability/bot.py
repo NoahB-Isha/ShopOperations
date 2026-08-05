@@ -23,9 +23,12 @@ def require_bot_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    if not settings.skubot_api_key:
+    # Read once: SecretStr("") is truthy, so the blank-means-disabled check
+    # has to look at the value, not the wrapper.
+    expected = settings.skubot_api_key.get_secret_value()
+    if not expected:
         raise HTTPException(503, "bot API not configured (set SKUBOT_API_KEY)")
-    if not x_api_key or not hmac.compare_digest(x_api_key, settings.skubot_api_key):
+    if not x_api_key or not hmac.compare_digest(x_api_key, expected):
         raise HTTPException(401, "invalid API key")
 
 

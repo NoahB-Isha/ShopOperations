@@ -3,15 +3,38 @@ from __future__ import annotations
 import os
 
 import pytest
-from app.models import SyncState
+from app.models import Role, SyncState
 from app.odoo.contract import check_contract
 from app.odoo.simulator import OdooSimulator
 from app.sync.runner import run_all
 from sqlalchemy import select
 
+from .util import login, mk_user
+
+
+def _detail(client, db) -> dict:
+    """The detailed payload needs a session (any role) — it reports Odoo mode
+    and write posture, which anonymous callers no longer get."""
+    mk_user(db, "health@test.local", (Role.ADMIN, None, None))
+    headers = login(client, "health@test.local")
+    r = client.get("/api/v1/health/detail", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_public_health_is_liveness_only(client, db):
+    """No auth, and no posture: status + db reachability, nothing else."""
+    r = client.get("/api/v1/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "db": True}
+
+
+def test_health_detail_requires_a_session(client, db):
+    assert client.get("/api/v1/health/detail").status_code == 401
+
 
 def test_health_reports_never_synced_honestly(client, db):
-    body = client.get("/api/v1/health").json()
+    body = _detail(client, db)
     assert body["status"] == "degraded"
     assert body["odoo_mode"] == "fixture"
     assert body["writes_enabled"] is False
@@ -21,7 +44,7 @@ def test_health_reports_never_synced_honestly(client, db):
 
 def test_health_ok_after_full_sync(client, db, settings_env):
     run_all(db, settings_env, trigger="manual")
-    body = client.get("/api/v1/health").json()
+    body = _detail(client, db)
     assert body["status"] == "ok"
     assert all(not d["stale"] for d in body["sync"].values())
     assert body["sync"]["sales"]["extra"].get("backfill_done_at")
@@ -33,7 +56,7 @@ def test_health_screams_on_auth_failure(client, db, settings_env):
     state.auth_failed = True
     state.last_error = "OdooAuthError: Access Denied"
     db.commit()
-    body = client.get("/api/v1/health").json()
+    body = _detail(client, db)
     assert body["status"] == "degraded"
     assert body["odoo_auth_failed"] is True
 

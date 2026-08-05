@@ -106,13 +106,13 @@ _LLM_SCHEMA: dict[str, Any] = {
 def llm_suggest(
     settings: Settings, product: Product, candidates: list[Product]
 ) -> tuple[Product, str] | None:
-    if not settings.anthropic_api_key or not candidates:
+    if not settings.anthropic_api_key.get_secret_value() or not candidates:
         return None
     try:
         import anthropic
 
         client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.anthropic_api_key.get_secret_value(),
             timeout=settings.ordering_parser_llm_timeout_seconds,
             max_retries=0,
         )

@@ -1,0 +1,32 @@
+# Weekly dependency updates. Paired with the CI `security` job (pip-audit,
+# npm audit, gitleaks): the audits tell you something is vulnerable, these PRs
+# are how it gets fixed.
+version: 2
+updates:
+  # Python — the uv workspace at the repo root (pyproject.toml + uv.lock).
+  # If this Dependabot install predates uv support, change `package-ecosystem`
+  # to "pip": it reads the same pyproject.toml, it just won't refresh uv.lock,
+  # so `uv lock` has to be run by hand on those PRs (CI runs --frozen and will
+  # fail loudly if the lock is stale).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Base images in the Dockerfiles (python, node, caddy, and the uv copy stage).
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

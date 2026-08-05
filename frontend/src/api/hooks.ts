@@ -160,8 +160,10 @@ export function useUpdateUser() {
 
 export function useHealth() {
   return useQuery({
+    // /health is the public liveness probe (status + db only); the sync/staleness
+    // and Odoo-posture payload lives behind a session at /health/detail.
     queryKey: ["health"],
-    queryFn: () => api<HealthOut>("/health"),
+    queryFn: () => api<HealthOut>("/health/detail"),
     refetchInterval: 60_000,
   });
 }

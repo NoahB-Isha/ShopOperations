@@ -1,4 +1,14 @@
 # Dev target: Vite dev server with HMR (compose mounts the source).
+#
+# Deliberately runs as ROOT: `npm ci` writes node_modules into a bind-mounted
+# volume, and `USER node` would only work when the host uid happens to map to
+# 1000. This target is never deployed — the prod target below is.
+#
+# Base images are moving tags. Pin them by digest for reproducible builds:
+#   docker buildx imagetools inspect node:22-slim
+#   docker buildx imagetools inspect caddy:2-alpine
+# then `FROM node:22-slim@sha256:<digest>`. Dependabot's `docker` ecosystem
+# entry (.github/dependabot.yml) keeps such pins current.
 FROM node:22-slim AS dev
 WORKDIR /app
 EXPOSE 5173

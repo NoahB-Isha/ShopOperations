@@ -278,13 +278,13 @@ _LLM_SCHEMA: dict[str, Any] = {
 def llm_extract(settings: Settings, order: PurchaseOrder, body: str) -> list[Extraction] | None:
     """Anthropic-backed extraction. Returns None when unavailable/failed so
     the caller falls back to heuristics — parsing must never break ingestion."""
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_api_key.get_secret_value():
         return None
     try:
         import anthropic
 
         client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.anthropic_api_key.get_secret_value(),
             timeout=settings.ordering_parser_llm_timeout_seconds,
             max_retries=0,
         )

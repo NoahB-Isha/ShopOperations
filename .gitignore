@@ -18,6 +18,15 @@ frontend/playwright-report/
 .env.*
 !.env.example
 
+# PII workbooks — never commit personal data. The coordinator roster holds ~58
+# emails, ~66 phone numbers, addresses and Stripe terminal serials; it lives in
+# ./private/ on each host and is mounted read-only into the containers.
+/private/
+docs/reference/*.xlsx
+# EXCEPTION: the forecasting workbook MUST stay tracked — it is the spec of
+# record for tests/test_workbook_parity.py and contains no personal data.
+!docs/reference/USA INV CHK.xlsx
+
 # Generated data (demo fixtures, local caches, sqlite scratch DBs)
 backend/data/
 *.sqlite3

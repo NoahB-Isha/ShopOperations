@@ -15,6 +15,7 @@ Bridge HTTP contract (implemented by skubot):
 from __future__ import annotations
 
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Protocol
@@ -58,7 +59,7 @@ class BridgeWhatsAppTransport:
 
     def __init__(self, settings: Settings):
         self._base = settings.whatsapp_bridge_url.rstrip("/")
-        self._token = settings.whatsapp_bridge_token
+        self._token = settings.whatsapp_bridge_token.get_secret_value()
         self._timeout = settings.whatsapp_bridge_timeout_seconds
 
     def _headers(self) -> dict:
@@ -147,9 +148,12 @@ class SmtpEmailTransport:
         try:
             with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
                 if s.smtp_starttls:
-                    smtp.starttls()
+                    # The default context verifies the certificate chain AND the
+                    # hostname. Bare starttls() does neither, so anyone able to
+                    # answer for the SMTP host gets the password on the next line.
+                    smtp.starttls(context=ssl.create_default_context())
                 if s.smtp_username:
-                    smtp.login(s.smtp_username, s.smtp_password)
+                    smtp.login(s.smtp_username, s.smtp_password.get_secret_value())
                 smtp.send_message(msg)
         except (smtplib.SMTPException, OSError) as e:
             raise TransportError(f"smtp send failed: {e}") from e

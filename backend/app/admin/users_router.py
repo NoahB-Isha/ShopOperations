@@ -119,8 +119,12 @@ def update_user(user_id: int, body: UserUpdateIn, db: Session = Depends(get_db))
         user.display_name = body.display_name.strip()
     if body.is_active is not None:
         user.is_active = body.is_active
+        if not body.is_active:
+            user.token_epoch = int(user.token_epoch or 0) + 1
     if body.roles is not None:
         _validate_role_scopes(db, body.roles)
+        # A role change must not leave old sessions running the old permissions.
+        user.token_epoch = int(user.token_epoch or 0) + 1
         for a in list(user.roles):
             db.delete(a)
         db.flush()

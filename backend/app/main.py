@@ -25,6 +25,7 @@ from .ordering.router import router as ordering_router
 from .orders.router import router as orders_router
 from .reporting.router import router as reports_router
 from .restock.router import router as restock_router
+from .security_headers import SecurityHeadersMiddleware
 from .timemachine.router import router as timemachine_router
 from .transfers.router import adjustments_router
 from .transfers.router import router as transfers_router
@@ -37,9 +38,18 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Isha Life Shop Ops API",
         version=__version__,
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        # Dev only. In production the interactive docs hand an anonymous caller
+        # the whole surface map (every path, payload shape and admin operation),
+        # which is reconnaissance we don't need to give away. `make openapi`
+        # exports the schema straight off the app object, so the committed
+        # contract in docs/api/openapi.json is unaffected.
+        docs_url="/api/docs" if settings.is_dev_env else None,
+        openapi_url="/api/openapi.json" if settings.is_dev_env else None,
     )
+
+    # HSTS only off-dev: on plain-http localhost it would pin the browser to
+    # https for a year.
+    app.add_middleware(SecurityHeadersMiddleware, hsts=not settings.is_dev_env)
 
     app.add_middleware(
         CORSMiddleware,
@@ -81,7 +91,11 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:
-        return {"app": "Isha Life Shop Ops", "version": __version__, "docs": "/api/docs"}
+        body: dict = {"app": "Isha Life Shop Ops", "version": __version__}
+        # Only advertise the docs where they actually exist (see docs_url above).
+        if settings.is_dev_env:
+            body["docs"] = "/api/docs"
+        return body
 
     return app
 

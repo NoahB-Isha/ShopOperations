@@ -17,6 +17,9 @@ os.environ.update(
         "SUPABASE_ANON_KEY": "",
         "SUPABASE_JWT_SECRET": "",
         "ENV": "test",
+        # In-process counters are global; the suite calls some endpoints in
+        # tight loops. test_ratelimit.py turns this on deliberately.
+        "RATE_LIMIT_ENABLED": "false",
     }
 )
 
@@ -71,5 +74,7 @@ def db(settings_env):
 @pytest.fixture()
 def client(db):
     from app.main import create_app
+    from app.ratelimit import reset_for_tests
 
+    reset_for_tests()  # counters are process-global; tests share one process
     return TestClient(create_app())

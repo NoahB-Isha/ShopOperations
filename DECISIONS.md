@@ -576,3 +576,75 @@ wearing dark text (gold is a light hue; white-on-gold would fail contrast), slat
 violet tertiary, cool lavender surfaces, carbon ink. Each palette now themes
 inverse-surface too, so snackbars match their world. Dark mode stays the one global
 slate-indigo scheme.
+
+**2026-08-05 — Security audit remediation: config fails closed, Google OAuth, verified-claim linking** *(security review)*
+A four-agent defensive audit found the app layer sound (every route guarded, row scoping
+correct, the Odoo write gateway bypass-free, no SQLi/command-injection/path-traversal, no
+secret ever committed) and the risk concentrated in **deployment configuration** and in
+**what leaves the building**. Live probe: an instance reachable off-loopback answered
+`{"mode":"dev"}` while its `/health` reported `odoo_mode=live, writes_enabled=true`.
+
+The fixes, and why they are shaped this way:
+
+**Config now refuses to boot.** `Settings` gained a `model_validator` that raises
+`InsecureConfig` when `ENV` is not in `DEV_ENVS` and any of: `AUTH_MODE != supabase`, an
+empty/published/short `APP_JWT_SECRET`, or `*` in `CORS_ORIGINS`. The published default
+`dev-only-change-me` is gone — `app_jwt_secret` defaults to `""`, and in dev a blank or
+published value is replaced with a random per-process one (sessions end on restart; dev
+codes render on screen, so that costs one click). The root cause was that nothing failed
+when the config was wrong, so `test_config_security.py` is the control, not the patch.
+`render.yaml` no longer commits `AUTH_MODE: dev` on the `ENV=prod` service — it is
+`sync: false`, set deliberately.
+
+**`dev_auth` is the gate, never `auth_mode`.** Anything that leaks a login code checks
+`settings.dev_auth` = dev ENVIRONMENT **and** dev mode, so a mode mistake alone can't
+hand a code to an anonymous caller. Login responses are now uniform for known, unknown
+and inactive identifiers (the old 404 was an account-existence oracle) — `login()` in the
+tests still works because dev mode still returns the code for a real user.
+
+**Google OAuth is the production sign-in** (Noah's call, replacing email/SMS OTP).
+`SUPABASE_OAUTH_PROVIDERS=google` and `SUPABASE_OTP_ENABLED=false` ship as defaults;
+`/auth/config` advertises `oauth_providers` + `otp_enabled` and the sign-in page renders a
+provider button per entry. `/auth/exchange` is unchanged — the app still only ever sees a
+Supabase JWT, never a Google credential.
+
+**Identity linking now requires a VERIFIED claim.** `match_supabase_claims_to_user` linked
+`auth_uid` to an app user on a bare email/phone match, so anyone able to sign up on the
+Supabase project could claim an admin's address and keep it. It now checks
+`email_verified`/`phone_verified`, reading top-level then `app_metadata` then
+`user_metadata` — first source carrying the field wins, because the first two are
+Supabase-controlled and `user_metadata` is client-writable at signup. Missing or
+unparseable counts as unverified (fail closed), and an unverified identifier that *would*
+have matched raises 403 rather than linking. Google verifies emails, which is precisely
+what makes it a safe default provider — but the Supabase project must still offer only
+trusted providers.
+
+**Sessions are revocable.** `users.token_epoch` (additive migration `c1f7a4d90b52`) is
+embedded in the token and compared per request; bumped by `POST /auth/logout-everywhere`,
+by a role change, and by deactivation. `UPDATE users SET token_epoch = token_epoch + 1`
+logs everyone out without rotating the signing key.
+
+**Outbound encoding.** The two worst findings were both output encoding, not input
+validation: `ordering/export.py` wrote product names verbatim into CSV/XLSX that get
+**emailed to Coimbatore** (openpyxl turns a leading `=` into a real formula cell), and four
+`Content-Disposition` sinks interpolated unsanitized filenames — reachable with **no app
+account**, since an inbound email attachment filename carries RFC 2231 escapes. Now
+`_safe_cell` neutralizes formula-leading text cells (numbers keep native types) and
+`app/downloads.py` is the single door for every file response (CR/LF stripped, RFC 6266
+`filename*`, content-type allowlist so a stored `text/html` can't render in-origin).
+
+**Rate limiting is in-process on purpose** (`app/ratelimit.py`): one uvicorn process, so a
+process-local sliding window is as accurate as a library and adds no dependency.
+Authenticated limits key on user id (exact); unauthenticated ones key on IP *and*
+identifier, because behind the tunnel the IP is only real once uvicorn runs with
+`--proxy-headers --forwarded-allow-ips=<proxy>` — which the entrypoint now does, never `*`.
+
+Also: `allow_inf_nan=False` and bounds on `counted_qty` (NaN slipped past the writer
+because `nan <= 0` is False — the writer's guards are now `math.isfinite` too), ceilings on
+list bodies and `limit` params (`?limit=-1` emitted `LIMIT -1`), pallet creation deduped
+against an open pallet, security headers + a real CSP (the pre-paint palette script moved
+to `public/palette.js` so the CSP needs no per-edit hash), verified SMTP STARTTLS,
+`/api/docs` and the detailed `/health` gated (an anonymous caller could read the write
+posture), non-root containers, and pip-audit/npm-audit/gitleaks/Dependabot in CI. The
+coordinator roster workbook left git and the image for `./private/` — treat it as already
+disclosed and rotate the Stripe terminal registrations.

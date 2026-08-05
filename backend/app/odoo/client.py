@@ -37,7 +37,7 @@ class OdooClient:
         self.base_url = settings.odoo_base_url.rstrip("/")
         self._db = settings.odoo_db
         self._login = settings.odoo_login
-        self._password = settings.odoo_password  # memory only
+        self._password = settings.odoo_password.get_secret_value()  # memory only
         self.read_only = read_only
         self.page_size = settings.odoo_page_size
         self.throttle = settings.odoo_throttle_seconds

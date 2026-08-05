@@ -24,6 +24,7 @@ from ..models import (
     utcnow,
 )
 from ..odoo.urls import odoo_record_url
+from ..ratelimit import rate_limit
 from .search import product_search_clause
 
 router = APIRouter(prefix="/products", tags=["catalog"])
@@ -109,10 +110,13 @@ SORTS = {
 
 @router.get("", response_model=ProductListOut)
 def list_products(
-    search: str = "",
-    category: str = "",
-    tag: str = "",
-    source: str = "",
+    # search is tokenized into one ILIKE per token per field (5 fields), so a
+    # 100KB query would compile to ~250k predicates — the length cap is the
+    # cheap half of that defence
+    search: str = Query("", max_length=200),
+    category: str = Query("", max_length=100),
+    tag: str = Query("", max_length=100),
+    source: str = Query("", max_length=100),
     include_inactive: bool = False,
     dept_orderable: bool | None = None,
     blacklisted: bool | None = None,
@@ -285,7 +289,12 @@ def _sweep_candidates(db: Session) -> tuple[set[int], set[int], list[Product]]:
     return no_history, usa, list(products)
 
 
-@router.post("/blacklist/sweep", response_model=SweepOut)
+@router.post(
+    "/blacklist/sweep",
+    response_model=SweepOut,
+    # a full-catalog scan with four ilike prefilters; previews are re-runnable
+    dependencies=[Depends(rate_limit("catalog:sweep", limit=10, per_seconds=300))],
+)
 def blacklist_sweep(
     body: SweepIn,
     db: Session = Depends(get_db),

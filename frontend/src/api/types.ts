@@ -19,6 +19,10 @@ export interface AuthConfig {
   mode: "dev" | "supabase";
   supabase_url: string;
   supabase_anon_key: string;
+  /** OAuth providers to offer (supabase mode only) — e.g. ["google"]. */
+  oauth_providers: string[];
+  /** Whether to also offer the email/SMS one-time-code form. */
+  otp_enabled: boolean;
 }
 
 export interface SessionOut {

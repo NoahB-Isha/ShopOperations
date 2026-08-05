@@ -9,6 +9,7 @@ from ..auth.deps import require_roles
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import Role
+from ..ratelimit import rate_limit
 from .narrative import answer_question, narrative
 from .queries import PERIOD_KEYS, SCOPE_KEYS, breakdown, resolve_period, sales_overview
 
@@ -60,7 +61,11 @@ def get_breakdown(
     }
 
 
-@router.get("/narrative")
+# Both of these call the Anthropic API and cost money per call.
+@router.get(
+    "/narrative",
+    dependencies=[Depends(rate_limit("reports:narrative", limit=20, per_seconds=300))],
+)
 def get_narrative(
     period: str = Query("3m"),
     refresh: bool = Query(False),
@@ -70,7 +75,9 @@ def get_narrative(
     return narrative(db, settings, _period(period), force=refresh)
 
 
-@router.post("/qa")
+@router.post(
+    "/qa", dependencies=[Depends(rate_limit("reports:qa", limit=20, per_seconds=300))]
+)
 def post_question(
     body: QaIn,
     db: Session = Depends(get_db),

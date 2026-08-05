@@ -66,10 +66,15 @@ user's roles (admin, warehouse, shoppe_floor, floor_rotating,
 zone_coordinator, center_orderer, dept_liaison, dept_orderer) — an
 integration acting as a coordinator sees that coordinator's world, no more.
 
-`GET /api/v1/auth/config` tells you which login mode the server runs:
+`GET /api/v1/auth/config` tells you which login mode the server runs, and which
+sign-in methods it offers:
 
-- **`dev` mode** (local stacks and the current trial deployment): the OTP is
-  returned in the response — no delivery needed.
+```json
+{ "mode": "supabase", "oauth_providers": ["google"], "otp_enabled": false, … }
+```
+
+- **`dev` mode** (local stacks only — refused outside a development `ENV`): the
+  OTP is returned in the response, so no delivery is needed.
 
   ```bash
   # 1. request a code
@@ -89,18 +94,38 @@ integration acting as a coordinator sees that coordinator's world, no more.
   ```
 
   Note the obvious caveat: in dev mode *anyone who can reach the server can
-  log in as anyone*. It exists for demos and local work; don't build lasting
-  integrations against it.
+  log in as anyone*. That is why the server now **refuses to start** in dev auth
+  unless `ENV` is a development value (`dev`/`test`/`local`), and why the
+  `dev_code` field can only ever populate under that same condition. It exists
+  for demos and local work; don't build lasting integrations against it.
 
-- **`supabase` mode** (real production auth): the code is delivered by
-  email/SMS through Supabase. A non-browser client signs in against Supabase
-  (`POST {SUPABASE_URL}/auth/v1/otp`, then `/verify`) and swaps the Supabase
-  access token for an app session via `POST /api/v1/auth/exchange
-  {"supabase_token": "…"}`. The `auth/config` response includes the Supabase
-  URL and anon key you need.
+- **`supabase` mode** (real production auth): sign-in is **Google OAuth** by
+  default (`oauth_providers: ["google"]`), with the email/SMS one-time-code form
+  available only when `otp_enabled` is true. Either way the browser ends up with
+  a Supabase access token and swaps it for an app session via
+  `POST /api/v1/auth/exchange {"supabase_token": "…"}`. The `auth/config`
+  response carries the Supabase URL and anon key you need.
+
+  For a **non-browser** client, OAuth is a poor fit (it needs a redirect). Two
+  better options: ask an admin for a `SKUBOT_API_KEY`-style machine key if
+  read-only bot endpoints cover your need, or have an admin enable
+  `SUPABASE_OTP_ENABLED` and sign in against Supabase directly
+  (`POST {SUPABASE_URL}/auth/v1/otp`, then `/verify`) before calling
+  `/auth/exchange`.
+
+  One rule worth knowing if you build on `/auth/exchange`: the app links a
+  Supabase identity to an app account **only on an identifier the provider says
+  it verified**. A token carrying an unconfirmed email that would otherwise
+  match an account is rejected with 403 rather than linked — that is deliberate,
+  and it is why Google (which verifies emails) is the default provider.
 
 Accounts are **invite-only** — there is no self-registration endpoint. Ask an
 admin to create a user (with the roles your tool needs) on the Users page.
+
+`POST /api/v1/auth/logout-everywhere` retires every session for the calling
+user at once (the "I lost my phone" button). Sessions are also retired
+automatically when an admin changes your roles or deactivates you, so a token
+that still looks unexpired can legitimately start returning 401.
 
 ---
 

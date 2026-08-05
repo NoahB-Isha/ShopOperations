@@ -9,11 +9,41 @@
 :80 {
 	encode gzip
 
+	# Applies to everything, SPA and proxied API alike. The backend's own
+	# SecurityHeadersMiddleware sets the same values on /api/* responses; these
+	# are identical, so replacing them changes nothing. The CSP is deliberately
+	# NOT here — the API's is far stricter (default-src 'none') and must not be
+	# widened to the SPA's. It lives in the SPA handler below.
+	header {
+		# Safe behind the tunnel (it terminates TLS); browsers ignore HSTS
+		# received over plain http, so it is also harmless locally.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		# Don't advertise the proxy (or the app server behind it).
+		-Server
+	}
+
 	handle /api/* {
 		reverse_proxy backend:8000
 	}
 
 	handle {
+		# SPA CSP. The API is same-origin behind this proxy (/api/*), so 'self'
+		# covers it — but SUPABASE_ORIGIN must be replaced with the project's
+		# Supabase origin (https://<ref>.supabase.co): that is where Supabase
+		# Auth OTP and the Google OAuth start call go. Google's OAuth redirect is
+		# a top-level navigation, not a fetch or a frame, so no frame-src is
+		# needed — but form-action must stay 'self', never 'none'.
+		# 'unsafe-inline' in style-src is unavoidable: React style={{…}} props
+		# emit inline style attributes. img-src blob:/data: covers html2canvas-pro
+		# snapshots and the PWA icons; worker-src blob: covers the warp WebWorker.
+		# script-src stays plain 'self' because the pre-paint palette script was
+		# moved out of index.html into /palette.js (no hash to maintain).
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://SUPABASE_ORIGIN; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+
 		root * /srv/www
 		try_files {path} /index.html
 		file_server

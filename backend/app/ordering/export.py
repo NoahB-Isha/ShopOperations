@@ -36,6 +36,21 @@ EXPORT_COLUMNS = [
     ("destination", "DESTINATION"),
 ]
 
+# Leading characters Excel/LibreOffice/Numbers treat as the start of a formula
+# (=, +, -, @) or that let one smuggle those past a naive check (tab, CR).
+# These files are emailed to the Coimbatore team, so a product name out of Odoo
+# must never arrive as executable content in someone else's spreadsheet.
+_FORMULA_STARTERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_cell(value: Any) -> Any:
+    """Neutralize spreadsheet-formula injection in text cells, leaving numbers,
+    booleans and None as native values. Strings that could be read as a formula
+    get a leading apostrophe, which spreadsheets render as literal text."""
+    if not isinstance(value, str):
+        return value
+    return "'" + value if value.startswith(_FORMULA_STARTERS) else value
+
 
 def export_rows(order: PurchaseOrder) -> list[dict[str, Any]]:
     """Only lines actually being ordered (a final quantity > 0, not
@@ -79,7 +94,9 @@ def rows_to_csv(rows: list[dict[str, Any]]) -> str:
     writer = csv.writer(buf)
     writer.writerow([header for _, header in EXPORT_COLUMNS])
     for r in rows:
-        writer.writerow(["" if r.get(k) is None else r.get(k) for k, _ in EXPORT_COLUMNS])
+        writer.writerow(
+            ["" if r.get(k) is None else _safe_cell(r.get(k)) for k, _ in EXPORT_COLUMNS]
+        )
     return buf.getvalue()
 
 
@@ -97,7 +114,12 @@ def rows_to_xlsx(rows: list[dict[str, Any]], order_name: str = "Order") -> bytes
     flag_fill = PatternFill("solid", fgColor="FFF2CC")
     for ri, r in enumerate(rows, start=2):
         for c, (k, _) in enumerate(EXPORT_COLUMNS, start=1):
-            ws.cell(ri, c, "" if r.get(k) is None else r.get(k))
+            value = "" if r.get(k) is None else _safe_cell(r.get(k))
+            cell = ws.cell(ri, c, value)
+            if isinstance(value, str) and value.startswith("'"):
+                # Excel's own "this cell is text, never a formula" marker,
+                # verified present on the pinned openpyxl (3.1.5).
+                cell.quotePrefix = True
         if r.get("flags"):
             for c in range(1, len(EXPORT_COLUMNS) + 1):
                 ws.cell(ri, c).fill = flag_fill
@@ -111,7 +133,9 @@ def rows_to_xlsx(rows: list[dict[str, Any]], order_name: str = "Order") -> bytes
 
 
 def vendor_email_lines(order: PurchaseOrder) -> list[tuple[str, int]]:
-    """(item name, qty) pairs for a domestic vendor email body."""
+    """(item name, qty) pairs for a domestic vendor email body. The body is
+    assembled as plain text in emailer.compose_order_email (no HTML part), so
+    names need no escaping here — keep it that way if a body ever goes HTML."""
     out = []
     for line in order.lines:
         qty = (line.final_sea_qty or 0) + (line.final_air_qty or 0)

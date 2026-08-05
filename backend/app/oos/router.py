@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -355,8 +355,9 @@ def unmark(
 
 
 class RestockIn(BaseModel):
-    # the freshly counted shelf quantity; omit for a plain unmark
-    counted_qty: float | None = None
+    # The freshly counted shelf quantity; omit for a plain unmark. Bounded and
+    # finite: this number becomes a quantity on a real Odoo adjustment draft.
+    counted_qty: float | None = Field(default=None, ge=0, le=100_000, allow_inf_nan=False)
 
 
 class AdjustmentOut(BaseModel):
@@ -403,6 +404,16 @@ def back_in_stock(
     adjustment: AdjustmentOut | None = None
     if body.counted_qty is not None and product is not None:
         delta = round(float(body.counted_qty) - floor_qty, 3)
+        # Odoo's own number is unbounded (a bad sync or a fat-fingered count in
+        # Odoo can make it enormous), so the DIFFERENCE gets its own ceiling —
+        # an adjustment this large is a data problem, not a shelf count.
+        if abs(delta) > 100_000:
+            raise HTTPException(
+                422,
+                f"That count ({float(body.counted_qty):g}) differs from Odoo's floor "
+                f"quantity ({floor_qty:g}) by {abs(delta):g} — too large to adjust from "
+                "here. Fix the quantity in Odoo instead.",
+            )
         if delta != 0 and product.is_stock_tracked and product.odoo_product_id:
             writer = OdooWriter(db, settings, actor_user_id=authed.id)
             direction = "add" if delta > 0 else "reduce"

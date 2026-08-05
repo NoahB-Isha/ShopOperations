@@ -209,13 +209,13 @@ def heuristic_answer(facts: dict, question: str) -> str:
 # --------------------------------------------------------------------- llm
 def _llm_call(settings: Settings, system: str, schema: dict, payload: str, max_tokens: int):
     """One structured call, or None (no key / refusal / any failure)."""
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_api_key.get_secret_value():
         return None
     try:
         import anthropic
 
         client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.anthropic_api_key.get_secret_value(),
             timeout=settings.reports_llm_timeout_seconds,
             max_retries=0,
         )

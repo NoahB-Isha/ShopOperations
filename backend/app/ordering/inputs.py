@@ -414,9 +414,13 @@ def build_bundle_from_workbook(
 
     _warnings.filterwarnings("ignore", module="openpyxl")
     bundle = SnapshotBundle(source="workbook")
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    # read_only keeps an uploaded workbook from being materialized cell-by-cell
+    # in memory; the cost is a forward-only sheet, so the loop below streams
+    # rows and never touches ws.cell().
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
     if "SEA" not in wb.sheetnames:
         bundle.warnings.append("workbook has no SEA sheet — nothing imported")
+        wb.close()
         return bundle
     ws = wb["SEA"]
     by_sku = {
@@ -428,9 +432,12 @@ def build_bundle_from_workbook(
         .all()
     }
     seen: set[str] = set()
-    for r in range(2, ws.max_row + 1):
-        def g(i: int, _r: int = r) -> Any:
-            return ws.cell(_r, i).value
+    # NAME(1) SKU(2) CATEGORY(3) MON SALES(6) INV OH(7) MTHS REQ(10) and the six
+    # INCOMING MOH columns 22..27 — 27 is the last column this loop reads.
+    last_col = 27
+    for raw in ws.iter_rows(min_row=2, max_col=last_col, values_only=True):
+        def g(i: int, _row: tuple[Any, ...] = raw) -> Any:
+            return _row[i - 1] if i - 1 < len(_row) else None
 
         sku = str(g(2) or "").strip()
         mon, oh, target = g(6), g(7), g(10)
@@ -469,6 +476,7 @@ def build_bundle_from_workbook(
         )
     if not bundle.snapshots:
         bundle.warnings.append("no numeric SEA rows found in the workbook")
+    wb.close()
     return bundle
 
 

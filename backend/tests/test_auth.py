@@ -40,10 +40,20 @@ def test_dev_login_flow_phone(client, db):
     assert r.status_code == 200
 
 
-def test_unknown_identifier_is_friendly(client, db):
-    r = client.post("/api/v1/auth/request-code", json={"identifier": "ghost@test.local"})
-    assert r.status_code == 404
-    assert "invite" in r.json()["detail"].lower()
+def test_unknown_identifier_is_indistinguishable_from_a_real_one(client, db):
+    """No account-existence oracle: an unknown identifier gets the same 200 and
+    the same body shape as a real one, just without a code to use."""
+    mk_user(db, "real@test.local", (Role.ADMIN, None, None))
+    real = client.post("/api/v1/auth/request-code", json={"identifier": "real@test.local"})
+    ghost = client.post("/api/v1/auth/request-code", json={"identifier": "ghost@test.local"})
+    assert real.status_code == ghost.status_code == 200
+    assert real.json().keys() == ghost.json().keys()
+    assert ghost.json() == {"sent": True, "channel": "email", "dev_code": None}
+    # and there is nothing to verify with
+    bad = client.post(
+        "/api/v1/auth/verify", json={"identifier": "ghost@test.local", "code": "000000"}
+    )
+    assert bad.status_code == 401
 
 
 def test_wrong_code_and_attempt_limit(client, db):
@@ -95,8 +105,15 @@ def test_inactive_user_cannot_login(client, db):
     user = mk_user(db, "gone@test.local", (Role.ADMIN, None, None))
     user.is_active = False
     db.commit()
+    # Same uniform response as any other identifier — but no code is issued, so
+    # there is no way through.
     r = client.post("/api/v1/auth/request-code", json={"identifier": "gone@test.local"})
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert r.json()["dev_code"] is None
+    bad = client.post(
+        "/api/v1/auth/verify", json={"identifier": "gone@test.local", "code": "000000"}
+    )
+    assert bad.status_code == 401
 
 
 def test_bad_token_rejected(client, db):
@@ -117,6 +134,9 @@ def test_verify_supabase_token_both_signing_schemes(monkeypatch):
     from app.config import Settings
     from cryptography.hazmat.primitives.asymmetric import ec
 
+    # model_copy skips validation, so an override has to be a SecretStr already
+    from pydantic import SecretStr
+
     settings = Settings(
         auth_mode="supabase",
         supabase_url="https://proj.supabase.co",
@@ -128,7 +148,9 @@ def test_verify_supabase_token_both_signing_schemes(monkeypatch):
     hs = pyjwt.encode(claims, "legacy-secret", algorithm="HS256")
     assert verify_supabase_token(hs, settings)["sub"] == "uid-1"
     with pytest.raises(AuthError):  # wrong secret
-        verify_supabase_token(hs, settings.model_copy(update={"supabase_jwt_secret": "other"}))
+        verify_supabase_token(
+            hs, settings.model_copy(update={"supabase_jwt_secret": SecretStr("other")})
+        )
 
     # ES256 — the asymmetric path, JWKS stubbed to return our public key
     priv = ec.generate_private_key(ec.SECP256R1())

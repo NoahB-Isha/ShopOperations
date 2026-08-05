@@ -69,7 +69,10 @@ class LineIn(BaseModel):
 
 class CreateRequestIn(BaseModel):
     notes: str = ""
-    lines: list[LineIn] = Field(min_length=1)
+    # Bounded like the identical shape in center_orders/router.py: every line
+    # becomes a move on ONE Odoo picking, and each is validated with its own
+    # product lookup before anything is written.
+    lines: list[LineIn] = Field(min_length=1, max_length=500)
 
 
 class LineOut(BaseModel):
@@ -652,7 +655,8 @@ def get_request(
 
 
 class LinesIn(BaseModel):
-    lines: list[LineIn] = Field(min_length=1)
+    # same ceiling as CreateRequestIn — this replaces the whole line set
+    lines: list[LineIn] = Field(min_length=1, max_length=500)
     note: str = ""
 
 

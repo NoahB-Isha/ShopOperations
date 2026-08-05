@@ -617,3 +617,48 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   at the `III/Stock` root (put-away hygiene, not app scope), and Castor/Neem-Oil
   6L SHIP counts (31k/20k) look physically implausible — Odoo-side data to audit,
   not app bugs.
+- Security remediation (2026-08-05, same build-on rule — full rationale in
+  DECISIONS.md): **config FAILS CLOSED.** `Settings._refuse_insecure_production`
+  raises `InsecureConfig` when `ENV` is outside `DEV_ENVS` (dev/test/local) and
+  auth isn't supabase, or `APP_JWT_SECRET` is empty/published/<32 chars, or
+  `CORS_ORIGINS` has `*`. `app_jwt_secret` has NO default (the old
+  `dev-only-change-me` was a public key); dev fills a blank/published one with a
+  random per-process value, so dev sessions end on restart — that's intended.
+  `test_config_security.py` is the CONTROL for this whole class: the finding
+  reached a committed blueprint because nothing failed when the config was
+  wrong. **`settings.dev_auth` (dev ENV *and* dev mode) — never `auth_mode`
+  alone — gates anything that leaks a login code.** Auth responses are UNIFORM
+  for known/unknown/inactive identifiers (the 404 was an enumeration oracle);
+  `tests/util.login()` still works because dev mode still returns the code for a
+  real user. **Google OAuth is the production sign-in** (`SUPABASE_OAUTH_PROVIDERS`
+  =google, `SUPABASE_OTP_ENABLED`=false); `/auth/config` advertises
+  `oauth_providers`+`otp_enabled`, LoginPage renders a button per provider and
+  finishes the redirect via `getSession()` → the UNCHANGED `/auth/exchange`.
+  **`match_supabase_claims_to_user` links auth_uid ONLY on a provider-VERIFIED
+  identifier** — checks `email_verified`/`phone_verified` across top-level →
+  `app_metadata` → `user_metadata` (first hit wins; the first two are
+  Supabase-controlled, `user_metadata` is client-writable), missing/unparseable =
+  unverified, and an unverified identifier that WOULD have matched raises 403
+  instead of linking. Don't loosen that: it's the account-takeover path, and it
+  lives in the mode that fixing dev-auth moves you to. **Sessions revoke** via
+  `users.token_epoch` (migration `c1f7a4d90b52`) in the token + compared in
+  `get_current_user`; bumped by `POST /auth/logout-everywhere`, role change, and
+  deactivation. **Output encoding is the other half**: `ordering/export.py`
+  `_safe_cell` neutralizes formula-leading TEXT cells only (numbers keep native
+  types — these files are emailed to Coimbatore, and openpyxl turns a leading `=`
+  into a real `<f>` cell), and `app/downloads.py` is the ONE door for every file
+  response (CR/LF stripped, RFC 6266 `filename*`, content-type allowlist — an
+  inbound email attachment filename carries RFC 2231 escapes and needs no app
+  account). `app/ratelimit.py` is deliberately in-process (one uvicorn process):
+  authed limits key on user id, unauthed on IP *and* identifier, and the
+  entrypoint sets `--proxy-headers --forwarded-allow-ips` (never `*`) or the IP
+  key is just the tunnel. `RATE_LIMIT_ENABLED=false` in conftest — the suite
+  calls some endpoints in loops; `test_auth_hardening.py` turns it on
+  deliberately. Also: `counted_qty` bounded + `allow_inf_nan=False` and the
+  writer's qty guards are `math.isfinite` (NaN passed `qty <= 0`); list/limit
+  ceilings (`?limit=-1` emitted `LIMIT -1`); CSP with the pre-paint palette
+  script moved to `public/palette.js` (inline would need a per-edit hash — keep
+  it in lockstep with tokens.css); `/api/docs` + detailed `/health` gated behind
+  `is_dev_env`/auth (anonymous callers could read `writes_enabled`); the
+  coordinator roster workbook left git AND the image for `./private/` (treat as
+  already disclosed — rotate the Stripe terminal registrations).

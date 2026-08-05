@@ -13,6 +13,7 @@ devices aren't re-coding daily.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import secrets
 from datetime import timedelta
@@ -24,6 +25,8 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import LoginCode, User, utcnow
+
+log = logging.getLogger(__name__)
 
 
 class AuthError(Exception):
@@ -153,6 +156,8 @@ def create_session_token(user: User, settings: Settings) -> str:
     return jwt.encode(
         {
             "sub": str(user.id),
+            # epoch at mint time; bumping users.token_epoch retires the token
+            "ep": int(user.token_epoch or 0),
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(days=settings.session_days)).timestamp()),
             "iss": "shop-ops",
@@ -162,14 +167,22 @@ def create_session_token(user: User, settings: Settings) -> str:
     )
 
 
-def decode_session_token(token: str, settings: Settings) -> int:
+def decode_session_token(token: str, settings: Settings) -> tuple[int, int]:
+    """(user id, token epoch). Tokens minted before the epoch existed read as 0,
+    which matches the column's server_default."""
     try:
         payload = jwt.decode(
             token, settings.app_jwt_secret, algorithms=["HS256"], issuer="shop-ops"
         )
-        return int(payload["sub"])
+        return int(payload["sub"]), int(payload.get("ep") or 0)
     except (jwt.PyJWTError, KeyError, ValueError) as e:
         raise AuthError("Invalid or expired session.", 401) from e
+
+
+def revoke_sessions(db: Session, user: User) -> None:
+    """Invalidate every outstanding session for this user, right now."""
+    user.token_epoch = int(user.token_epoch or 0) + 1
+    db.commit()
 
 
 # ------------------------------------------------------------- supabase mode
@@ -195,11 +208,11 @@ def verify_supabase_token(token: str, settings: Settings) -> dict:
         raise AuthError(f"Supabase token rejected: {e}", 401) from e
     try:
         if alg == "HS256":
-            if not settings.supabase_jwt_secret:
+            if not settings.supabase_jwt_secret.get_secret_value():
                 raise AuthError("Supabase auth is not configured on the server.", 500)
             return jwt.decode(
                 token,
-                settings.supabase_jwt_secret,
+                settings.supabase_jwt_secret.get_secret_value(),
                 algorithms=["HS256"],
                 audience="authenticated",
             )
@@ -217,22 +230,63 @@ def verify_supabase_token(token: str, settings: Settings) -> dict:
         raise AuthError(f"Supabase token rejected: {e}", 401) from e
 
 
+def _claim_is_verified(claims: dict, field: str) -> bool:
+    """True only when the token positively asserts the identifier is verified.
+
+    Sources are checked most-trustworthy first and the first one carrying the
+    field wins: top-level and `app_metadata` are set by Supabase/the identity
+    provider, while `user_metadata` is client-writable at signup — so a client
+    can supply a value there but can never override a real one. Anything missing
+    or unparseable counts as UNVERIFIED (fail closed). Google OAuth populates
+    this; email/password signups without confirmation do not."""
+    for source in (claims, claims.get("app_metadata") or {}, claims.get("user_metadata") or {}):
+        if not isinstance(source, dict):
+            continue
+        value = source.get(field)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() == "true"
+    return False
+
+
 def match_supabase_claims_to_user(db: Session, claims: dict) -> User | None:
-    """Map a verified Supabase identity onto an app user by auth_uid, then
-    email, then phone. First match by contact info links the auth_uid."""
+    """Map a Supabase identity onto an app user by auth_uid, then email, then
+    phone. First match by contact info links the auth_uid permanently.
+
+    Because that link hands over the app account's roles, it is only ever made
+    on an identifier Supabase says it VERIFIED. Without that check, anyone able
+    to sign up on the Supabase project could claim an admin's address and keep
+    it — so the project must also offer only trusted providers (Google OAuth)
+    and require confirmation on any other flow."""
     uid = claims.get("sub")
     if uid:
         user = db.scalar(select(User).where(User.auth_uid == uid))
         if user:
-            return user
+            return user  # already linked, and the link was verified when made
     email = normalize_email(claims.get("email"))
     phone = normalize_phone(claims.get("phone"))
+    email_ok = bool(email) and _claim_is_verified(claims, "email_verified")
+    phone_ok = bool(phone) and _claim_is_verified(claims, "phone_verified")
     user = None
-    if email:
+    if email_ok:
         user = db.scalar(select(User).where(func.lower(User.email) == email))
-    if user is None and phone:
+    if user is None and phone_ok:
         user = db.scalar(select(User).where(User.phone == phone))
-    if user is not None and uid and not user.auth_uid:
+    if user is None:
+        if (email and not email_ok) or (phone and not phone_ok):
+            # An unverified identifier that would otherwise match an app user is
+            # a takeover attempt, not a misconfiguration to paper over.
+            log.warning(
+                "Refused to link Supabase uid %r on an unverified identifier.", uid or "?"
+            )
+            raise AuthError(
+                "Your sign-in provider hasn't confirmed that email or phone number, so it "
+                "can't be matched to an app account. Sign in with Google, or ask an admin.",
+                403,
+            )
+        return None
+    if uid and not user.auth_uid:
         user.auth_uid = uid
         db.commit()
     return user

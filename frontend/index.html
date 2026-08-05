@@ -18,21 +18,21 @@
     <meta name="apple-mobile-web-app-title" content="Shop Ops" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfafd" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131523" />
+
+    <!-- Sets data-palette before anything paints, so switching palettes never
+         flashes the default colors. Three constraints, all load-bearing:
+         (1) it lives in /public rather than inline, so the CSP can stay
+             `script-src 'self'` with no sha256 hash to recompute on every edit;
+         (2) it must stay a CLASSIC script — type="module" or defer would run it
+             after first paint;
+         (3) it must stay in <head>: a blocking script in <body> can be preceded
+             by a paint of the head's stylesheet, i.e. one default-palette frame.
+         Its palette ids stay in lockstep with styles/tokens.css and
+         styles/palette-lab.css. -->
+    <script src="/palette.js"></script>
   </head>
   <body>
     <div id="root"></div>
-    <!-- apply the saved palette before the bundle loads so there's no color
-         flash; ids no longer offered (sunset/indigo/forest) fall back to the
-         default so stale localStorage can't strand anyone -->
-    <script>
-      try {
-        var p = localStorage.getItem("ilops_palette");
-        document.documentElement.dataset.palette =
-          ["pop", "neem", "turmeric"].indexOf(p) >= 0 ? p : "pop";
-      } catch (e) {
-        document.documentElement.dataset.palette = "pop";
-      }
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

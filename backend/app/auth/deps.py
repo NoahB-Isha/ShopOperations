@@ -67,7 +67,7 @@ def get_current_user(
     if creds is None:
         raise HTTPException(401, "Not authenticated.")
     try:
-        user_id = decode_session_token(creds.credentials, settings)
+        user_id, epoch = decode_session_token(creds.credentials, settings)
     except AuthError as e:
         raise HTTPException(e.status_code, str(e)) from e
     user = db.scalar(
@@ -75,6 +75,8 @@ def get_current_user(
     )
     if user is None or not user.is_active:
         raise HTTPException(401, "Account not found or deactivated.")
+    if epoch != int(user.token_epoch or 0):
+        raise HTTPException(401, "This session was signed out. Sign in again.")
     return AuthedUser(user=user)
 
 
