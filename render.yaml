@@ -207,6 +207,33 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    # HSTS and X-Content-Type-Options are already sent by Render on every
+    # static site (verified live: max-age=315360000; includeSubdomains;
+    # preload — stronger than anything we'd write) and are deliberately left
+    # alone here rather than overridden with a weaker value. This adds only
+    # what Render doesn't send by default. The frontend has no third-party
+    # script/style/font hosts (fonts are bundled via @fontsource, not a CDN),
+    # so 'self' covers everything except the two APIs it actually calls.
+    # Keep this in lockstep with the equivalent policy in frontend/vercel.json
+    # and infra/Caddyfile if either the API host or the Supabase project changes.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:; font-src 'self';
+          connect-src 'self' https://shopops-backend.onrender.com https://qevgjcetkzvppmmhylgw.supabase.co;
+          worker-src 'self' blob:; manifest-src 'self'; object-src 'none';
+          base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: Permissions-Policy
+        value: "geolocation=(), camera=(), microphone=()"
     envVars:
       - key: NODE_VERSION
         value: "22"
