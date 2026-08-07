@@ -61,9 +61,15 @@ jobs:
         with:
           python-version: "3.12"
       # Audit exactly what the images install: the locked, non-dev runtime set.
+      # --no-emit-workspace, not --no-emit-project: this is a uv workspace
+      # (backend + worker are members, not the root), and --no-emit-project
+      # only drops the empty virtual root. Leaving the members in emits them as
+      # `-e ./backend` / `-e ./worker`, which pip then refuses to install
+      # alongside hash-checking ("no single file to hash") — pip-audit needs
+      # third-party dependencies here, not the app's own editable install.
       - name: Python dependency audit (pip-audit)
         run: |
-          uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt
+          uv export --frozen --no-dev --no-emit-workspace -o /tmp/requirements.txt
           uvx pip-audit -r /tmp/requirements.txt
 
       - uses: actions/setup-node@v4
