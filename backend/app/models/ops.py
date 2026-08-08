@@ -355,6 +355,10 @@ class RestockLine(Base):
     flagged_on: Mapped[date] = mapped_column(Date)
     checked_off_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     checked_off_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # "Not today" — swiped away on the floor, back on the list tomorrow. Holds
+    # the first date the line is visible again, so the row survives (with its
+    # accumulated qty) instead of being deleted and re-flagged from zero.
+    snoozed_until: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     product: Mapped[Product] = relationship()

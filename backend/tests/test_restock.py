@@ -50,6 +50,16 @@ def _stock(db, product_id: int, key: str, qty: float):
     db.add(StockLevel(product_id=product_id, location_key=key, qty=qty))
 
 
+def _has_floor_stock(db, *products, qty: float = 25):
+    """The floor list only shows what can actually be carried out: `floor` is
+    III/Stock/III-FLOOR, the shop AND its back room, so nothing there means
+    nothing to restock the shelf with. Tests about the accumulator still need
+    that stock to exist, or every line is (correctly) filtered away."""
+    for prod in products:
+        db.add(StockLevel(product_id=prod.id, location_key="floor", qty=qty))
+    db.commit()
+
+
 def _fixture_products(db):
     a = mk_product(db, "SKU-A", "Copper Bottle", odoo_id=901)
     b = mk_product(db, "SKU-B", "Incense Pack", odoo_id=902)
@@ -63,6 +73,7 @@ def _fixture_products(db):
 
 def test_floor_fold_matches_hand_computed_fixture(db, settings_env):
     a, b, c, d, e = _fixture_products(db)
+    _has_floor_stock(db, a, b, c)
     _sale(db, a.id, T - timedelta(days=3), 2)
     _sale(db, a.id, T - timedelta(days=2), 1)
     _sale(db, b.id, T - timedelta(days=2), 5)
@@ -104,6 +115,7 @@ def test_floor_fold_matches_hand_computed_fixture(db, settings_env):
 
 def test_flag_merges_into_open_line_and_daily_reset(db, settings_env):
     a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, a, b)
     settings = get_settings()
 
     _sale(db, a.id, T - timedelta(days=1), 5)
@@ -206,7 +218,10 @@ def test_restock_api_roundtrip_and_checkoffs(client, db, settings_env):
     [floor_item] = body["floor"]
     assert floor_item["sku"] == "SKU-A"
     assert floor_item["qty"] == 12.0
-    assert floor_item["bwhse_qty"] == 90.0
+    # the floor list is deliberately floor-only now — restocking the shelf
+    # doesn't need the warehouse number, and the back list still carries it
+    assert "bwhse_qty" not in floor_item
+    assert floor_item["floor_qty"] == 2.0
     [back_item] = body["back"]
     assert back_item["product_id"] == a.id
     assert back_item["floor_qty"] == 2.0
@@ -241,6 +256,7 @@ def test_restock_exclude_flag_removes_items_everywhere(client, db, settings_env)
     from app.config import get_settings
 
     a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, b)  # `a` gets its floor row below, with the back-list setup
     meals = mk_product(db, "ODOO-46478", "Adult Meals (Dinner)", odoo_id=908)
     meals.restock_exclude = True
     _sale(db, meals.id, T - timedelta(days=1), 50)  # would flag loudly
@@ -284,6 +300,7 @@ def test_floor_reset_wipes_list_and_gives_today_amnesty(client, db, settings_env
 
     today = utcnow().date()
     a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, a, b)
     _sale(db, a.id, today - timedelta(days=1), 9)  # flags on the first read
     _sale(db, b.id, today - timedelta(days=1), 2)  # accumulating, below 4
     _sale(db, a.id, today, 50)  # TODAY: must be amnestied by the reset
@@ -320,3 +337,80 @@ def test_floor_reset_wipes_list_and_gives_today_amnesty(client, db, settings_env
     mk_user(db, "orderer@test.io", (R.CENTER_ORDERER, None, None))
     r = client.post("/api/v1/restock/floor/reset", headers=login(client, "orderer@test.io"))
     assert r.status_code == 403
+
+
+def test_floor_list_hides_items_with_nothing_in_the_back(db, settings_env):
+    """`floor` is III/Stock/III-FLOOR — the shop and its back room together.
+    Zero there means there is nothing to carry out to the shelf, so the line is
+    noise on a picking list; that item is the OOS board's problem instead."""
+    from app.config import get_settings
+
+    a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, a)  # b deliberately has no floor row at all
+    _sale(db, a.id, T - timedelta(days=1), 9)
+    _sale(db, b.id, T - timedelta(days=1), 9)
+    db.commit()
+    fold_floor_restock(db, get_settings(), T)
+
+    # both crossed the threshold, but only the one you can actually restock shows
+    assert {i.product_id for i in floor_list(db, T)} == {a.id}
+
+    # ...and it appears the moment stock lands in the back
+    _stock(db, b.id, "floor", 4)
+    db.commit()
+    assert {i.product_id for i in floor_list(db, T)} == {a.id, b.id}
+
+
+def test_snoozed_line_hides_until_tomorrow_and_keeps_its_qty(client, db, settings_env):
+    """Swipe it away for now: gone from today's list, back tomorrow with the
+    accumulated quantity intact — deferred, not cancelled."""
+    from app.config import get_settings
+    from app.models import Role as R
+    from app.models import utcnow
+
+    today = utcnow().date()
+    a, *_ = _fixture_products(db)
+    _has_floor_stock(db, a)
+    _sale(db, a.id, today - timedelta(days=1), 9)
+    db.commit()
+    fold_floor_restock(db, get_settings(), today)
+    [line] = floor_list(db, today)
+    qty_before = line.qty
+
+    mk_user(db, "floor@test.io", (R.SHOPPE_FLOOR, None, None))
+    headers = login(client, "floor@test.io")
+    r = client.post(f"/api/v1/restock/floor/{line.line_id}/snooze", json={"snoozed": True}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["snoozed"] is True
+
+    assert floor_list(db, today) == []                       # gone today
+    back = floor_list(db, today + timedelta(days=1))          # back tomorrow
+    assert [i.product_id for i in back] == [a.id]
+    assert back[0].qty == qty_before                          # nothing lost
+
+    # and it can be pulled back immediately
+    r = client.post(f"/api/v1/restock/floor/{line.line_id}/snooze", json={"snoozed": False}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert [i.product_id for i in floor_list(db, today)] == [a.id]
+
+
+def test_checked_line_cannot_be_snoozed(client, db, settings_env):
+    """Nothing to defer once it's done — and the 409 keeps a stray swipe on a
+    struck-through row from resurrecting it tomorrow."""
+    from app.config import get_settings
+    from app.models import Role as R
+    from app.models import utcnow
+
+    today = utcnow().date()
+    a, *_ = _fixture_products(db)
+    _has_floor_stock(db, a)
+    _sale(db, a.id, today - timedelta(days=1), 9)
+    db.commit()
+    fold_floor_restock(db, get_settings(), today)
+    [line] = floor_list(db, today)
+
+    mk_user(db, "floor2@test.io", (R.SHOPPE_FLOOR, None, None))
+    headers = login(client, "floor2@test.io")
+    client.post(f"/api/v1/restock/floor/{line.line_id}/check", json={"checked": True}, headers=headers)
+    r = client.post(f"/api/v1/restock/floor/{line.line_id}/snooze", json={"snoozed": True}, headers=headers)
+    assert r.status_code == 409

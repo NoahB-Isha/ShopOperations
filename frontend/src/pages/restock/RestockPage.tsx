@@ -2,9 +2,14 @@
    accumulator (sold enough since last restock → bring more out). Back list =
    floor cover running thin vs the warehouse. Check-off resets daily. */
 import { usePersistedState } from "../../persist";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useCheckRestock, useResetFloorRestock, useRestock } from "../../api/hooks";
+import {
+  useCheckRestock,
+  useResetFloorRestock,
+  useRestock,
+  useSnoozeRestock,
+} from "../../api/hooks";
 import type { RestockBackItem, RestockFloorItem, RestockOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge, Button, Dialog, EmptyState, PageHeader, Spinner, useToast } from "../../design";
@@ -135,6 +140,7 @@ function FloorResetFooter({ meta }: { meta: RestockOut["meta"] }) {
 
 function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold: number }) {
   const check = useCheckRestock();
+  const snooze = useSnoozeRestock();
   const toast = useToast();
   if (items.length === 0) {
     return (
@@ -156,6 +162,15 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
               { onError: (e) => toast.error(e.message) },
             )
           }
+          onSnooze={() =>
+            snooze.mutate(
+              { line_id: item.line_id, snoozed: true },
+              {
+                onSuccess: () => toast.success(`${item.name} — back on the list tomorrow.`),
+                onError: (e) => toast.error(e.message),
+              },
+            )
+          }
           title={item.name}
           sku={productCode(item.barcode, item.sku)}
           right={
@@ -172,7 +187,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
                 day: "numeric",
               })}
               {" · "}
-              whse {fmtQty(item.bwhse_qty)} <LowCountHint qty={item.bwhse_qty} />
+              floor {fmtQty(item.floor_qty)} <LowCountHint qty={item.floor_qty} />
             </>
           }
         />
@@ -264,9 +279,14 @@ function BackList({ items }: { items: RestockBackItem[] }) {
   );
 }
 
+/** How far the row must travel before "not today" commits. Below this it
+ *  springs back, so a scroll that wanders sideways can't defer an item. */
+const SWIPE_COMMIT_PX = 96;
+
 function CheckRow({
   checked,
   onToggle,
+  onSnooze,
   title,
   sku,
   sub,
@@ -274,20 +294,89 @@ function CheckRow({
 }: {
   checked: boolean;
   onToggle: (checked: boolean) => void;
+  onSnooze?: () => void;
   title: string;
   sku: string;
   sub: React.ReactNode;
   right: React.ReactNode;
 }) {
+  const [dx, setDx] = useState(0);
+  // The commit test reads this ref, never the state: on a fast flick the last
+  // pointermove and the pointerup land in the same frame, so the state in
+  // endDrag's closure is still the previous value and the swipe would be
+  // silently dropped. The state exists only to drive the paint.
+  const dxRef = useRef(0);
+  const drag = useRef<{ x0: number; y0: number; axis: "" | "x" | "y" } | null>(null);
+  // A swipe ends with a synthetic click on some browsers; this swallows it so
+  // deferring an item can never also tick it off.
+  const swallowClick = useRef(false);
+  const canSwipe = Boolean(onSnooze) && !checked;
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!canSwipe || e.pointerType === "mouse") return;
+    drag.current = { x0: e.clientX, y0: e.clientY, axis: "" };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const mx = e.clientX - d.x0;
+    const my = e.clientY - d.y0;
+    if (d.axis === "") {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      // Commit to an axis once: a vertical intent stays a scroll, forever.
+      d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+    }
+    if (d.axis !== "x") return;
+    const next = Math.min(0, mx); // left only — there is no right-hand action
+    dxRef.current = next;
+    setDx(next);
+  };
+  const endDrag = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.axis === "x" && dxRef.current <= -SWIPE_COMMIT_PX) {
+      swallowClick.current = true;
+      onSnooze?.();
+      return; // leave it translated; the row is being removed from the list
+    }
+    dxRef.current = 0;
+    setDx(0);
+  };
+
   return (
-    <li>
+    <li className="relative overflow-hidden rounded-(--radius-lg)">
+      {canSwipe && dx < 0 && (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-(--radius-lg)
+            bg-tertiary-container px-4 text-[13px] font-medium text-on-tertiary-container"
+        >
+          Not today
+        </span>
+      )}
       <button
         type="button"
         role="checkbox"
         aria-checked={checked}
-        onClick={() => onToggle(!checked)}
-        className={`state-layer flex w-full items-center gap-3.5 rounded-(--radius-lg) px-4 py-3.5
-          text-left transition-all duration-200 ${
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClick={() => {
+          if (swallowClick.current) {
+            swallowClick.current = false;
+            return;
+          }
+          onToggle(!checked);
+        }}
+        style={{
+          transform: dx ? `translate3d(${dx}px,0,0)` : undefined,
+          // No transition while the finger is down, or the row lags behind it.
+          transition: drag.current ? undefined : "transform 200ms var(--ease-spring)",
+          touchAction: canSwipe ? "pan-y" : undefined,
+        }}
+        className={`state-layer relative flex w-full items-center gap-3.5 rounded-(--radius-lg)
+          px-4 py-3.5 text-left transition-all duration-200 ${
             checked ? "bg-surface-container opacity-60" : "bg-surface-container-low"
           }`}
       >

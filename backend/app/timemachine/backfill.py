@@ -30,6 +30,7 @@ from ..models import (
     Product,
     StockSnapshot,
     StockSnapshotDay,
+    not_blacklisted,
     utcnow,
 )
 from ..odoo.protocol import OdooConnection
@@ -118,13 +119,12 @@ def process_next(db: Session, settings: Settings, conn: OdooConnection) -> str |
     return day_iso
 
 
-def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
-    """One date: ask Odoo for as-of quantities per app location root and
-    replace that day's snapshot rows. Never touches a live-captured day."""
-    existing = db.get(StockSnapshotDay, day)
-    if existing is not None and existing.source != "reconstructed":
-        return 0  # live capture wins, always
-
+def _read_day_totals(
+    db: Session, conn: OdooConnection, day: date
+) -> dict[tuple[int, str], float]:
+    """Ask Odoo for as-of quantities per app location root (incl. folded ones)
+    and fold them into {(product_id, location_key): qty}. Pure read — shared by
+    the write path and by repair dry-runs."""
     reads = [(loc.key, loc.odoo_id) for loc in db.scalars(select(OdooLocation))]
     if not reads:
         raise RuntimeError("no Odoo locations mapped yet — run a stock sync first")
@@ -138,10 +138,18 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
             ["complete_name"],
         ):
             reads.append((ODOO_FOLDED_LOCATION_NAMES[loc["complete_name"]], loc["id"]))
+    # Blacklisted products are excluded, and that is load-bearing rather than
+    # cosmetic. The live sync reads stock.quant, which attributes stock to one
+    # product; qty_available reports the same units under the "- USA" duplicate
+    # records too, so including them double-counts (~115k units over 96
+    # products, measured 2026-08-07). Filtering here is what makes a
+    # reconstructed day mean the same thing as a live-captured one.
     id_by_odoo_pid = {
         odoo_id: pid
         for pid, odoo_id in db.execute(
-            select(Product.id, Product.odoo_product_id).where(Product.odoo_product_id.is_not(None))
+            select(Product.id, Product.odoo_product_id)
+            .where(Product.odoo_product_id.is_not(None))
+            .where(not_blacklisted())
         )
     }
 
@@ -160,6 +168,28 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
             qty = float(r.get("qty_available") or 0.0)
             if qty > 0:
                 totals[(product_id, key)] = totals.get((product_id, key), 0.0) + qty
+    return totals
+
+
+def _reconstruct_day(
+    db: Session, conn: OdooConnection, day: date, *, allow_live_overwrite: bool = False
+) -> int:
+    """One date: ask Odoo for as-of quantities and replace that day's snapshot
+    rows. Never touches a live-captured day unless the caller explicitly opts
+    in — see repair_range() for the one situation that does."""
+    existing = db.get(StockSnapshotDay, day)
+    if existing is not None and existing.source != "reconstructed" and not allow_live_overwrite:
+        return 0  # live capture wins, always
+
+    totals = _read_day_totals(db, conn, day)
+    # An empty read against a day that previously held rows is an Odoo hiccup,
+    # not a day on which the business held no stock — replacing on that basis
+    # would silently delete real history.
+    if not totals and existing is not None and existing.rows:
+        raise RuntimeError(
+            f"refusing to replace {day}: Odoo returned no stock rows but the day "
+            f"already holds {existing.rows}. Treating this as a failed read."
+        )
 
     now = utcnow()
     db.execute(delete(StockSnapshot).where(StockSnapshot.snapshot_date == day))
@@ -182,5 +212,93 @@ def _reconstruct_day(db: Session, conn: OdooConnection, day: date) -> int:
     else:
         existing.captured_at = now
         existing.rows = len(totals)
+        # These numbers now come from the move ledger, not from what the sync
+        # saw that day. Say so — a repaired day must not keep claiming to be a
+        # live capture, or the past view would overstate its confidence.
+        existing.source = "reconstructed"
     db.commit()
     return len(totals)
+
+
+def repair_range(
+    db: Session,
+    settings: Settings,
+    conn: OdooConnection,
+    start: date,
+    end: date,
+    *,
+    include_live: bool = False,
+    dry_run: bool = True,
+) -> dict:
+    """Re-reconstruct every day in [start, end] from Odoo's move ledger.
+
+    This exists for one specific situation: a change to the synced location set
+    (the 2026-08-04 III/Stock/SHIP fold) means days captured before it recorded
+    a quantity the app now computes differently. Those rows aren't corrupt —
+    they faithfully record what the app could see at the time — but they no
+    longer mean the same thing as today's, so the series reads as a cliff.
+    Reconstruction is what makes it comparable end to end.
+
+    `include_live=True` is the deliberate opt-in that lets this overwrite
+    sync-captured days; repaired days are re-marked 'reconstructed'. Kept off
+    the worker queue and off any schedule on purpose — overwriting live capture
+    is a decision someone makes about a known window, never something a
+    scheduler does on its own.
+
+    dry_run=True (the default) reads Odoo and reports the diff without writing.
+    """
+    if end < start:
+        raise ValueError(f"end ({end}) is before start ({start})")
+    changes: list[dict] = []
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    for day in days:
+        existing = db.get(StockSnapshotDay, day)
+        if existing is None:
+            # Repair fixes days that exist; it does not invent new ones. Without
+            # this, a wide range would reconstruct every uncovered date in it —
+            # hundreds of extra heavy Odoo reads, and a daily history the app
+            # never captured. Adding coverage is request_backfill()'s job.
+            changes.append({"date": day.isoformat(), "action": "skipped-no-history"})
+            continue
+        is_live = existing.source != "reconstructed"
+        if is_live and not include_live:
+            changes.append({"date": day.isoformat(), "action": "skipped-live"})
+            continue
+        before = {
+            (pid, key): qty
+            for pid, key, qty in db.execute(
+                select(StockSnapshot.product_id, StockSnapshot.location_key, StockSnapshot.qty)
+                .where(StockSnapshot.snapshot_date == day)
+            )
+        }
+        if dry_run:
+            after = _read_day_totals(db, conn, day)
+            if not after and existing is not None and existing.rows:
+                changes.append({"date": day.isoformat(), "action": "would-fail-empty-read"})
+                continue
+        else:
+            _reconstruct_day(db, conn, day, allow_live_overwrite=include_live)
+            after = {
+                (pid, key): qty
+                for pid, key, qty in db.execute(
+                    select(StockSnapshot.product_id, StockSnapshot.location_key, StockSnapshot.qty)
+                    .where(StockSnapshot.snapshot_date == day)
+                )
+            }
+        changes.append(
+            {
+                "date": day.isoformat(),
+                "action": "dry-run" if dry_run else ("repaired-live" if is_live else "repaired"),
+                "units_before": round(sum(before.values())),
+                "units_after": round(sum(after.values())),
+                "rows_before": len(before),
+                "rows_after": len(after),
+            }
+        )
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "dry_run": dry_run,
+        "include_live": include_live,
+        "days": changes,
+    }

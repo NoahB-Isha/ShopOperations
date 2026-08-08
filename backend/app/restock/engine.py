@@ -161,16 +161,40 @@ def floor_list(db: Session, today: date) -> list[FloorItem]:
     the day rolls over). Products excluded AFTER being flagged disappear
     immediately — the filter applies at read time too."""
     start_of_today = today  # checked_off_at is a datetime; compare on date
+    lines = list(
+        db.scalars(
+            select(RestockLine)
+            .join(Product, Product.id == RestockLine.product_id)
+            .where(RestockLine.list_type == FLOOR_LIST, Product.restock_exclude.is_(False))
+            .order_by(RestockLine.flagged_on.desc(), RestockLine.id)
+        )
+    )
+    # `floor` is III/Stock/III-FLOOR — the shop floor AND its back stockroom as
+    # one location. Nothing there means there is nothing to carry out to the
+    # shelf, so the line is noise on a picking list; that item is an
+    # out-of-stock problem, which the OOS board owns.
+    in_the_back = {
+        pid: float(qty)
+        for pid, qty in db.execute(
+            select(StockLevel.product_id, StockLevel.qty).where(
+                StockLevel.location_key == "floor",
+                StockLevel.product_id.in_([line.product_id for line in lines] or [0]),
+            )
+        )
+    }
     items: list[FloorItem] = []
-    for line in db.scalars(
-        select(RestockLine)
-        .join(Product, Product.id == RestockLine.product_id)
-        .where(RestockLine.list_type == FLOOR_LIST, Product.restock_exclude.is_(False))
-        .order_by(RestockLine.flagged_on.desc(), RestockLine.id)
-    ):
+    for line in lines:
         checked_at = line.checked_off_at
         if checked_at is not None and checked_at.date() < start_of_today:
             continue  # yesterday's completed work — gone from today's list
+        if checked_at is None:
+            # Only unchecked lines are filtered: something just ticked off
+            # should stay struck-through for the rest of the day rather than
+            # vanishing under the finger that tapped it.
+            if in_the_back.get(line.product_id, 0.0) <= 0:
+                continue
+            if line.snoozed_until is not None and line.snoozed_until > today:
+                continue  # swiped away for now — back on the list tomorrow
         items.append(
             FloorItem(
                 line_id=line.id,
@@ -181,6 +205,14 @@ def floor_list(db: Session, today: date) -> list[FloorItem]:
             )
         )
     return items
+
+
+def snooze_floor_line(db: Session, line: RestockLine, today: date, *, snoozed: bool) -> None:
+    """Hide an open line until tomorrow, or bring it back now. The line keeps
+    its accumulated qty either way — this defers the work, it doesn't cancel
+    it, and a snoozed item that sells more keeps growing in the background."""
+    line.snoozed_until = (today + timedelta(days=1)) if snoozed else None
+    db.commit()
 
 
 def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:

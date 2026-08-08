@@ -29,7 +29,15 @@ from ..models import (
     User,
     utcnow,
 )
-from .engine import BACK_LIST, FLOOR_LIST, back_list, floor_list, fold_floor_restock, reset_floor
+from .engine import (
+    BACK_LIST,
+    FLOOR_LIST,
+    back_list,
+    floor_list,
+    fold_floor_restock,
+    reset_floor,
+    snooze_floor_line,
+)
 
 router = APIRouter(
     prefix="/restock",
@@ -47,9 +55,12 @@ class FloorItemOut(BaseModel):
     category: str
     qty: float
     flagged_on: date
+    # floor_qty only: this list is "carry it from the back to the shelf", so the
+    # warehouse number is a different job (that's the From-warehouse tab) and
+    # just one more number to read past in the aisle.
     floor_qty: float
-    bwhse_qty: float
     checked: bool
+    snoozed: bool = False
 
 
 class BackItemOut(BaseModel):
@@ -136,7 +147,6 @@ def get_restock(
                 qty=item.qty,
                 flagged_on=item.flagged_on,
                 floor_qty=s.get("floor", 0.0),
-                bwhse_qty=s.get("bwhse", 0.0),
                 checked=item.checked,
             )
         )
@@ -250,8 +260,46 @@ def check_floor_line(
         qty=line.qty,
         flagged_on=line.flagged_on,
         floor_qty=s.get("floor", 0.0),
-        bwhse_qty=s.get("bwhse", 0.0),
         checked=line.checked_off_at is not None,
+        snoozed=line.snoozed_until is not None and line.snoozed_until > utcnow().date(),
+    )
+
+
+class SnoozeIn(BaseModel):
+    snoozed: bool = True
+
+
+@router.post("/floor/{line_id}/snooze", response_model=FloorItemOut)
+def snooze_floor_line_endpoint(
+    line_id: int,
+    body: SnoozeIn,
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING, Role.WAREHOUSE)),
+) -> FloorItemOut:
+    """"Not today" — swipe a line away and it returns tomorrow, qty intact.
+    Same roles as check-off: whoever can work the list can defer an item."""
+    line = db.get(RestockLine, line_id)
+    if line is None or line.list_type != FLOOR_LIST:
+        raise HTTPException(404, "Restock line not found.")
+    if line.checked_off_at is not None:
+        raise HTTPException(409, "That line is already checked off.")
+    today = utcnow().date()
+    snooze_floor_line(db, line, today, snoozed=body.snoozed)
+
+    p = db.get(Product, line.product_id)
+    s = _stock_map(db, {line.product_id}).get(line.product_id, {})
+    return FloorItemOut(
+        line_id=line.id,
+        product_id=line.product_id,
+        sku=p.global_sku if p else "",
+        barcode=(p.barcode or "") if p else "",
+        name=p.name if p else "",
+        category=p.category if p else "",
+        qty=line.qty,
+        flagged_on=line.flagged_on,
+        floor_qty=s.get("floor", 0.0),
+        checked=False,
+        snoozed=line.snoozed_until is not None and line.snoozed_until > today,
     )
 
 

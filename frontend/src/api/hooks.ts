@@ -400,7 +400,63 @@ export function useCheckRestock() {
       args.list === "floor"
         ? api(`/restock/floor/${args.line_id}/check`, { method: "POST", body: { checked: args.checked } })
         : api(`/restock/back/${args.product_id}/check`, { method: "POST", body: { checked: args.checked } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["restock"] }),
+    // Cross it off NOW. Without this the row only moved after the POST *and* a
+    // full list refetch had come back — a long wait on a phone in the aisle,
+    // and much longer against a cold-started backend. The refetch still
+    // happens, it just stops being what the eye is waiting on.
+    onMutate: async (args) => {
+      await qc.cancelQueries({ queryKey: ["restock"] });
+      const previous = qc.getQueryData<RestockOut>(["restock"]);
+      qc.setQueryData<RestockOut>(["restock"], (old) =>
+        !old
+          ? old
+          : {
+              ...old,
+              floor:
+                args.list === "floor"
+                  ? old.floor.map((i) =>
+                      i.line_id === args.line_id ? { ...i, checked: args.checked } : i,
+                    )
+                  : old.floor,
+              back:
+                args.list === "back"
+                  ? old.back.map((i) =>
+                      i.product_id === args.product_id ? { ...i, checked: args.checked } : i,
+                    )
+                  : old.back,
+            },
+      );
+      return { previous };
+    },
+    onError: (_e, _args, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["restock"], ctx.previous); // put it back
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["restock"] }),
+  });
+}
+
+/** "Not today" — hide an open floor line until tomorrow. Optimistic for the
+ *  same reason as check-off: the row should leave under the finger. */
+export function useSnoozeRestock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { line_id: number; snoozed: boolean }) =>
+      api(`/restock/floor/${args.line_id}/snooze`, {
+        method: "POST",
+        body: { snoozed: args.snoozed },
+      }),
+    onMutate: async (args) => {
+      await qc.cancelQueries({ queryKey: ["restock"] });
+      const previous = qc.getQueryData<RestockOut>(["restock"]);
+      qc.setQueryData<RestockOut>(["restock"], (old) =>
+        !old ? old : { ...old, floor: old.floor.filter((i) => i.line_id !== args.line_id) },
+      );
+      return { previous };
+    },
+    onError: (_e, _args, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["restock"], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["restock"] }),
   });
 }
 

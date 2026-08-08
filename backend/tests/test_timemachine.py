@@ -250,6 +250,98 @@ def test_backfill_reconstructs_weekly_history(db, settings_env):
     assert len(state["pending"]) == 3
 
 
+def test_repair_range_only_overwrites_live_days_when_asked(db, settings_env):
+    """The SHIP-fold repair: live capture still wins by default, and only an
+    explicit include_live may replace a sync day — which is then re-labeled,
+    because those numbers came from the move ledger, not from that day's sync."""
+    from app.odoo.simulator import OdooSimulator
+    from app.sync.runner import run_domain
+    from app.timemachine.backfill import repair_range
+
+    sim = OdooSimulator(settings_env.fixtures_path)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+    assert db.get(StockSnapshotDay, TODAY).source == "sync"
+
+    # a dry run writes nothing, whatever it's pointed at
+    before = {
+        (s.product_id, s.location_key): s.qty
+        for s in db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == TODAY))
+    }
+    out = repair_range(db, settings_env, sim, TODAY, TODAY, include_live=True, dry_run=True)
+    assert out["days"][0]["action"] == "dry-run"
+    assert db.get(StockSnapshotDay, TODAY).source == "sync"
+    after_dry = {
+        (s.product_id, s.location_key): s.qty
+        for s in db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == TODAY))
+    }
+    assert after_dry == before
+
+    # without include_live the live day is refused, not silently rewritten
+    out = repair_range(db, settings_env, sim, TODAY, TODAY, include_live=False, dry_run=False)
+    assert out["days"][0]["action"] == "skipped-live"
+    assert db.get(StockSnapshotDay, TODAY).source == "sync"
+
+    # with it, the day is replaced AND re-labeled
+    out = repair_range(db, settings_env, sim, TODAY, TODAY, include_live=True, dry_run=False)
+    assert out["days"][0]["action"] == "repaired-live"
+    assert db.get(StockSnapshotDay, TODAY).source == "reconstructed"
+
+
+def test_repair_never_invents_days_that_have_no_history(db, settings_env):
+    """Repair fixes what exists. A wide range must not reconstruct every
+    uncovered date in it — that would be hundreds of extra Odoo reads and a
+    daily history the app never captured."""
+    from app.odoo.simulator import OdooSimulator
+    from app.sync.runner import run_domain
+    from app.timemachine.backfill import repair_range
+
+    sim = OdooSimulator(settings_env.fixtures_path)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+
+    out = repair_range(
+        db, settings_env, sim, TODAY - timedelta(days=5), TODAY, include_live=True, dry_run=False
+    )
+    actions = [d["action"] for d in out["days"]]
+    assert actions.count("skipped-no-history") == 5  # the five uncovered days
+    assert actions[-1] == "repaired-live"  # only TODAY had anything to fix
+    assert set(db.scalars(select(StockSnapshotDay.snapshot_date))) == {TODAY}
+
+
+def test_reconstruct_refuses_to_wipe_a_day_on_an_empty_read(db, settings_env):
+    """An Odoo hiccup that returns no rows must not delete real history."""
+    import pytest
+    from app.odoo.simulator import OdooSimulator
+    from app.sync.runner import run_domain
+    from app.timemachine.backfill import _reconstruct_day
+
+    sim = OdooSimulator(settings_env.fixtures_path)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    run_domain(db, settings_env, "stock", conn=sim, trigger="manual")
+    rows_before = len(
+        list(db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == TODAY)))
+    )
+    assert rows_before
+
+    class _EmptyOdoo:
+        """Answers the location lookup, then returns nothing for quantities."""
+
+        def search_read(self, model, domain, fields=None, **kw):
+            return sim.search_read(model, domain, fields, **kw) if model == "stock.location" else []
+
+        def call_kw(self, *a, **kw):
+            return []
+
+    with pytest.raises(RuntimeError, match="refusing to replace"):
+        _reconstruct_day(db, _EmptyOdoo(), TODAY, allow_live_overwrite=True)
+    db.rollback()
+    assert (
+        len(list(db.scalars(select(StockSnapshot).where(StockSnapshot.snapshot_date == TODAY))))
+        == rows_before
+    )
+
+
 def test_future_beyond_horizon_is_422_and_roles(client, db):
     _seed_future(db)
     _users(db)

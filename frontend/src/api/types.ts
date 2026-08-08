@@ -377,9 +377,10 @@ export interface RestockFloorItem {
   category: string;
   qty: number;
   flagged_on: string;
+  /** No bwhse_qty here on purpose — restocking the shelf is a floor-only job. */
   floor_qty: number;
-  bwhse_qty: number;
   checked: boolean;
+  snoozed: boolean;
 }
 
 export interface RestockBackItem {
