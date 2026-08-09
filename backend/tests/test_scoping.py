@@ -78,3 +78,82 @@ def test_admin_users_crud_and_role_validation(client, db):
     # duplicate email is rejected
     r = client.post("/api/v1/admin/users", json={"email": "new.person@test.local"}, headers=headers)
     assert r.status_code == 409
+
+
+def test_admin_can_edit_contact_and_roles(client, db):
+    """The Users-page edit flow: change contact details and swap the whole role
+    set in one PATCH, including multi-role users."""
+    z1, z2, c1, *_ = _world(db)
+    mk_user(db, "admin2@t.l", (Role.ADMIN, None, None))
+    headers = login(client, "admin2@t.l")
+
+    target = mk_user(db, "before@test.local", (Role.WAREHOUSE, None, None))
+    tid = target.id
+
+    # contact info: changed, and normalized on the way in
+    r = client.patch(
+        f"/api/v1/admin/users/{tid}",
+        json={"display_name": "Renamed", "email": "After.Person@Test.Local", "phone": "(512) 555-0100"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["display_name"] == "Renamed"
+    assert body["email"] == "after.person@test.local"
+    assert body["phone"] == "+15125550100"
+
+    # roles are a full replacement — a user can end up holding two at once
+    r = client.patch(
+        f"/api/v1/admin/users/{tid}",
+        json={
+            "roles": [
+                {"role": "zone_coordinator", "zone_id": z1.id},
+                {"role": "center_orderer", "center_id": c1.id},
+            ]
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert {rr["role"] for rr in r.json()["roles"]} == {"zone_coordinator", "center_orderer"}
+
+    # ...and replacing again drops the ones left out
+    r = client.patch(
+        f"/api/v1/admin/users/{tid}",
+        json={"roles": [{"role": "zone_coordinator", "zone_id": z2.id}]},
+        headers=headers,
+    )
+    assert [rr["zone_id"] for rr in r.json()["roles"]] == [z2.id]
+
+    # a scoped role still needs its scope
+    r = client.patch(
+        f"/api/v1/admin/users/{tid}", json={"roles": [{"role": "center_orderer"}]}, headers=headers
+    )
+    assert r.status_code == 422
+
+
+def test_editing_contact_uses_empty_string_to_clear_not_null(client, db):
+    """The UI sends "" to clear a field: null means "leave unchanged", so a
+    cleared box must not silently keep the old value. Clearing BOTH is refused —
+    a user with no contact could never receive a sign-in code."""
+    _world(db)
+    mk_user(db, "admin3@t.l", (Role.ADMIN, None, None))
+    headers = login(client, "admin3@t.l")
+
+    target = mk_user(db, "both@test.local", (Role.WAREHOUSE, None, None))
+    target.phone = "+15125550111"
+    db.commit()
+    tid = target.id
+
+    # null leaves it alone
+    r = client.patch(f"/api/v1/admin/users/{tid}", json={"email": None}, headers=headers)
+    assert r.json()["email"] == "both@test.local"
+
+    # "" actually clears it, because the phone still reaches them
+    r = client.patch(f"/api/v1/admin/users/{tid}", json={"email": ""}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["email"] is None
+    assert r.json()["phone"] == "+15125550111"
+
+    # clearing the last way to reach them is refused
+    r = client.patch(f"/api/v1/admin/users/{tid}", json={"phone": ""}, headers=headers)
+    assert r.status_code == 422
