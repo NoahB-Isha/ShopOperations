@@ -69,10 +69,19 @@ envVarGroups:
         sync: false
       - key: ODOO_PASSWORD
         sync: false
-      # SAFETY: stays false until the canary protocol has passed FROM THIS
+      # SAFETY: writes stay off until the canary protocol has passed FROM THIS
       # deployment; per-operation feature flags gate each write besides.
+      #
+      # sync: false, NOT value: "false" — and that distinction is the whole
+      # point. A pinned literal is re-applied to the dashboard every time the
+      # Blueprint syncs (any render.yaml change triggers one), so it silently
+      # reverted a deliberate operator "true" and every transfer went back to
+      # dry-run with reason=kill_switch. Happened 2026-08-07..08-10: live
+      # writes on 08-04, kill_switch by 08-10, flag still on the whole time.
+      # Unset still means OFF (config.py defaults odoo_writes_enabled=False),
+      # so the safe default survives — it just stops overwriting a human.
       - key: ODOO_WRITES_ENABLED
-        value: "false"
+        sync: false
       - key: ODOO_PAGE_SIZE
         value: "1000"
       - key: ODOO_THROTTLE_SECONDS
