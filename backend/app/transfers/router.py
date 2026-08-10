@@ -394,9 +394,12 @@ def list_requests(
     for req in requests:
         if polled >= 8:
             break
-        if req.status == S.COUNTING.value:
+        if req.status in (S.COUNTING.value, S.SENT.value):
             polled += 1
-            service.poll_count_validation(db, settings, req)
+            # The floor's own receiving picking is the usual close; the count
+            # picking the app prepared only exists when its flag is live.
+            if not service.poll_received_in_odoo(db, settings, req):
+                service.poll_count_validation(db, settings, req)
         elif req.status in (S.REQUESTED.value, S.WORKING.value):
             polled += 1
             service.poll_outbound_status(db, settings, req)
@@ -647,8 +650,10 @@ def get_request(
 ) -> RequestOut:
     req = _get_request(db, request_id)
     # both listeners: Odoo-side warehouse actions and the count validation
-    if service.poll_outbound_status(db, settings, req) or service.poll_count_validation(
-        db, settings, req
+    if (
+        service.poll_outbound_status(db, settings, req)
+        or service.poll_received_in_odoo(db, settings, req)
+        or service.poll_count_validation(db, settings, req)
     ):
         req = _get_request(db, request_id)
     return _request_out(db, settings, req, authed)

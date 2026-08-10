@@ -4,7 +4,12 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTransferAction, useTransferRequest } from "../../api/hooks";
-import type { OdooRefOut, TransferEventOut, TransferRequestOut } from "../../api/types";
+import type {
+  OdooRefOut,
+  TransferEventOut,
+  TransferLineOut,
+  TransferRequestOut,
+} from "../../api/types";
 import {
   Button,
   Card,
@@ -194,6 +199,9 @@ function Detail({ req }: { req: TransferRequestOut }) {
               onClick={() => markDone.mutate({ id: req.id }, { onError })}
             />
           )}
+
+          {/* ---- what actually arrived ---- */}
+          {showCounted && <ReceiptSummary lines={req.lines} />}
 
           {/* ---- lines ---- */}
           <Card pad={false}>
@@ -445,5 +453,64 @@ function TimelineItem({ event, last }: { event: TransferEventOut; last: boolean 
         <div className="text-[11.5px] text-on-surface-variant/80">{fmtWhen(event.created_at)}</div>
       </div>
     </li>
+  );
+}
+
+/** What actually landed on the floor, once the receipt is matched.
+ *
+ *  The per-line Δ column already colours short vs over, but it only appears on
+ *  a finished request and you have to read every row to find the two that
+ *  moved. This says it up front, in the same two colours: short is an error
+ *  (stock the floor expected and doesn't have), over is a warning (real stock
+ *  that arrived unannounced) — neither is neutral, and they aren't the same
+ *  problem, so they don't get the same colour. */
+function ReceiptSummary({ lines }: { lines: TransferLineOut[] }) {
+  const short = lines.filter((l) => (l.delta ?? 0) < 0);
+  const over = lines.filter((l) => (l.delta ?? 0) > 0);
+  const counted = lines.filter((l) => l.qty_counted !== null);
+  if (counted.length === 0) return null;
+
+  if (short.length === 0 && over.length === 0) {
+    return (
+      <Card className="flex items-center gap-2.5 border-l-4 border-l-success">
+        <span className="text-[15px] font-medium">Everything matched</span>
+        <span className="text-[13px] text-on-surface-variant">
+          all {counted.length} item{counted.length === 1 ? "" : "s"} arrived as sent
+        </span>
+      </Card>
+    );
+  }
+
+  const list = (rows: TransferLineOut[]) =>
+    rows
+      .map((l) => `${l.name} (${l.delta! > 0 ? "+" : ""}${fmtQty(l.delta)})`)
+      .join(", ");
+
+  return (
+    <Card className="flex flex-col gap-3 border-l-4 border-l-warn">
+      <span className="text-[15px] font-medium">
+        {short.length + over.length} of {counted.length} items didn't match what was sent
+      </span>
+      {short.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[13px] font-semibold text-error">
+            {short.length} short — less arrived than was sent
+          </span>
+          <span className="text-[13px] text-on-surface-variant">{list(short)}</span>
+        </div>
+      )}
+      {over.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[13px] font-semibold text-warn">
+            {over.length} extra — more arrived than was sent
+          </span>
+          <span className="text-[13px] text-on-surface-variant">{list(over)}</span>
+        </div>
+      )}
+      <span className="text-[12.5px] leading-5 text-on-surface-variant">
+        Both directions are filed in the adjustments queue for the warehouse to reconcile.
+        Staging holds whatever the counts didn't account for.
+      </span>
+    </Card>
   );
 }

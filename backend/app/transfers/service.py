@@ -134,13 +134,21 @@ def refresh_sent_quantities(
     return f"sent quantities read back from {req.odoo_picking_name} ({matched} line(s))"
 
 
-def _move_quantities(conn: OdooConnection, picking_id: int) -> dict[int, float]:
+def _move_quantities(
+    conn: OdooConnection, picking_id: int, into: dict[int, float] | None = None
+) -> dict[int, float]:
     """product odoo id -> quantity. Prefers the actual done quantity
-    (v17+ `quantity`), falling back to the demand."""
+    (v17+ `quantity`), falling back to the demand. Pass `into` to accumulate
+    across several pickings (a receipt can arrive as more than one)."""
     fields = safe_fields(conn, "stock.move", ["product_id", "quantity", "product_uom_qty", "state"])
     moves = conn.search_read("stock.move", [["picking_id", "=", picking_id]], fields)
-    out: dict[int, float] = {}
+    out: dict[int, float] = {} if into is None else into
     for m in moves:
+        # A cancelled move delivered nothing. It matters because `quantity` can
+        # come back False on one, and the demand fallback below would then read
+        # a cancelled line as fully received.
+        if str(m.get("state") or "") == "cancel":
+            continue
         pid_field = m.get("product_id")
         odoo_pid = pid_field[0] if isinstance(pid_field, list) else pid_field
         if not isinstance(odoo_pid, int):
@@ -150,6 +158,42 @@ def _move_quantities(conn: OdooConnection, picking_id: int) -> dict[int, float]:
             qty = m.get("product_uom_qty") or 0.0
         out[odoo_pid] = out.get(odoo_pid, 0.0) + float(qty or 0.0)
     return out
+
+
+def find_received_pickings(
+    db: Session, conn: OdooConnection, req: TransferRequest
+) -> list[dict]:
+    """Validated STAGING→FLOOR pickings that belong to this request.
+
+    The floor receives by DUPLICATING the placement picking in Odoo, then
+    retargeting it (source → floor staging, dest → floor), trimming quantities
+    where less arrived and raising a separate transfer for extras. Odoo's
+    duplicate carries `origin` over, so the app's own ILAPP-TR- reference rides
+    along onto that receiving picking — a real link, not a guess. Verified live
+    2026-08-10: placement III/INT/04669 and receiving III/INT/04675 both carry
+    origin ILAPP-TR-04B3F6B49A, while an unrelated same-day STAGING→FLOOR
+    picking (III/INT/04676, different products entirely) carries none. Matching
+    on products or timing instead would have swept that one up.
+
+    Only the app's own placement is excluded; anything else sharing the
+    reference and landing on the floor counts, so a follow-up transfer for
+    extras adds to the tally rather than being missed.
+    """
+    if not req.picking_reference:
+        return []
+    floor = db.scalar(select(OdooLocation).where(OdooLocation.key == "floor"))
+    if floor is None:
+        return []
+    rows = conn.search_read(
+        "stock.picking",
+        [
+            ["origin", "=", req.picking_reference],
+            ["location_dest_id", "child_of", floor.odoo_id],
+            ["state", "=", "done"],
+        ],
+        ["name", "date_done"],
+    )
+    return [r for r in rows if r.get("id") != req.odoo_picking_id]
 
 
 # ------------------------------------------------------------- count transfer
@@ -319,11 +363,66 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
 
 
 # ------------------------------------------------------- validation listener
+def poll_received_in_odoo(db: Session, settings: Settings, req: TransferRequest) -> bool:
+    """Close a request from the floor's OWN receiving picking(s).
+
+    This is the path that actually happens. `poll_count_validation` only ever
+    watches a picking the app created, which requires
+    `write_prepare_count_transfer` to be live — it isn't, so count_status is
+    simulated or none and that poll bails on its first condition. A request
+    could then sit in `counting` forever while the stock had long since landed
+    on the floor. This watches for the receiving picking the floor makes
+    instead, and works from `sent` too (both close to done in the state
+    machine), so it doesn't depend on the count transfer ever being prepared.
+    """
+    if req.status not in (TransferRequestStatus.SENT.value, TransferRequestStatus.COUNTING.value):
+        return False
+    if not req.picking_reference:
+        return False
+    now = utcnow()
+    if req.count_checked_at is not None:  # shares the count poll's throttle
+        checked = req.count_checked_at
+        if checked.tzinfo is None:
+            checked = checked.replace(tzinfo=now.tzinfo)
+        if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
+            return False
+    req.count_checked_at = now
+    db.commit()
+
+    try:
+        conn = get_connection(settings, read_only=True)
+        received = find_received_pickings(db, conn, req)
+        if not received:
+            return False
+        counted: dict[int, float] = {}
+        for picking in received:
+            _move_quantities(conn, picking["id"], into=counted)
+    except OdooError as e:
+        log.warning("receipt poll failed for request %s: %s", req.id, e)
+        return False
+
+    names = ", ".join(str(p.get("name") or p["id"]) for p in received)
+    finish_from_count(
+        db,
+        req,
+        counted,
+        source=(
+            f"received on the floor in Odoo ({names}) — matched by reference "
+            f"{req.picking_reference}"
+        ),
+    )
+    db.commit()
+    return True
+
+
 def poll_count_validation(db: Session, settings: Settings, req: TransferRequest) -> bool:
     """Check Odoo for the count picking's validation; on 'done', pull the
     counted quantities, reconcile against sent, and close the request.
     Throttled per request; safe to call on every UI refresh. Returns True
-    when the request just transitioned to done."""
+    when the request just transitioned to done.
+
+    Only covers the picking the APP prepared — see poll_received_in_odoo() for
+    the floor's own duplicate, which is the usual case."""
     if (
         req.status != TransferRequestStatus.COUNTING.value
         or req.count_status != OdooWriteOutcome.CREATED.value

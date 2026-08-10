@@ -537,3 +537,96 @@ def test_staging2_pallet_flow(client, db, live_env, monkeypatch):
     # the pallet reads validated on the staging2 page
     r = client.get("/api/v1/transfer-requests/staging2", headers=wh)
     assert r.json()["pallets"][0]["status"] == "validated"
+
+
+def test_floor_receipt_in_odoo_closes_the_request(client, db, live_env, monkeypatch):
+    """The real receiving process: the floor DUPLICATES the placement picking,
+    retargets it staging→floor, trims what came up short and raises a second
+    transfer for extras. Odoo's duplicate carries `origin`, so the app's
+    ILAPP-TR- reference rides along and the receipt can be matched to the
+    request for certain.
+
+    Runs with write_prepare_count_transfer OFF — production's actual state, and
+    the reason requests used to sit in `counting` forever: the count poll only
+    ever watches a picking the app itself created."""
+    copper, incense, water = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    set_flag(db, "write_create_internal_transfer", True)
+    set_flag(db, "write_prepare_count_transfer", False)  # as it is on live
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor_hdr = login(client, "floor@test.io")
+
+    r = client.post(
+        "/api/v1/transfer-requests",
+        json={
+            "lines": [
+                {"product_id": copper.id, "qty": 10},
+                {"product_id": incense.id, "qty": 5},
+            ]
+        },
+        headers=floor_hdr,
+    )
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    picking_id = r.json()["placement"]["picking_id"]
+    reference = r.json()["placement"]["reference"]
+    assert reference.startswith("ILAPP-TR-")
+
+    # warehouse validates the placement in Odoo → sent (count stays simulated)
+    for mv in sim.search_read("stock.move", [["picking_id", "=", picking_id]], ["id"]):
+        sim.call_kw("stock.move", "write", [[mv["id"]], {"state": "done"}])
+    sim.call_kw("stock.picking", "write", [[picking_id], {"state": "done"}])
+    r = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr)
+    assert r.json()["status"] in ("sent", "counting")
+    assert r.json()["count"]["status"] != "created"  # nothing for the old poll to watch
+
+    # the floor's own receipt: copper SHORT (10 sent, 8 arrived), incense over
+    # (5 sent, 6 arrived) — and a cancelled line that delivered nothing.
+    from app.models import OdooLocation
+    from sqlalchemy import select
+
+    floor_loc = db.scalar(select(OdooLocation).where(OdooLocation.key == "floor"))
+    staging = db.scalar(select(OdooLocation).where(OdooLocation.key == "staging"))
+    recv = sim.call_kw(
+        "stock.picking",
+        "create",
+        [
+            {
+                "origin": reference,  # what Odoo's duplicate carries over
+                "location_id": staging.odoo_id,
+                "location_dest_id": floor_loc.odoo_id,
+                "state": "done",
+            }
+        ],
+    )
+    for pid, qty, state in (
+        (copper.odoo_product_id, 8, "done"),
+        (incense.odoo_product_id, 6, "done"),
+        (water.odoo_product_id, 99, "cancel"),  # must not count as received
+    ):
+        sim.call_kw(
+            "stock.move",
+            "create",
+            [{"picking_id": recv, "product_id": pid, "product_uom_qty": qty,
+              "quantity": qty, "state": state}],
+        )
+
+    # the detail GET is the listener — no app clicks on the floor's side
+    r = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr)
+    body = r.json()
+    assert body["status"] == "done", body["status"]
+    by_sku = {ln["sku"]: ln for ln in body["lines"]}
+    assert by_sku[copper.global_sku]["qty_counted"] == 8
+    assert by_sku[copper.global_sku]["delta"] == -2  # short
+    assert by_sku[incense.global_sku]["qty_counted"] == 6
+    assert by_sku[incense.global_sku]["delta"] == 1  # over
+    assert any(reference in e["note"] for e in body["events"])
+
+    # both directions filed as adjustments for the queue (warehouse owns it)
+    adj = client.get("/api/v1/adjustments", headers=login(client, "wh@test.io")).json()
+    deltas = sorted(a["delta"] for a in adj if a["request_id"] == rid)
+    assert deltas == [-2.0, 1.0]
