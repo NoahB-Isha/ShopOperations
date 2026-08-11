@@ -69,28 +69,6 @@ test("sales dashboard: highlights, generated narrative, chart+table, drill-down,
   await expect(page.getByText("Last 12 months", { exact: false }).first()).toBeVisible();
 });
 
-test("time machine: today, past with honest confidence, future projection, horizon cap", async ({ page }) => {
-  await login(page, "admin@demo.ishalife.test");
-  await page.goto("/time-machine");
-
-  await expect(page.getByText(/Live snapshot · confidence high/)).toBeVisible();
-  const datePicker = page.getByLabel("Pick a date");
-
-  // past: seeded history is ~90 days deep — 20 days back must resolve
-  const past = new Date(Date.now() - 20 * 86_400_000).toISOString().slice(0, 10);
-  await datePicker.fill(past);
-  await expect(page.getByText(/Snapshot · confidence (high|medium)/)).toBeVisible({
-    timeout: 15_000,
-  });
-
-  // future: 3 months out runs the engine projection
-  const future = new Date(Date.now() + 92 * 86_400_000).toISOString().slice(0, 10);
-  await datePicker.fill(future);
-  await expect(page.getByText(/Projection · confidence/)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/ordering engine's forecast/)).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Projected on hand" })).toBeVisible();
-});
-
 test("out-of-stock scopes: floor board + everywhere/warehouse snapshot lists", async ({ page }) => {
   await login(page, "floor@demo.ishalife.test");
   await page.goto("/out-of-stock");

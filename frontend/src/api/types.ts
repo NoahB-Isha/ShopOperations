@@ -969,53 +969,9 @@ export interface QaOut {
   generated_at: string;
 }
 
-// ------------------------------------------------ phase 5: time machine
-export interface TimeMachineBoundsOut {
-  today: string;
-  min_date: string;
-  max_date: string;
-  history_days: string[];
-  horizon_months: number;
-}
-
-export interface TimeMachineItemOut {
-  product_id: number;
-  sku: string;
-  barcode: string;
-  name: string;
-  category: string;
-  total_qty: number;
-  bwhse_qty: number | null;
-  floor_qty: number | null;
-  staging_qty: number | null;
-  incoming_included: number;
-  forecast_method: string;
-  forecast_confidence: string;
-  sold_qty: number | null;
-  returned_qty: number | null;
-}
-
-export interface TimeMachineViewOut {
-  mode: "past" | "today" | "future";
-  requested_date: string;
-  effective_date: string;
-  confidence: {
-    level: "high" | "medium" | "low" | "none";
-    note: string;
-    gap_days?: number | null;
-    month_index?: number;
-    stock_synced_at?: string | null;
-  };
-  items: TimeMachineItemOut[];
-  day_sales: {
-    available: boolean;
-    note: string;
-    total_sold?: number;
-    total_returned?: number;
-    products_sold?: number;
-    partial?: boolean;
-  } | null;
-}
+/* The time-machine PAGE was removed (2026-08-11). Its endpoints stay live —
+   the response shapes live in the backend schemas and in git history; there
+   is no frontend consumer to type any more. */
 
 // ------------------------------------------------ phase 5: availability
 export interface AvailabilityItemOut {

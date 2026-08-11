@@ -42,8 +42,6 @@ import type {
   NarrativeOut,
   QaOut,
   SalesOverviewOut,
-  TimeMachineBoundsOut,
-  TimeMachineViewOut,
 } from "./types";
 
 // ------------------------------------------------------------------ catalog
@@ -1044,27 +1042,9 @@ export function useAskQuestion() {
   });
 }
 
-// ---------------------------------------------- phase 5: time machine
-export function useTimeMachineBounds() {
-  return useQuery({
-    queryKey: ["time-machine-bounds"],
-    queryFn: () => api<TimeMachineBoundsOut>("/time-machine/bounds"),
-    staleTime: 5 * 60_000,
-  });
-}
-
-export function useTimeMachine(date: string | null, category: string) {
-  return useQuery({
-    queryKey: ["time-machine", date, category],
-    queryFn: () =>
-      api<TimeMachineViewOut>("/time-machine", {
-        params: { date: date!, ...(category ? { category } : {}) },
-      }),
-    enabled: date !== null,
-    placeholderData: keepPreviousData,
-    staleTime: 60_000,
-  });
-}
+/* The time-machine PAGE was removed (2026-08-11) — its /time-machine and
+   /admin/time-machine/backfill endpoints stay live for the API, so the
+   hooks that drove the page live on in git history, not here. */
 
 // ---------------------------------------------- phase 5: availability
 export function useAvailabilityMeta() {
@@ -1132,18 +1112,6 @@ export function useDeleteNotice() {
   return useMutation({
     mutationFn: (id: number) => api<void>(`/notices/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notices"] }),
-  });
-}
-
-export function useStartHistoryBackfill() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (weeks?: number) =>
-      api<{ queued: number; requested_weeks: number; note: string }>(
-        "/admin/time-machine/backfill",
-        { method: "POST", body: weeks ? { weeks } : {} },
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["time-machine-bounds"] }),
   });
 }
 

@@ -685,4 +685,31 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   and Cancel request (confirm dialog, offered only for requested/working_on_it
   — past "sent" the stock has moved). Copy: /coming-soon subtitle is Noah's
   wording; the /out-of-stock subtitle is COMMENTED OUT in place at his request
-  (2026-08-11) — leave it parked rather than deleting it.
+  (2026-08-11) — leave it parked rather than deleting it. **Bubble round 2**
+  (same day, Noah's follow-up): the pill is DRAGGABLE (position clamped to the
+  viewport, saved per device in localStorage `ilops_transfer_bubble_pos`; a
+  gesture under 5px is a tap = open, anything more is a move) and it NEVER
+  hides — the dismiss × is gone, because "x it out once and it's gone forever"
+  was the complaint; the way to move it aside is to drag it, the way to end it
+  is to place the request. Entrance/exit are the bouncy `--animate-bubble-in` /
+  `--animate-bubble-out` keyframes in tokens.css, and the entrance class is
+  DROPPED on animationend (fill-mode `both` would outrank the hover scale
+  forever). Placement REFUSES a zero viewport (`viewport()` + rAF retry): a
+  hidden tab reports innerWidth 0, and clamping against it parks the pill in
+  the top-left corner permanently — caught live in the browser pane, which
+  really does report 0×0 while backgrounded.
+- **Time machine PAGE removed (2026-08-11, Noah's call) — endpoints kept.**
+  `/time-machine`, `/time-machine/bounds` and `/admin/time-machine/backfill`
+  are untouched and verified live after the removal (bounds + today view,
+  1,301 items). What went is the UI: TimeMachinePage.tsx, its route + both nav
+  entries (admin, warehouse), the `useTimeMachine*`/`useStartHistoryBackfill`
+  hooks, the TimeMachine* frontend types, the silly-mode "The rewind" entry,
+  the era font imports in main.tsx, and the phase5 e2e test. **The warp
+  shockwave (shell/warpFx.tsx + warpWorker.ts + warpWave.ts, the `.tm-*` CSS,
+  warpWave.test.ts) is INTACT but no longer mounted** — it existed for that one
+  destination; leave it parked for the next 4th-wall moment rather than
+  re-deriving it (SVG displacement and main-thread rAF WebGL both failed on the
+  way to it — see the phase-5.x notes above). @fontsource/special-elite and
+  orbitron stay in package.json (unused now; node_modules is a container
+  volume, so dropping them is a rebuild, not an edit). The page is recoverable
+  from git history if it ever comes back.

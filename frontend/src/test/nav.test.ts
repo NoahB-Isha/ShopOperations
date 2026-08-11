@@ -11,13 +11,11 @@ test("each role sees its own nav", () => {
     "Staging 2",
     "Coming soon",
     "Out of stock",
-    "Time machine",
     "Adjustments",
     "All SKUs",
   ]);
   const adminPaths = navForRoles(new Set(["admin"])).map((i) => i.path);
   expect(adminPaths).toContain("/reports");
-  expect(adminPaths).toContain("/time-machine");
   expect(adminPaths).toContain("/out-of-stock");
   // moved off the menu: audit lives on Status, design pages in Settings,
   // the availability page merged into Out of stock
@@ -25,6 +23,8 @@ test("each role sees its own nav", () => {
   expect(adminPaths).not.toContain("/palette-lab");
   expect(adminPaths).not.toContain("/audit");
   expect(adminPaths).not.toContain("/availability");
+  // the time-machine page was removed 2026-08-11 (its endpoints stayed)
+  expect(adminPaths).not.toContain("/time-machine");
 });
 
 test("floor_rotating mirrors the floor nav (creation is gated in-page)", () => {

@@ -75,7 +75,6 @@ const byRole: Record<string, NavItem[]> = {
   admin: [
     { path: "/status", label: "Status", icon: Icons.pulse },
     { path: "/reports", label: "Reports", icon: Icons.chart },
-    { path: "/time-machine", label: "Time machine", icon: Icons.timeMachine },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
@@ -89,7 +88,6 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/staging2", label: "Staging 2", icon: Icons.box },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
-    { path: "/time-machine", label: "Time machine", icon: Icons.timeMachine },
     { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],

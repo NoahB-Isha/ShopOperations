@@ -125,6 +125,10 @@
   --animate-rise-in: rise-in 0.5s var(--ease-spring) both;
   --animate-float: float 5.5s ease-in-out infinite;
   --animate-drift: drift 16s ease-in-out infinite;
+  /* the floating transfer-draft bubble: arrives with a real bounce, leaves
+     with a wind-up and a shrink (quirk belongs in safe places) */
+  --animate-bubble-in: bubble-in 0.55s var(--ease-spring) both;
+  --animate-bubble-out: bubble-out 0.3s cubic-bezier(0.5, -0.4, 0.75, 0.2) both;
 
   @keyframes snackbar-in {
     from { opacity: 0; transform: translateY(24px) scale(0.9); }
@@ -155,6 +159,18 @@
   @keyframes rise-in {
     from { opacity: 0; transform: translateY(16px) scale(0.98); }
     to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes bubble-in {
+    0% { opacity: 0; transform: scale(0.3) translateY(26px); }
+    45% { opacity: 1; transform: scale(1.18) translateY(-8px); }
+    70% { transform: scale(0.94) translateY(2px); }
+    88% { transform: scale(1.04) translateY(-1px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes bubble-out {
+    0% { opacity: 1; transform: scale(1); }
+    28% { transform: scale(1.16) rotate(-3deg); }
+    100% { opacity: 0; transform: scale(0.25) translateY(18px) rotate(6deg); }
   }
   @keyframes float {
     0%, 100% { transform: translateY(0) rotate(-6deg); }

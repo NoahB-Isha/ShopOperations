@@ -26,7 +26,6 @@ import { PurchaseOrderPage } from "./pages/purchasing/PurchaseOrderPage";
 import { PurchasingPage } from "./pages/purchasing/PurchasingPage";
 import { VendorsPage } from "./pages/purchasing/VendorsPage";
 import { ReportsPage } from "./pages/reports/ReportsPage";
-import { TimeMachinePage } from "./pages/reports/TimeMachinePage";
 import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
@@ -132,11 +131,6 @@ export default function App() {
               } />
               <Route path="/reports" element={
                 <Protected title="Sales" roles={["admin"]}><ReportsPage /></Protected>
-              } />
-              <Route path="/time-machine" element={
-                <Protected title="Time machine" roles={["admin", "warehouse"]}>
-                  <TimeMachinePage />
-                </Protected>
               } />
 
               {/* coordinator / liaison */}

@@ -50,7 +50,6 @@ export const SILLY_LABELS: Record<string, string> = {
   Status: "Vibe check",
   Reports: "🤑🤑🤑",
   Sales: "🤑🤑🤑", // the /reports route title
-  "Time machine": "The rewind",
   "Out of stock": "Ghost town",
   "All SKUs": "The stash",
   Centers: "The crews",

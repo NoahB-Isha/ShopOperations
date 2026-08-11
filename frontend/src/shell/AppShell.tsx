@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
@@ -9,7 +9,6 @@ import { StatusDot } from "../design";
 import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
 import { TransferDraftBubble } from "./TransferDraftBubble";
-import { WarpFX, fireWarp, msSinceLastWarp } from "./warpFx";
 
 /** The Isha Life "iL" emblem — the provided brand PNG, served from /public
  *  (all-white variant in dark mode). Bounces when you say hello. */
@@ -150,21 +149,11 @@ function HealthChip() {
   );
 }
 
-/** Entering /time-machine breaks the 4th wall. The nav CLICK itself already
- *  fires the shockwave (capture-phase listener in warpFx — before this heavy
- *  page mounts); this effect only covers entries with no click, like a
- *  direct URL or programmatic navigation. Entry is the ONLY warp now —
- *  slider waves were disabled by request (commented in TimeMachinePage). */
-function useTimeWarpOnEntry(): void {
-  const location = useLocation();
-  const prevPath = useRef<string | null>(null);
-  useEffect(() => {
-    const entering =
-      location.pathname === "/time-machine" && prevPath.current !== "/time-machine";
-    prevPath.current = location.pathname;
-    if (entering && msSinceLastWarp() > 1200) fireWarp({ power: 1 });
-  }, [location.pathname]);
-}
+/* The warp shockwave (shell/warpFx.tsx + warpWorker/warpWave, and the
+   .tm-* CSS in tokens.css) existed for ONE destination: the time-machine
+   page. That page was removed 2026-08-11, so nothing mounts WarpFX or calls
+   fireWarp/settleWarp any more — the machinery is left intact, unreferenced,
+   for whatever wants a 4th-wall moment next. */
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const { user, roles, signOut } = useAuth();
@@ -172,7 +161,6 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const s = useSillyLabel();
-  useTimeWarpOnEntry();
 
   const items = navForRoles(roles);
   // M3: bottom bar handles up to 5 destinations; busier roles get the drawer.
@@ -285,8 +273,6 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
 
       {/* a half-built transfer request follows you between pages */}
       <TransferDraftBubble />
-
-      <WarpFX targetRef={rootRef} />
     </div>
   );
 }
