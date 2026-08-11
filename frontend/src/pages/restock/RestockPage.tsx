@@ -181,11 +181,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
           }
           sub={
             <>
-              sold since last restock · flagged{" "}
-              {new Date(item.flagged_on + "T00:00:00").toLocaleDateString([], {
-                month: "short",
-                day: "numeric",
-              })}
+              sold since last restock · {addedAgo(item.flagged_on)}
               {" · "}
               floor {fmtQty(item.floor_qty)} <LowCountHint qty={item.floor_qty} />
             </>
@@ -281,7 +277,25 @@ function BackList({ items }: { items: RestockBackItem[] }) {
 
 /** How far the row must travel before "not today" commits. Below this it
  *  springs back, so a scroll that wanders sideways can't defer an item. */
+/** "Added 3 days ago" reads faster on the floor than a bare date — the useful
+ *  question is how long it has been sitting there, not which day it was. */
+function addedAgo(day: string): string {
+  const then = new Date(day + "T00:00:00");
+  const now = new Date();
+  const days = Math.round(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+      new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()) /
+      86_400_000,
+  );
+  if (days <= 0) return "Added today";
+  if (days === 1) return "Added yesterday";
+  return `Added ${days} days ago`;
+}
+
 const SWIPE_COMMIT_PX = 96;
+/** Exit animation length. The snooze mutation is optimistic, so the row is
+ *  only dropped from the list after this — otherwise it disappears mid-swipe. */
+const SWIPE_EXIT_MS = 220;
 
 function CheckRow({
   checked,
@@ -306,6 +320,14 @@ function CheckRow({
   // endDrag's closure is still the previous value and the swipe would be
   // silently dropped. The state exists only to drive the paint.
   const dxRef = useRef(0);
+  // Whether the finger is down has to be state, not a ref: the transition is
+  // decided at render, and a ref read there is stale, so the row kept its
+  // 200ms ease WHILE being dragged and lagged behind the finger.
+  const [dragging, setDragging] = useState(false);
+  // Slide-and-collapse on the way out. Without it the optimistic update pulled
+  // the row from the array the instant the swipe committed, so it vanished
+  // mid-gesture instead of leaving.
+  const [leaving, setLeaving] = useState(false);
   const drag = useRef<{ x0: number; y0: number; axis: "" | "x" | "y" } | null>(null);
   // A swipe ends with a synthetic click on some browsers; this swallows it so
   // deferring an item can never also tick it off.
@@ -313,7 +335,7 @@ function CheckRow({
   const canSwipe = Boolean(onSnooze) && !checked;
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (!canSwipe || e.pointerType === "mouse") return;
+    if (!canSwipe || e.pointerType === "mouse" || leaving) return;
     drag.current = { x0: e.clientX, y0: e.clientY, axis: "" };
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -329,25 +351,49 @@ function CheckRow({
     if (d.axis !== "x") return;
     const next = Math.min(0, mx); // left only — there is no right-hand action
     dxRef.current = next;
+    if (!dragging) setDragging(true);
     setDx(next);
   };
   const endDrag = () => {
     const d = drag.current;
     drag.current = null;
+    setDragging(false);
     if (d?.axis === "x" && dxRef.current <= -SWIPE_COMMIT_PX) {
       swallowClick.current = true;
-      onSnooze?.();
-      return; // leave it translated; the row is being removed from the list
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      if (reduced) {
+        onSnooze?.();
+        return;
+      }
+      // Let it finish leaving, THEN drop it from the list — the mutation is
+      // optimistic, so calling it first would delete the row mid-animation.
+      setLeaving(true);
+      window.setTimeout(() => onSnooze?.(), SWIPE_EXIT_MS);
+      return;
     }
     dxRef.current = 0;
     setDx(0);
   };
 
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)">
+    <li
+      className="relative overflow-hidden rounded-(--radius-lg)"
+      style={
+        leaving
+          ? {
+              maxHeight: 0,
+              opacity: 0,
+              marginBottom: "-0.5rem", // cancels the list's gap as it closes
+              transition: `max-height ${SWIPE_EXIT_MS}ms ease, opacity ${SWIPE_EXIT_MS}ms ease,
+                margin-bottom ${SWIPE_EXIT_MS}ms ease`,
+            }
+          : { maxHeight: 200, transition: `max-height ${SWIPE_EXIT_MS}ms ease` }
+      }
+    >
       {canSwipe && dx < 0 && (
         <span
           aria-hidden
+          style={{ opacity: Math.min(1, -dx / SWIPE_COMMIT_PX) }}
           className="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-(--radius-lg)
             bg-tertiary-container px-4 text-[13px] font-medium text-on-tertiary-container"
         >
@@ -370,9 +416,14 @@ function CheckRow({
           onToggle(!checked);
         }}
         style={{
-          transform: dx ? `translate3d(${dx}px,0,0)` : undefined,
+          transform: leaving
+            ? "translate3d(-100%,0,0)"
+            : dx
+              ? `translate3d(${dx}px,0,0)`
+              : undefined,
           // No transition while the finger is down, or the row lags behind it.
-          transition: drag.current ? undefined : "transform 200ms var(--ease-spring)",
+          transition: dragging ? "none" : `transform ${SWIPE_EXIT_MS}ms var(--ease-spring)`,
+          willChange: dragging || leaving ? "transform" : undefined,
           touchAction: canSwipe ? "pan-y" : undefined,
         }}
         className={`state-layer relative flex w-full items-center gap-3.5 rounded-(--radius-lg)

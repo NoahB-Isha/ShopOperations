@@ -414,3 +414,74 @@ def test_checked_line_cannot_be_snoozed(client, db, settings_env):
     client.post(f"/api/v1/restock/floor/{line.line_id}/check", json={"checked": True}, headers=headers)
     r = client.post(f"/api/v1/restock/floor/{line.line_id}/snooze", json={"snoozed": True}, headers=headers)
     assert r.status_code == 409
+
+
+def test_catch_up_fold_grows_one_line_instead_of_duplicating(db, settings_env):
+    """The live duplicate: when one fold covers SEVERAL days and a product
+    crosses the threshold on more than one of them, it must grow the open line,
+    not add a second. Sessions are autoflush=False, so the line added on the
+    first day is invisible to the second day's lookup unless it's flushed —
+    that's exactly how Devi Red Pendant Cord ended up on the list twice."""
+    from app.config import get_settings
+    from app.models import RestockFoldState
+
+    a, *_ = _fixture_products(db)
+    _has_floor_stock(db, a)
+    # two separate threshold crossings, both inside ONE unfolded stretch.
+    # folded_through must be set: the FIRST fold ever deliberately starts at
+    # yesterday instead of replaying history, so it can't catch up days.
+    db.add(RestockFoldState(id=1, folded_through=T - timedelta(days=4)))
+    _sale(db, a.id, T - timedelta(days=3), 9)
+    _sale(db, a.id, T - timedelta(days=1), 9)
+    db.commit()
+
+    fold_floor_restock(db, get_settings(), T)
+
+    items = floor_list(db, T)
+    assert [i.product_id for i in items] == [a.id]  # ONE row, not two
+    assert items[0].qty == 18  # both crossings landed on the same line
+    open_rows = list(
+        db.scalars(
+            select(RestockLine).where(
+                RestockLine.product_id == a.id, RestockLine.checked_off_at.is_(None)
+            )
+        )
+    )
+    assert len(open_rows) == 1
+
+
+def test_back_list_hides_items_already_on_an_open_transfer(client, db, settings_env):
+    """The one action on the back list is 'turn it into a transfer request', so
+    anything already riding an open request drops off — otherwise the next
+    person raises a second request for stock that's already coming."""
+    from app.config import get_settings
+    from app.models import Role as R
+
+    a, b, *_ = _fixture_products(db)
+    for prod in (a, b):
+        _sale(db, prod.id, T - timedelta(days=1), 12)
+        _stock(db, prod.id, "floor", 1)
+        _stock(db, prod.id, "bwhse", 90)
+    db.commit()
+
+    settings = get_settings()
+    assert {i.product_id for i in back_list(db, settings, T)} == {a.id, b.id}
+
+    # an open request covering `a` (built directly — this is about the list
+    # filter, not about rendering an Odoo draft)
+    from app.models import TransferRequest, TransferRequestLine, TransferRequestStatus
+
+    mk_user(db, "floor2@test.io", (R.SHOPPE_FLOOR, None, None))
+    req = TransferRequest(status=TransferRequestStatus.REQUESTED.value)
+    db.add(req)
+    db.flush()
+    db.add(TransferRequestLine(request_id=req.id, product_id=a.id, qty_requested=20))
+    db.commit()
+
+    # a is on its way; b still needs asking for
+    assert {i.product_id for i in back_list(db, settings, T)} == {b.id}
+
+    # cancelling puts it back — only ACTIVE requests hide an item
+    req.status = TransferRequestStatus.CANCELLED.value
+    db.commit()
+    assert {i.product_id for i in back_list(db, settings, T)} == {a.id, b.id}

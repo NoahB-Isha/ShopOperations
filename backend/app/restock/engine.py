@@ -49,9 +49,12 @@ from ..models import (
     RestockLine,
     SalesDaily,
     StockLevel,
+    TransferRequest,
+    TransferRequestLine,
     not_blacklisted,
     utcnow,
 )
+from ..transfers.flow import ACTIVE_STATUSES
 
 # Floor restock counts SHOPPE-floor POS sales only: city-center and campus
 # event POS sales don't deplete the floor. Legacy pre-split 'pos' rows count
@@ -133,6 +136,13 @@ def _flag(db: Session, product_id: int, qty: float, day: date) -> None:
         db.add(
             RestockLine(list_type=FLOOR_LIST, product_id=product_id, qty=round(qty, 3), flagged_on=day)
         )
+        # Flush so the SELECT above can see it next time. Sessions here are
+        # autoflush=False, so without this a line added for one day is still
+        # pending when the next day is folded — a catch-up fold covering
+        # several days would add a SECOND open line for the same product
+        # instead of growing the first, and the item shows twice on the floor
+        # list. (Live: Devi Red Pendant Cord, lines flagged 07-27 and 07-29.)
+        db.flush()
 
 
 # -------------------------------------------------------------------- lists
@@ -261,12 +271,24 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
             )
         )
     }
+    # Already asked for. The one action on this list is "turn it into a
+    # transfer request", so anything riding an open request is handled —
+    # leaving it visible just invites a second request for the same stock.
+    # It comes back if that request is cancelled, since only ACTIVE ones count.
+    on_open_request = {
+        pid
+        for (pid,) in db.execute(
+            select(TransferRequestLine.product_id)
+            .join(TransferRequest, TransferRequest.id == TransferRequestLine.request_id)
+            .where(TransferRequest.status.in_(ACTIVE_STATUSES))
+        )
+    }
 
     low_cover = float(settings.restock_low_cover_days)
     target_cover = float(settings.restock_target_cover_days)
     items: list[BackItem] = []
     for pid, units in sold.items():
-        if pid not in eligible:
+        if pid not in eligible or pid in on_open_request:
             continue
         avg_daily = units / window
         if avg_daily <= 0:
