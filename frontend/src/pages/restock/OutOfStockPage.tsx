@@ -398,7 +398,7 @@ export function OutOfStockPage() {
         <div className="mb-3 flex items-center justify-end">
           <button
             onClick={() => setIncludeNeverStocked((v) => !v)}
-            title="Items the app has never seen in stock — mostly fast sellers, digital goods, and variants that were never carried. Hidden so this list stays actionable."
+            title="Items the app has never seen in stock — mostly fast sellers, digital goods, and variants never carried. Hidden to keep this list usable."
             className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
               includeNeverStocked
                 ? "bg-secondary-container text-on-secondary-container"

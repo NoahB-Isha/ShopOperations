@@ -188,3 +188,51 @@ def test_stock_history_untracked_and_missing(client, db):
     assert r.json()["points"] == [] and r.json()["covered_days"] == 0
 
     assert client.get("/api/v1/products/99999/stock-history", headers=admin).status_code == 404
+
+
+def test_all_skus_filters(client, db):
+    """Price, barcode family, units-sold window, and the default 'hide old
+    SKUs' — the register is the honest test of what the shop still sells."""
+    from datetime import timedelta
+
+    from app.models import Role, SalesDaily, utcnow
+
+    live = mk_product(db, "CX-LIVE", "Devi Cord", price=25)
+    live.barcode = "CX507"
+    dear = mk_product(db, "JW-DEAR", "Copper Bracelet", price=400)
+    dear.barcode = "JW109"
+    retired = mk_product(db, "CX-OLD", "Retired Thing", price=25)
+    retired.barcode = "CX999"
+    retired.available_in_pos = False  # not on the register any more
+    today = utcnow().date()
+    db.add(SalesDaily(product_id=live.id, day=today - timedelta(days=3), channel="shoppe", units=9))
+    db.commit()
+
+    mk_user(db, "admin@t.io", (Role.ADMIN, None, None))
+    h = login(client, "admin@t.io")
+
+    def skus(**params):
+        r = client.get("/api/v1/products", params=params, headers=h)
+        assert r.status_code == 200, r.text
+        return {i["global_sku"] for i in r.json()["items"]}
+
+    # default hides the retired SKU without being asked
+    assert skus() == {"CX-LIVE", "JW-DEAR"}
+    assert "CX-OLD" in skus(in_pos_only=False)
+
+    # price window
+    assert skus(price_max=100) == {"CX-LIVE"}
+    assert skus(price_min=100) == {"JW-DEAR"}
+
+    # barcode family, case-insensitively
+    assert skus(barcode_prefix="jw") == {"JW-DEAR"}
+    assert skus(barcode_prefix="CX") == {"CX-LIVE"}  # CX-OLD still hidden by default
+
+    # units sold in a window
+    assert skus(sold_days=7) == {"CX-LIVE"}
+    assert skus(sold_days=7, sold_min=50) == set()  # sold 9, wanted 50
+    assert skus(sold_days=1) == set()  # sale was 3 days ago
+
+    # the prefix list is derived from real barcodes, not hardcoded
+    facets = client.get("/api/v1/products/facets", headers=h).json()
+    assert "barcode_prefixes" in facets

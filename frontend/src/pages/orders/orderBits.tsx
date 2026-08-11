@@ -54,7 +54,7 @@ export function AvailabilityBadge({ a }: { a: AvailabilityOut | null }) {
     return (
       <Badge
         tone="gold"
-        title="Low counts are often wrong in Odoo — the warehouse will verify physically."
+        title="Low counts are often wrong in Odoo — the warehouse will check the shelf."
       >
         low · {fmtQty(a.qty)} left
       </Badge>

@@ -37,7 +37,7 @@ export function ComingSoonPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Coming soon"
-        subtitle="Already on its way from the warehouse — app requests and transfers made directly in Odoo alike. No need to request it again."
+        subtitle="Already on its way from the warehouse, whether it was requested here or set up directly in Odoo. No need to ask again."
       />
       <Input
         value={search}
@@ -53,7 +53,7 @@ export function ComingSoonPage() {
       ) : !items?.length ? (
         <EmptyState
           title="Nothing on the way"
-          hint="Items appear here the moment a transfer request is placed, and leave when it's done."
+          hint="Items appear as soon as a transfer is requested, and leave when it's done."
         />
       ) : visible.length === 0 ? (
         <div className="py-16 text-center text-sm text-on-surface-variant">

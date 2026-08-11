@@ -181,7 +181,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
           }
           sub={
             <>
-              sold since last restock · {addedAgo(item.flagged_on)}
+              {addedAgo(item.flagged_on)}
               {" · "}
               floor {fmtQty(item.floor_qty)} <LowCountHint qty={item.floor_qty} />
             </>

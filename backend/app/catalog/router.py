@@ -16,6 +16,7 @@ from ..models import (
     ProductSource,
     ProductTag,
     Role,
+    SalesDaily,
     SalesMonthly,
     StockLevel,
     StockSnapshot,
@@ -53,6 +54,7 @@ class ProductOut(BaseModel):
     dept_orderable: bool
     restock_exclude: bool
     blacklisted: bool
+    available_in_pos: bool = True
     tags: list[TagOut]
     stock: dict[str, float]
     odoo_url: str | None = None
@@ -91,6 +93,7 @@ def _product_out(p: Product, stock: dict[str, float], settings: Settings) -> Pro
         dept_orderable=p.dept_orderable,
         restock_exclude=p.restock_exclude,
         blacklisted=p.blacklisted,
+        available_in_pos=bool(p.available_in_pos),
         tags=[TagOut(tag=t.tag, expires_on=t.expires_on) for t in p.tags],
         stock=stock,
         odoo_url=odoo_record_url(settings, "product.product", p.odoo_product_id)
@@ -120,6 +123,16 @@ def list_products(
     include_inactive: bool = False,
     dept_orderable: bool | None = None,
     blacklisted: bool | None = None,
+    # "Hide old SKUs" — the register is the honest test of what the shop still
+    # sells. On by default; the retired ~24% only appear when asked for.
+    in_pos_only: bool = True,
+    price_min: float | None = Query(None, ge=0, le=1_000_000),
+    price_max: float | None = Query(None, ge=0, le=1_000_000),
+    barcode_prefix: str = Query("", max_length=8),
+    # "sold at least N units in the last D days" — two params so the window is
+    # the operator's choice rather than something hardcoded
+    sold_days: int | None = Query(None, ge=1, le=730),
+    sold_min: float = Query(1, ge=0, le=1_000_000),
     sort: str = "name",
     dir: str = "asc",
     page: int = Query(1, ge=1),
@@ -155,6 +168,24 @@ def list_products(
         q = q.where(Product.dept_orderable.is_(dept_orderable))
     if tag:
         q = q.join(ProductTag, ProductTag.product_id == Product.id).where(ProductTag.tag == tag)
+    if in_pos_only:
+        q = q.where(Product.available_in_pos.is_(True))
+    if price_min is not None:
+        q = q.where(Product.retail_price >= price_min)
+    if price_max is not None:
+        q = q.where(Product.retail_price <= price_max)
+    if barcode_prefix:
+        # startswith() escapes the pattern, so a stray % can't widen the match
+        q = q.where(Product.barcode.startswith(barcode_prefix.strip().upper()))
+    if sold_days is not None:
+        since = utcnow().date() - timedelta(days=sold_days)
+        sold = (
+            select(SalesDaily.product_id)
+            .where(SalesDaily.day >= since)
+            .group_by(SalesDaily.product_id)
+            .having(func.coalesce(func.sum(SalesDaily.units), 0) >= sold_min)
+        )
+        q = q.where(Product.id.in_(sold))
 
     total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
     sort_col = SORTS.get(sort, Product.name)
@@ -183,6 +214,7 @@ class FacetsOut(BaseModel):
     categories: list[str]
     tags: list[str]
     total_active: int
+    barcode_prefixes: list[str] = []
 
 
 @router.get("/facets", response_model=FacetsOut)
@@ -193,7 +225,32 @@ def facets(db: Session = Depends(get_db), _: AuthedUser = Depends(get_current_us
         )
     ]
     total = db.scalar(select(func.count()).where(Product.is_active.is_(True))) or 0
-    return FacetsOut(categories=categories, tags=[t.value for t in TagName], total_active=total)
+    # Barcode prefixes are the shop's own product families (CX, IN, JW…).
+    # Derived from the catalog rather than hardcoded so the list can't go stale,
+    # and so families nobody thought to list still surface (CA is the biggest,
+    # ~227). Counted in Python, not with a SQL regex: `~` is Postgres-only and
+    # the suite runs on SQLite, so the two engines would disagree. Anything
+    # under 5 products is dropped — the tail is ~35 one-offs that would bury
+    # the families people actually filter by.
+    counts: dict[str, int] = {}
+    for (barcode,) in db.execute(
+        select(Product.barcode).where(
+            Product.is_active.is_(True),
+            Product.blacklisted.is_(False),
+            Product.barcode != "",
+        )
+    ):
+        head = (barcode or "")[:2]
+        if head.isalpha():
+            counts[head.upper()] = counts.get(head.upper(), 0) + 1
+    return FacetsOut(
+        categories=categories,
+        tags=[t.value for t in TagName],
+        total_active=total,
+        barcode_prefixes=[
+            pfx for pfx, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])) if n >= 5
+        ],
+    )
 
 
 # ---------------------------------------------------------- blacklist sweep

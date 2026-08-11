@@ -121,7 +121,7 @@ export function UsersPage() {
     <>
       <PageHeader
         title="Users"
-        subtitle="Invites, roles, and scoping. Everyone signs in with one-time codes — no passwords to manage."
+        subtitle="Who can sign in, and what each person can see."
         actions={<Button onClick={() => setInviteOpen(true)}>Invite user</Button>}
       />
       <div className="mb-4">

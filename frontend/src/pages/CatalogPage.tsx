@@ -132,10 +132,23 @@ export function CatalogPage() {
   const [sort, setSort] = usePersistedState<{ key: string; dir: "asc" | "desc" }>("catalog.sort", { key: "name", dir: "asc" });
   const [selected, setSelected] = useState<ProductOut | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // Old SKUs are hidden until asked for: the register is what the shop still
+  // sells, and ~24% of active products aren't on it.
+  const [hideOld, setHideOld] = usePersistedState("catalog.hideOld", true);
+  const [prefix, setPrefix] = usePersistedState("catalog.prefix", "");
+  const [priceMin, setPriceMin] = usePersistedState("catalog.priceMin", "");
+  const [priceMax, setPriceMax] = usePersistedState("catalog.priceMax", "");
+  const [soldDays, setSoldDays] = usePersistedState("catalog.soldDays", "");
 
   const debouncedSearch = useDebounced(search, 200);
-  useEffect(() => setPage(1), [debouncedSearch, category, tag]);
+  const debouncedMin = useDebounced(priceMin, 300);
+  const debouncedMax = useDebounced(priceMax, 300);
+  useEffect(
+    () => setPage(1),
+    [debouncedSearch, category, tag, hideOld, prefix, debouncedMin, debouncedMax, soldDays],
+  );
 
+  const num = (v: string) => (v.trim() === "" || Number.isNaN(Number(v)) ? undefined : Number(v));
   const { data, isLoading, isFetching } = useProducts({
     search: debouncedSearch,
     category,
@@ -143,6 +156,11 @@ export function CatalogPage() {
     page,
     sort: sort.key,
     dir: sort.dir,
+    in_pos_only: hideOld,
+    barcode_prefix: prefix || undefined,
+    price_min: num(debouncedMin),
+    price_max: num(debouncedMax),
+    sold_days: soldDays ? Number(soldDays) : undefined,
   });
   const { data: facets } = useFacets();
 
@@ -218,6 +236,7 @@ export function CatalogPage() {
         header: "Barcode",
         width: "150px",
         sortable: true,
+        hideBelow: "sm",
         render: (r) =>
           r.kind === "group" ? (
             <span aria-hidden className="text-[13px] text-ink-soft">
@@ -237,18 +256,40 @@ export function CatalogPage() {
         render: (r) =>
           r.kind === "group" ? (
             <div className="flex min-w-0 items-center gap-2">
+              {/* the chevron lives in the barcode cell, which phones don't show */}
+              <span aria-hidden className="text-[13px] text-ink-soft sm:hidden">
+                {r.expanded ? "▾" : "▸"}
+              </span>
               <span className="truncate font-semibold">{r.label}</span>
               <Badge tone="secondary">{r.members.length} variants</Badge>
             </div>
           ) : (
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-medium">{r.p.name}</span>
-              {r.p.source === "manual" && (
-                <Badge tone="outline" title="App-only item — not tracked in Odoo">
-                  untracked
-                </Badge>
-              )}
-              {!r.p.is_active && <Badge tone="danger">archived</Badge>}
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium">{r.p.name}</span>
+                {r.p.source === "manual" && (
+                  <Badge tone="outline" title="App-only item — not tracked in Odoo">
+                    untracked
+                  </Badge>
+                )}
+                {!r.p.is_active && <Badge tone="danger">archived</Badge>}
+              </div>
+              {/* Phones get one line instead of four columns — the table used to
+                  run off the side of the screen. */}
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5
+                text-[12px] tabular-nums text-ink-soft sm:hidden">
+                <span className="font-mono">{productCode(r.p.barcode, r.p.global_sku)}</span>
+                <span aria-hidden>·</span>
+                <span>${r.p.retail_price.toFixed(2)}</span>
+                {r.p.is_stock_tracked && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>floor {r.p.stock.floor ?? 0}</span>
+                    <span aria-hidden>·</span>
+                    <span>whse {r.p.stock.bwhse ?? 0}</span>
+                  </>
+                )}
+              </div>
             </div>
           ),
       },
@@ -286,6 +327,7 @@ export function CatalogPage() {
         header: "Price",
         align: "right",
         sortable: true,
+        hideBelow: "sm",
         render: (r) =>
           r.kind === "group" ? (
             <span className="tabular-nums text-ink-soft">{priceRange(r.members)}</span>
@@ -339,6 +381,61 @@ export function CatalogPage() {
             ))}
           </Select>
         </div>
+        <div className="w-36">
+          <Select
+            value={prefix}
+            onChange={(e) => setPrefix(e.target.value)}
+            aria-label="Filter by barcode family"
+          >
+            <option value="">All barcodes</option>
+            {facets?.barcode_prefixes?.map((b) => (
+              <option key={b} value={b}>
+                {b}…
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-44">
+          <Select
+            value={soldDays}
+            onChange={(e) => setSoldDays(e.target.value)}
+            aria-label="Filter by units sold"
+          >
+            <option value="">Sold: any time</option>
+            <option value="7">Sold in last 7 days</option>
+            <option value="30">Sold in last 30 days</option>
+            <option value="90">Sold in last 90 days</option>
+            <option value="365">Sold in last year</option>
+          </Select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={priceMin}
+            onChange={(e) => setPriceMin(e.target.value)}
+            placeholder="$ min"
+            inputMode="decimal"
+            className="w-24"
+            aria-label="Minimum price"
+          />
+          <span aria-hidden className="text-ink-faint">–</span>
+          <Input
+            value={priceMax}
+            onChange={(e) => setPriceMax(e.target.value)}
+            placeholder="$ max"
+            inputMode="decimal"
+            className="w-24"
+            aria-label="Maximum price"
+          />
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={hideOld}
+            onChange={(e) => setHideOld(e.target.checked)}
+            className="m3-control h-4 w-4 accent-[var(--color-primary)]"
+          />
+          <span title="Only products still on the register in Odoo">Hide old SKUs</span>
+        </label>
         {isFetching && !isLoading && <span className="text-[13px] text-ink-faint">refreshing…</span>}
       </div>
 
@@ -412,7 +509,7 @@ export function CatalogPage() {
             label="New item"
             onClick={() => setNewOpen(true)}
             className="fixed right-6 bottom-6 z-30"
-            title="Add a non-Odoo item (water, cookies — dept-orderable, no stock tracking)"
+            title="Add an item Odoo doesn't track (water, cookies) for departments to order"
           />
         </>
       )}

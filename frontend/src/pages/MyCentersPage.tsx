@@ -36,7 +36,7 @@ export function MyCentersPage() {
       ) : !centers?.length ? (
         <EmptyState
           title={`No ${noun} assigned yet`}
-          hint="Ask the office to assign your zone — then everything in it shows up here."
+          hint="Ask the office to assign your zone — everything in it then shows up here."
         />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

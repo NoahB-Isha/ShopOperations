@@ -28,6 +28,7 @@ PRODUCT_FIELDS = [
     "barcode",
     "active",
     "all_product_tag_ids",
+    "available_in_pos",
 ]
 
 _PLACEHOLDER_CODES = {"", "---", "false", "none"}
@@ -118,6 +119,9 @@ def sync_products(
         product.cost = rec.get("standard_price") or 0
         product.retail_price = rec.get("list_price") or 0
         product.is_active = bool(rec.get("active", True))
+        # Missing field (older Odoo / safe_fields dropped it) reads as True:
+        # better to show a SKU that shouldn't be than hide a live one.
+        product.available_in_pos = bool(rec.get("available_in_pos", True))
         product.sourcing = _classify_sourcing(rec.get("all_product_tag_ids"), sourcing_tags)
         count += 1
 

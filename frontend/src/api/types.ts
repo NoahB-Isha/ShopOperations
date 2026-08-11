@@ -54,6 +54,7 @@ export interface ProductOut {
   dept_orderable: boolean;
   restock_exclude: boolean;
   blacklisted: boolean;
+  available_in_pos?: boolean;
   tags: TagOut[];
   stock: Record<string, number>;
   odoo_url: string | null;
@@ -84,6 +85,8 @@ export interface ProductListOut {
 }
 
 export interface FacetsOut {
+  /** Product families derived from real barcodes (CX, IN, JW…). */
+  barcode_prefixes?: string[];
   categories: string[];
   tags: string[];
   total_active: number;

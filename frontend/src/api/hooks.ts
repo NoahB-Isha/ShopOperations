@@ -56,6 +56,13 @@ export interface ProductQuery {
   dir: "asc" | "desc";
   include_inactive?: boolean;
   blacklisted?: boolean;
+  /** "Hide old SKUs" — only products still on the register. Defaults ON server-side. */
+  in_pos_only?: boolean;
+  price_min?: number;
+  price_max?: number;
+  barcode_prefix?: string;
+  sold_days?: number;
+  sold_min?: number;
 }
 
 export function useProducts(q: ProductQuery) {

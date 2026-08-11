@@ -223,7 +223,7 @@ export function TimeMachinePage() {
     <div className={`mx-auto max-w-6xl ${eraClass}`}>
       <PageHeader
         title="Time machine"
-        subtitle="Inventory on any date — the past from snapshot history, the future from the ordering engine's projection net of incoming shipments."
+        subtitle="Stock on any date — the past from saved history, the future projected from sales and incoming shipments."
         actions={
           b && pending ? (
             <div className="flex items-center gap-2">

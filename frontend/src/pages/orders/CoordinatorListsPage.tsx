@@ -30,7 +30,7 @@ export function CoordinatorListsPage() {
     <>
       <PageHeader
         title="Catalogs"
-        subtitle="Catalogs the office granted to your zone. Open each one to the centers that should order from it."
+        subtitle="Catalogs the office gave your zone. Open each one to the centers that should order from it."
       />
       {isLoading ? (
         <div className="grid place-items-center py-24">

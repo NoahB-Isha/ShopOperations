@@ -15,7 +15,7 @@ export function AuditPage() {
     <>
       <PageHeader
         title="Odoo write audit"
-        subtitle="Every write the app attempted — live, dry-run, or failed. Because the Odoo account is shared with a human, this log (plus the ILAPP- prefix) is the source of truth for what the app did."
+        subtitle="Every write the app attempted — live, dry-run, or failed. The Odoo account is shared with a person, so this log (and the ILAPP- prefix) is the record of what the app did."
       />
       {isLoading ? (
         <div className="grid place-items-center py-20"><Spinner size={22} /></div>

@@ -409,7 +409,7 @@ export function LowCountHint({ qty }: { qty: number }) {
   return (
     <span
       className="text-[11px] text-warn"
-      title="Low counts are often wrong in Odoo — verify physically before promising it."
+      title="Low counts are often wrong in Odoo — check the shelf before promising it."
     >
       verify
     </span>

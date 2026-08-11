@@ -13,6 +13,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy import (
+    true as sa_true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -72,6 +75,12 @@ class Product(Base, TimestampMixin):
     # is India-order candidacy (`ordering/inputs.import_candidates`): domestic
     # is a hard exclude, india is an include regardless of reference shape.
     sourcing: Mapped[str] = mapped_column(String(10), default="", server_default="")
+    # Odoo's "Available in POS". The register is what the shop actually sells,
+    # so this is the honest test for "is this SKU still in use" — 955 of 4,022
+    # active products are not on it (measured 2026-08-11).
+    available_in_pos: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=sa_true()
+    )
 
     # --- app-managed (never touched by sync) ---
     case_size: Mapped[int] = mapped_column(Integer, default=1)
