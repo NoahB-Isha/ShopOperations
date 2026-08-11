@@ -8,6 +8,7 @@ import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
 import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
+import { TransferDraftBubble } from "./TransferDraftBubble";
 import { WarpFX, fireWarp, msSinceLastWarp } from "./warpFx";
 
 /** The Isha Life "iL" emblem — the provided brand PNG, served from /public
@@ -281,6 +282,9 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       </div>
 
       {bottomBar && <BottomNav items={items} />}
+
+      {/* a half-built transfer request follows you between pages */}
+      <TransferDraftBubble />
 
       <WarpFX targetRef={rootRef} />
     </div>

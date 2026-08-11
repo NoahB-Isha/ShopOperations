@@ -9,7 +9,8 @@
    shift/cmd-click; right-click for set-qty / remove. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { clearPersisted, usePersistedState } from "../../persist";
+import { usePersistedState } from "../../persist";
+import { clearDraft, setDraftLines, useDraftLines } from "../../transferDraft";
 import { useCreateTransferRequest } from "../../api/hooks";
 import type { TransferRequestOut } from "../../api/types";
 import {
@@ -43,9 +44,12 @@ export interface TransferPrefill {
 export function NewTransferRequestPage() {
   const location = useLocation();
   const prefill = (location.state as { prefill?: TransferPrefill } | null)?.prefill;
-  // the draft survives menu navigation (a half-built pull list is real work);
-  // a prefill (restock / detail-page selection) deliberately replaces it
-  const [lines, setLines] = usePersistedState<PickedLine[]>("transfer.new.lines", []);
+  // the draft survives menu navigation (a half-built pull list is real work)
+  // and lives in a shared store, so the restock list can append to it and the
+  // floating bubble can point back here; a prefill (restock / detail-page
+  // selection) deliberately replaces it
+  const lines = useDraftLines();
+  const setLines = setDraftLines;
   const [notes, setNotes] = usePersistedState("transfer.new.notes", "");
   const prefillApplied = useRef(false);
   useEffect(() => {
@@ -114,7 +118,7 @@ export function NewTransferRequestPage() {
         onSuccess: (req) => {
           // imperative: a setState's write effect can miss when navigation
           // unmounts the page — the stored draft must not resurrect
-          clearPersisted("transfer.new.lines", "transfer.new.notes");
+          clearDraft();
           toast.success("Request placed — the warehouse board has it.");
           navigate(`/transfer-requests/${(req as TransferRequestOut).id}`);
         },

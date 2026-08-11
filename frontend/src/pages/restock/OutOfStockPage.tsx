@@ -356,6 +356,9 @@ export function OutOfStockPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Out of stock"
+        /* Subtitle parked at Noah's request (2026-08-11) — the scope chips
+           below already say which list you're looking at. Uncomment to bring
+           the explanation back.
         subtitle={
           boardMode
             ? "What the floor is out of — Odoo's zeros plus anything the team marked. Marking renders the draft reduction that cleans up phantom counts."
@@ -363,6 +366,7 @@ export function OutOfStockPage() {
               ? "Nothing left at the warehouse — floor stock doesn't hide a warehouse-out."
               : "Fully out everywhere — warehouse, floor, and staging together."
         }
+        */
         actions={
           boardMode && (
             <Button onClick={() => setMarkOpen(true)}>Mark item out of stock</Button>

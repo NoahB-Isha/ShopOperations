@@ -12,7 +12,18 @@ import {
 } from "../../api/hooks";
 import type { RestockBackItem, RestockFloorItem, RestockOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
-import { Badge, Button, Dialog, EmptyState, PageHeader, Spinner, useToast } from "../../design";
+import { addToDraft } from "../../transferDraft";
+import {
+  Badge,
+  Button,
+  ContextMenu,
+  Dialog,
+  EmptyState,
+  PageHeader,
+  Spinner,
+  useContextMenu,
+  useToast,
+} from "../../design";
 import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
 
 export function RestockPage() {
@@ -142,6 +153,35 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
   const check = useCheckRestock();
   const snooze = useSnoozeRestock();
   const toast = useToast();
+  const { roles } = useAuth();
+  // same gate as the From-warehouse tab: rotating volunteers work the list but
+  // don't raise requests
+  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const menu = useContextMenu(); // swipes are touch-only — right-click is the desk equivalent
+
+  /* Swipe right on a row the back stock can't cover: the item joins the
+     transfer request you're building (the floating bubble carries it), and
+     the row stays put — the shelf still needs filling today. */
+  const requestMore = (item: RestockFloorItem) => {
+    const qty = Math.max(1, Math.round(item.qty));
+    const how = addToDraft({
+      product_id: item.product_id,
+      sku: item.sku,
+      barcode: item.barcode,
+      name: item.name,
+      category: item.category,
+      qty,
+      floor_qty: item.floor_qty,
+      bwhse_qty: item.bwhse_qty,
+      case_size: 1,
+    });
+    toast.success(
+      how === "merged"
+        ? `${item.name} — quantity raised on your transfer request.`
+        : `${item.name} × ${fmtQty(qty)} added to your transfer request.`,
+    );
+  };
+
   if (items.length === 0) {
     return (
       <EmptyState
@@ -171,6 +211,15 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
               },
             )
           }
+          onRequestMore={canRequest ? () => requestMore(item) : undefined}
+          onContextMenu={
+            canRequest
+              ? (e) =>
+                  menu.open(e, [
+                    { label: "Request more from the warehouse", onSelect: () => requestMore(item) },
+                  ])
+              : undefined
+          }
           title={item.name}
           sku={productCode(item.barcode, item.sku)}
           right={
@@ -188,6 +237,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
           }
         />
       ))}
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
     </ul>
   );
 }
@@ -301,6 +351,8 @@ function CheckRow({
   checked,
   onToggle,
   onSnooze,
+  onRequestMore,
+  onContextMenu,
   title,
   sku,
   sub,
@@ -308,7 +360,13 @@ function CheckRow({
 }: {
   checked: boolean;
   onToggle: (checked: boolean) => void;
+  /** swipe LEFT — "not today", the row leaves the list until tomorrow */
   onSnooze?: () => void;
+  /** swipe RIGHT — "request more", the row stays and the item joins the
+   *  transfer request being built */
+  onRequestMore?: () => void;
+  /** the same action for a mouse: swipes are touch-only by design */
+  onContextMenu?: (e: React.MouseEvent) => void;
   title: string;
   sku: string;
   sub: React.ReactNode;
@@ -332,7 +390,9 @@ function CheckRow({
   // A swipe ends with a synthetic click on some browsers; this swallows it so
   // deferring an item can never also tick it off.
   const swallowClick = useRef(false);
-  const canSwipe = Boolean(onSnooze) && !checked;
+  const canSnooze = Boolean(onSnooze) && !checked;
+  const canRequest = Boolean(onRequestMore) && !checked;
+  const canSwipe = canSnooze || canRequest;
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!canSwipe || e.pointerType === "mouse" || leaving) return;
@@ -349,7 +409,8 @@ function CheckRow({
       d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
     }
     if (d.axis !== "x") return;
-    const next = Math.min(0, mx); // left only — there is no right-hand action
+    // each direction only travels if it has an action behind it
+    const next = mx < 0 ? (canSnooze ? mx : 0) : canRequest ? mx : 0;
     dxRef.current = next;
     if (!dragging) setDragging(true);
     setDx(next);
@@ -358,7 +419,7 @@ function CheckRow({
     const d = drag.current;
     drag.current = null;
     setDragging(false);
-    if (d?.axis === "x" && dxRef.current <= -SWIPE_COMMIT_PX) {
+    if (d?.axis === "x" && canSnooze && dxRef.current <= -SWIPE_COMMIT_PX) {
       swallowClick.current = true;
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       if (reduced) {
@@ -370,6 +431,12 @@ function CheckRow({
       setLeaving(true);
       window.setTimeout(() => onSnooze?.(), SWIPE_EXIT_MS);
       return;
+    }
+    if (d?.axis === "x" && canRequest && dxRef.current >= SWIPE_COMMIT_PX) {
+      // No exit animation here: requesting more doesn't take the item off
+      // today's list — the shelf still needs filling. The row springs back.
+      swallowClick.current = true;
+      onRequestMore?.();
     }
     dxRef.current = 0;
     setDx(0);
@@ -390,7 +457,7 @@ function CheckRow({
           : { maxHeight: 200, transition: `max-height ${SWIPE_EXIT_MS}ms ease` }
       }
     >
-      {canSwipe && dx < 0 && (
+      {canSnooze && dx < 0 && (
         <span
           aria-hidden
           style={{ opacity: Math.min(1, -dx / SWIPE_COMMIT_PX) }}
@@ -398,6 +465,16 @@ function CheckRow({
             bg-tertiary-container px-4 text-[13px] font-medium text-on-tertiary-container"
         >
           Not today
+        </span>
+      )}
+      {canRequest && dx > 0 && (
+        <span
+          aria-hidden
+          style={{ opacity: Math.min(1, dx / SWIPE_COMMIT_PX) }}
+          className="absolute inset-y-0 left-0 flex items-center gap-1.5 rounded-(--radius-lg)
+            bg-primary-container px-4 text-[13px] font-medium text-on-primary-container"
+        >
+          Request more
         </span>
       )}
       <button
@@ -408,6 +485,7 @@ function CheckRow({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onContextMenu={onContextMenu}
         onClick={() => {
           if (swallowClick.current) {
             swallowClick.current = false;

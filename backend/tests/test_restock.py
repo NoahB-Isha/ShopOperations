@@ -218,10 +218,11 @@ def test_restock_api_roundtrip_and_checkoffs(client, db, settings_env):
     [floor_item] = body["floor"]
     assert floor_item["sku"] == "SKU-A"
     assert floor_item["qty"] == 12.0
-    # the floor list is deliberately floor-only now — restocking the shelf
-    # doesn't need the warehouse number, and the back list still carries it
-    assert "bwhse_qty" not in floor_item
+    # the row still SHOWS floor-only (restocking the shelf doesn't need the
+    # warehouse number), but bwhse_qty rides along for the "request more"
+    # swipe, which builds a transfer draft and must quote an honest figure
     assert floor_item["floor_qty"] == 2.0
+    assert floor_item["bwhse_qty"] == 90.0
     [back_item] = body["back"]
     assert back_item["product_id"] == a.id
     assert back_item["floor_qty"] == 2.0

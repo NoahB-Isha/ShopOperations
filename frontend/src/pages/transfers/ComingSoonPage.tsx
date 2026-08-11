@@ -37,7 +37,7 @@ export function ComingSoonPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Coming soon"
-        subtitle="Already on its way from the warehouse, whether it was requested here or set up directly in Odoo. No need to ask again."
+        subtitle="These items are actively being transferred from Warehouse to Floor. No need to request them again."
       />
       <Input
         value={search}

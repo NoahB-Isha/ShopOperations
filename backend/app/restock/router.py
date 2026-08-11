@@ -55,10 +55,12 @@ class FloorItemOut(BaseModel):
     category: str
     qty: float
     flagged_on: date
-    # floor_qty only: this list is "carry it from the back to the shelf", so the
-    # warehouse number is a different job (that's the From-warehouse tab) and
-    # just one more number to read past in the aisle.
+    # floor_qty is the number the aisle reads; bwhse_qty isn't shown on the row
+    # (this list is "carry it from the back to the shelf") but rides along so a
+    # "request more" swipe can put an honest warehouse figure on the transfer
+    # draft it builds.
     floor_qty: float
+    bwhse_qty: float = 0.0
     checked: bool
     snoozed: bool = False
 
@@ -147,6 +149,7 @@ def get_restock(
                 qty=item.qty,
                 flagged_on=item.flagged_on,
                 floor_qty=s.get("floor", 0.0),
+                bwhse_qty=s.get("bwhse", 0.0),
                 checked=item.checked,
             )
         )

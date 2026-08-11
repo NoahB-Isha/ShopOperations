@@ -2,11 +2,27 @@
    every few seconds, and the backend listens for Odoo barcode validations on
    each refresh). Orders carry their Odoo picking names. */
 import { usePersistedState } from "../../persist";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { useTransferRequests } from "../../api/hooks";
+import {
+  useFetchTransferRequest,
+  useTransferAction,
+  useTransferRequests,
+} from "../../api/hooks";
 import type { TransferSummaryOut } from "../../api/types";
-import { Badge, Button, DataTable, EmptyState, Fab, PageHeader } from "../../design";
+import {
+  Badge,
+  Button,
+  ContextMenu,
+  DataTable,
+  Dialog,
+  EmptyState,
+  Fab,
+  PageHeader,
+  useContextMenu,
+  useToast,
+} from "../../design";
 import type { Column } from "../../design";
 import {
   TRANSFER_LABELS,
@@ -27,6 +43,11 @@ const FILTERS = [
 
 const ACTIVE = "requested,working_on_it,sent,counting";
 
+// Cancelling stops at "sent" — past that the stock has physically moved and
+// the count closes it out (the state machine agrees; this just keeps the menu
+// from offering something the API would reject).
+const CANCELLABLE = new Set(["requested", "working_on_it"]);
+
 export function TransferRequestsPage() {
   const { roles } = useAuth();
   const isFloor = roles.has("shoppe_floor") || roles.has("admin");
@@ -35,6 +56,64 @@ export function TransferRequestsPage() {
     filter === "active" ? ACTIVE : filter,
   );
   const navigate = useNavigate();
+
+  // right-click a row: duplicate it into a fresh request, or cancel it
+  // without opening it first
+  const menu = useContextMenu();
+  const toast = useToast();
+  const fetchRequest = useFetchTransferRequest();
+  const cancel = useTransferAction("cancel");
+  const [cancelTarget, setCancelTarget] = useState<TransferSummaryOut | null>(null);
+
+  // the summary rows carry no lines — fetch the detail, then hand it to the
+  // request page as a prefill (which, as everywhere, replaces the open draft)
+  const duplicate = async (row: TransferSummaryOut) => {
+    try {
+      const req = await fetchRequest(row.id);
+      navigate("/transfer-requests/new", {
+        state: {
+          prefill: {
+            notes: `Duplicate of ${req.display_name}`,
+            lines: req.lines.map((l) => ({
+              product_id: l.product_id,
+              sku: l.sku,
+              barcode: l.barcode,
+              name: l.name,
+              category: l.category,
+              qty: l.qty_requested,
+              floor_qty: l.floor_qty,
+              bwhse_qty: l.bwhse_qty,
+              case_size: 1,
+            })),
+          },
+        },
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const rowMenu = (row: TransferSummaryOut, e: React.MouseEvent) => {
+    menu.open(e, [
+      ...(isFloor
+        ? [
+            {
+              label: `Duplicate — ${row.line_count} item${row.line_count === 1 ? "" : "s"}`,
+              onSelect: () => void duplicate(row),
+            },
+          ]
+        : []),
+      ...(CANCELLABLE.has(row.status)
+        ? [
+            {
+              label: "Cancel request",
+              danger: true,
+              onSelect: () => setCancelTarget(row),
+            },
+          ]
+        : []),
+    ]);
+  };
 
   const columns: Column<TransferSummaryOut>[] = [
     {
@@ -125,6 +204,7 @@ export function TransferRequestsPage() {
         rowKey={(r) => r.id}
         loading={isLoading}
         onRowClick={(r) => navigate(`/transfer-requests/${r.id}`)}
+        onRowContextMenu={rowMenu}
         empty={
           <EmptyState
             title="Board's clear"
@@ -147,6 +227,46 @@ export function TransferRequestsPage() {
           <Fab label="New request" onClick={() => navigate("/transfer-requests/new")} />
         </div>
       )}
+
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
+
+      <Dialog
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        title={cancelTarget ? `Cancel ${cancelTarget.display_name}?` : "Cancel request?"}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setCancelTarget(null)}>
+              Keep it
+            </Button>
+            <Button
+              variant="danger"
+              loading={cancel.isPending}
+              onClick={() =>
+                cancelTarget &&
+                cancel.mutate(
+                  { id: cancelTarget.id },
+                  {
+                    onSuccess: () => {
+                      toast.success(`${cancelTarget.display_name} cancelled.`);
+                      setCancelTarget(null);
+                    },
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+              }
+            >
+              Cancel request
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-6 text-on-surface-variant">
+          {cancelTarget?.picking_status === "created"
+            ? "The Odoo draft is removed too (drafts move no stock)."
+            : "The request stays in history as cancelled; nothing moves."}
+        </p>
+      </Dialog>
     </>
   );
 }

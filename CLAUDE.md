@@ -662,3 +662,27 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `is_dev_env`/auth (anonymous callers could read `writes_enabled`); the
   coordinator roster workbook left git AND the image for `./private/` (treat as
   already disclosed — rotate the Stripe terminal registrations).
+- Floor-flow feedback round (2026-08-11, same build-on rule): **the transfer
+  draft is now a SHARED store** — `frontend/src/transferDraft.ts` (external
+  store + `useDraftLines`, same `transfer.new.lines` sessionStorage key, so
+  drafts in flight survived the change). NewTransferRequestPage reads/writes it
+  instead of owning private page state; `clearDraft()` replaces the
+  clearPersisted pair on submit. Two consumers depend on it: the restock floor
+  list's **"Request more"** (swipe RIGHT, or right-click on a desk — swipes are
+  touch-only by design) appends the row at its bring-out qty via `addToDraft`,
+  which MERGES quantities on a product already in the draft (the API rejects
+  duplicate products on one request) and deliberately leaves the row on today's
+  list; and `shell/TransferDraftBubble.tsx`, the floating pill that follows you
+  between pages (hidden on /transfer-requests/new, dismissable for the session
+  without touching the draft, phone position clears the snackbar row). Swipe
+  LEFT is unchanged (snooze, with its exit animation) — only the committing
+  direction gained a branch. `restock` FloorItemOut gained `bwhse_qty` (the row
+  still SHOWS floor-only; the number is there so the draft quotes an honest
+  warehouse figure — test_restock asserts it now, where it used to assert its
+  absence). **Transfer board right-click**: DataTable `onRowContextMenu` →
+  Duplicate (fetches the detail via `useFetchTransferRequest`, then the usual
+  /new prefill — which REPLACES the open draft, same as every other prefill)
+  and Cancel request (confirm dialog, offered only for requested/working_on_it
+  — past "sent" the stock has moved). Copy: /coming-soon subtitle is Noah's
+  wording; the /out-of-stock subtitle is COMMENTED OUT in place at his request
+  (2026-08-11) — leave it parked rather than deleting it.

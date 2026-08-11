@@ -380,8 +380,10 @@ export interface RestockFloorItem {
   category: string;
   qty: number;
   flagged_on: string;
-  /** No bwhse_qty here on purpose — restocking the shelf is a floor-only job. */
+  /** bwhse_qty isn't shown on the row (restocking the shelf is a floor job) —
+   *  it rides along so a "request more" swipe can build an honest draft. */
   floor_qty: number;
+  bwhse_qty: number;
   checked: boolean;
   snoozed: boolean;
 }

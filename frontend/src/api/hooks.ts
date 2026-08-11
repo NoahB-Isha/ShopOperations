@@ -331,6 +331,18 @@ export function useTransferRequest(id: number | null) {
   });
 }
 
+/** One request's detail, fetched on demand (the board's right-click
+ *  "duplicate" needs the lines, which the summary rows don't carry). Shares
+ *  the detail query's cache, so opening the request afterwards is instant. */
+export function useFetchTransferRequest() {
+  const qc = useQueryClient();
+  return (id: number) =>
+    qc.fetchQuery({
+      queryKey: ["transfer-request", id],
+      queryFn: () => api<TransferRequestOut>(`/transfer-requests/${id}`),
+    });
+}
+
 function useTransferMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
   const qc = useQueryClient();
   return useMutation({
