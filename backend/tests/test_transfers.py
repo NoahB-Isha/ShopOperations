@@ -630,3 +630,72 @@ def test_floor_receipt_in_odoo_closes_the_request(client, db, live_env, monkeypa
     adj = client.get("/api/v1/adjustments", headers=login(client, "wh@test.io")).json()
     deltas = sorted(a["delta"] for a in adj if a["request_id"] == rid)
     assert deltas == [-2.0, 1.0]
+
+
+def test_warehouse_built_pallet_advances_waiting_requests(client, db, live_env, monkeypatch):
+    """Two requests go out to Staging2, then the warehouse consolidates them
+    with a PLAIN Odoo transfer (staging2 → floor staging) instead of the app's
+    'Send all' button. Nothing used to see that: poll_pallets only watches
+    pallets the app rendered, so both requests sat in SENT forever."""
+    copper, incense, _ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    set_flag(db, "write_create_internal_transfer", True)
+    monkeypatch.setattr(
+        "app.transfers.pallet.get_connection", lambda settings, read_only=True: sim
+    )
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor_hdr = login(client, "floor@test.io")
+
+    from app.models import OdooLocation
+    from sqlalchemy import select as sa_select
+
+    staging2 = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging2"))
+    staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+
+    rids = []
+    for product, qty in ((copper, 10), (incense, 5)):
+        r = client.post(
+            "/api/v1/transfer-requests",
+            json={"lines": [{"product_id": product.id, "qty": qty}]},
+            headers=floor_hdr,
+        )
+        assert r.status_code == 201, r.text
+        rids.append(r.json()["id"])
+        pid = r.json()["placement"]["picking_id"]
+        # warehouse retargets to staging2 and validates — the real process
+        sim.call_kw("stock.picking", "write", [[pid], {"location_dest_id": staging2.odoo_id}])
+        for mv in sim.search_read("stock.move", [["picking_id", "=", pid]], ["id"]):
+            sim.call_kw("stock.move", "write", [[mv["id"]], {"state": "done"}])
+        sim.call_kw("stock.picking", "write", [[pid], {"state": "done"}])
+
+    # both land in SENT, waiting on a pallet that the app has not rendered
+    for rid in rids:
+        body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr).json()
+        assert body["status"] == "sent", body["status"]
+        assert body["count"]["status"] == "none"
+
+    # the warehouse's OWN consolidating transfer — no app reference anywhere
+    manual = sim.call_kw("stock.picking", "create",
+        [{"location_id": staging2.odoo_id, "location_dest_id": staging.odoo_id, "state": "done"}])
+    for product, qty in ((copper, 10), (incense, 5)):
+        sim.call_kw("stock.move", "create",
+            [{"picking_id": manual, "product_id": product.odoo_product_id,
+              "product_uom_qty": qty, "quantity": qty, "state": "done"}])
+
+    # the board GET is the listener — both requests become countable
+    client.get("/api/v1/transfer-requests", headers=floor_hdr)
+    for rid in rids:
+        body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr).json()
+        assert body["status"] == "counting", (rid, body["status"])
+        assert any("landed at floor staging" in e["note"] for e in body["events"])
+
+    # and it is not processed twice — a second pass moves nothing new
+    from app.transfers.pallet import poll_manual_pallets
+
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    get_settings.cache_clear()
+    assert poll_manual_pallets(db, get_settings()) == 0

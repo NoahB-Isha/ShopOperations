@@ -404,6 +404,8 @@ def list_requests(
             polled += 1
             service.poll_outbound_status(db, settings, req)
     pallet_service.poll_pallets(db, settings)
+    # ...and pallets the warehouse built themselves, straight in Odoo
+    pallet_service.poll_manual_pallets(db, settings)
 
     names = _user_names(db, {r.created_by_id for r in requests})
     open_by_request: dict[int, int] = {}
@@ -622,6 +624,8 @@ def staging2_view(
     right now, plus recent pallets. Live read when Odoo is reachable; this
     GET is also the pallet-validation listener."""
     pallet_service.poll_pallets(db, settings)
+    # ...and pallets the warehouse built themselves, straight in Odoo
+    pallet_service.poll_manual_pallets(db, settings)
     return _staging2_out(db, settings)
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,6 +36,7 @@ from ..odoo.connection import get_connection
 from ..odoo.errors import OdooError, OdooWriteError
 from ..odoo.operations import new_reference
 from ..odoo.writer import OdooWriter
+from ..ordering.service import get_app_setting, set_app_setting
 from .service import _event, prepare_count_transfer
 
 log = logging.getLogger("transfers.pallet")
@@ -259,30 +261,131 @@ def poll_pallets(db: Session, settings: Settings) -> int:
             continue
         pallet.status = "validated"
         pallet.validated_at = now
-        # goods are at floor staging — stage the counts for waiting requests
-        waiting = db.scalars(
-            select(TransferRequest).where(
-                TransferRequest.status == TransferRequestStatus.SENT.value,
-                TransferRequest.count_status.in_(
-                    (OdooWriteOutcome.NONE.value, OdooWriteOutcome.FAILED.value)
-                ),
+        moved += _advance_waiting_requests(db, settings, pallet.odoo_picking_name)
+    db.commit()
+    return moved
+
+
+def _advance_waiting_requests(db: Session, settings: Settings, pallet_name: str) -> int:
+    """A pallet landed at floor staging, so every request that was SENT and
+    still waiting can be counted — their goods rode it. Deliberately not
+    per-product: a pallet is 'the goods got there', and the actual sent-vs-
+    counted reconciliation happens later at the staging→floor step."""
+    waiting = db.scalars(
+        select(TransferRequest).where(
+            TransferRequest.status == TransferRequestStatus.SENT.value,
+            TransferRequest.count_status.in_(
+                (OdooWriteOutcome.NONE.value, OdooWriteOutcome.FAILED.value)
+            ),
+        )
+    ).all()
+    moved = 0
+    for req in waiting:
+        _event(
+            db, req, TransferEventKind.ODOO,
+            f"pallet {pallet_name} landed at floor staging",
+        )
+        prepare_count_transfer(db, settings, req, actor_user_id=None)
+        if req.count_status in (
+            OdooWriteOutcome.CREATED.value,
+            OdooWriteOutcome.SIMULATED.value,
+        ):
+            req.status = TransferRequestStatus.COUNTING.value
+            _event(db, req, TransferEventKind.STATUS, "ready to count", status=req.status)
+            moved += 1
+    return moved
+
+
+MANUAL_PALLET_STATE_KEY = "manual_pallet_poll_state"
+
+
+def poll_manual_pallets(db: Session, settings: Settings) -> int:
+    """Detect a pallet the WAREHOUSE built themselves.
+
+    `poll_pallets` only ever watches pallets the app rendered (a PalletTransfer
+    row with an ILAPP-PLT- picking). When the warehouse instead makes a plain
+    Odoo transfer staging2 → floor staging — which is normal, the /staging2
+    button is a convenience, not the only route — nothing saw it and every
+    request sat in SENT 'waiting for the pallet' forever.
+
+    A validated staging2 → floor-staging picking means the same thing whoever
+    made it, so it advances the waiting requests identically. The discovered
+    picking is recorded as a PalletTransfer so it can't be processed twice and
+    shows up in pallet history; picking_status stays NONE because the app
+    didn't write it, which also keeps it out of open_pallet()'s way (that guard
+    is about a pallet the app rendered and is still awaiting validation).
+    """
+    waiting_exists = db.scalar(
+        select(TransferRequest.id).where(
+            TransferRequest.status == TransferRequestStatus.SENT.value,
+            TransferRequest.count_status.in_(
+                (OdooWriteOutcome.NONE.value, OdooWriteOutcome.FAILED.value)
+            ),
+        )
+    )
+    if not waiting_exists:
+        return 0  # nothing to advance — don't touch Odoo at all
+
+    now = utcnow()
+    state = get_app_setting(db, MANUAL_PALLET_STATE_KEY) or {}
+    last = state.get("checked_at")
+    if last:
+        try:
+            when = datetime.fromisoformat(str(last))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=now.tzinfo)
+            if (now - when).total_seconds() < settings.odoo_count_poll_seconds:
+                return 0
+        except ValueError:
+            pass  # unparseable stamp: treat as never checked
+    set_app_setting(db, MANUAL_PALLET_STATE_KEY, {**state, "checked_at": now.isoformat()})
+    db.commit()
+
+    staging2 = db.scalar(select(OdooLocation).where(OdooLocation.key == "staging2"))
+    staging = db.scalar(select(OdooLocation).where(OdooLocation.key == "staging"))
+    if staging2 is None or staging is None:
+        return 0
+
+    try:
+        conn = get_connection(settings, read_only=True)
+        rows = conn.search_read(
+            "stock.picking",
+            [
+                ["location_id", "child_of", staging2.odoo_id],
+                ["location_dest_id", "child_of", staging.odoo_id],
+                ["state", "=", "done"],
+            ],
+            ["name", "origin"],
+        )
+    except OdooError as e:
+        log.warning("manual pallet poll failed: %s", e)
+        return 0
+
+    known = {
+        pid
+        for (pid,) in db.execute(
+            select(PalletTransfer.odoo_picking_id).where(
+                PalletTransfer.odoo_picking_id.is_not(None)
             )
-        ).all()
-        for req in waiting:
-            _event(
-                db, req, TransferEventKind.ODOO,
-                f"pallet {pallet.odoo_picking_name} landed at floor staging",
+        )
+    }
+    moved = 0
+    for row in rows:
+        if row["id"] in known:
+            continue  # already handled (app pallet, or seen on an earlier pass)
+        if str(row.get("origin") or "").startswith("ILAPP-"):
+            continue  # an app pallet whose row we somehow missed — not ours to adopt
+        db.add(
+            PalletTransfer(
+                status="validated",
+                picking_status=OdooWriteOutcome.NONE.value,  # the app wrote nothing
+                odoo_picking_id=row["id"],
+                odoo_picking_name=str(row.get("name") or ""),
+                lines=[],  # built in Odoo; the app never froze its contents
+                validated_at=now,
+                checked_at=now,
             )
-            prepare_count_transfer(db, settings, req, actor_user_id=None)
-            if req.count_status in (
-                OdooWriteOutcome.CREATED.value,
-                OdooWriteOutcome.SIMULATED.value,
-            ):
-                req.status = TransferRequestStatus.COUNTING.value
-                _event(
-                    db, req, TransferEventKind.STATUS,
-                    "ready to count", status=req.status,
-                )
-                moved += 1
+        )
+        moved += _advance_waiting_requests(db, settings, str(row.get("name") or "a pallet"))
     db.commit()
     return moved
