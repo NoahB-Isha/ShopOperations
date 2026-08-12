@@ -1,8 +1,9 @@
 /* Floor: build a BWHSE→Floor request on a phone in the aisle — search,
    tap to add, adjust quantities, send. Floor vs warehouse quantities are
-   right there so nobody requests what the warehouse doesn't have.
-   The restock page's "New transfer from these items" arrives prefilled
-   via router state.
+   right there so nobody requests what the warehouse doesn't have. This is
+   the "New transfer" half of TransfersPage; the restock list, the catalog,
+   the OOS board and "duplicate" all arrive here prefilled (router state) or
+   with items already in the shared draft.
 
    Keyboard flow for fast entry: type, Enter (adds the top result and jumps
    to its qty), type the qty, Enter (back to search). Rows multi-select with
@@ -10,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { usePersistedState } from "../../persist";
-import { clearDraft, setDraftLines, useDraftLines } from "../../transferDraft";
+import { burstedRecently, clearDraft, setDraftLines, useDraftLines } from "../../transferDraft";
 import { useCreateTransferRequest } from "../../api/hooks";
 import type { TransferRequestOut } from "../../api/types";
 import {
@@ -19,7 +20,6 @@ import {
   ContextMenu,
   EmptyState,
   Field,
-  PageHeader,
   Textarea,
   isInteractiveTarget,
   useContextMenu,
@@ -41,7 +41,7 @@ export interface TransferPrefill {
   lines: PickedLine[];
 }
 
-export function NewTransferRequestPage() {
+export function NewTransferPanel() {
   const location = useLocation();
   const prefill = (location.state as { prefill?: TransferPrefill } | null)?.prefill;
   // the draft survives menu navigation (a half-built pull list is real work)
@@ -58,6 +58,9 @@ export function NewTransferRequestPage() {
     setLines(prefill.lines);
     setNotes(prefill.notes ?? "");
   }, [prefill, setLines, setNotes]);
+  // arriving from the floating bubble: it burst on the way in, so the draft
+  // it was carrying should land rather than blink into place
+  const burst = useRef(burstedRecently()).current;
   const create = useCreateTransferRequest();
   const toast = useToast();
   const navigate = useNavigate();
@@ -127,17 +130,7 @@ export function NewTransferRequestPage() {
     );
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <PageHeader
-        title="Request stock"
-        subtitle="From the Blue Warehouse to the Shoppe floor — sending it renders the draft transfer in Odoo immediately."
-        actions={
-          <Button variant="ghost" onClick={() => navigate("/transfer-requests")}>
-            Back
-          </Button>
-        }
-      />
-
+    <div className={burst ? "animate-rise-in" : undefined}>
       <Card className="mb-4">
         <ProductPicker pickedIds={pickedIds} onPick={addLine} inputRef={searchRef} />
       </Card>

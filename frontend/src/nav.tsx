@@ -93,7 +93,7 @@ const byRole: Record<string, NavItem[]> = {
   ],
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
-    { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
+    { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
@@ -102,7 +102,7 @@ const byRole: Record<string, NavItem[]> = {
   // (the pages hide the "new request" entry points; the API refuses too)
   floor_rotating: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
-    { path: "/transfer-requests", label: "Transfer requests", icon: Icons.swap },
+    { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },

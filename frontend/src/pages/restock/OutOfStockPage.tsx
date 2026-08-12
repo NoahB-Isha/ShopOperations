@@ -18,9 +18,26 @@ import {
 } from "../../api/hooks";
 import { useAuth } from "../../auth/AuthContext";
 import type { AvailabilityItemOut, OosItemOut } from "../../api/types";
-import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Textarea, useToast } from "../../design";
+import {
+  Badge,
+  Button,
+  Card,
+  ContextMenu,
+  Dialog,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+  SwipeBackdrop,
+  Textarea,
+  useAddedBounce,
+  useContextMenu,
+  useSwipeRow,
+  useToast,
+} from "../../design";
 import { LowCountHint, OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
 import { matchesSearch } from "../../search";
+import { addToDraft } from "../../transferDraft";
 import { useSillyLabel } from "../../silly";
 
 function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -113,10 +130,32 @@ function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-function OosRow({ item, onBackInStock }: { item: OosItemOut; onBackInStock: () => void }) {
+function OosRow({
+  item,
+  onBackInStock,
+  onAdd,
+  onContextMenu,
+  bounce,
+}: {
+  item: OosItemOut;
+  onBackInStock: () => void;
+  /** swipe right / right-click — the empty shelf becomes a transfer line */
+  onAdd?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  bounce?: boolean;
+}) {
   const m = item.mark;
+  const swipe = useSwipeRow({ onRight: onAdd });
   return (
-    <li className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5">
+    <li className="relative overflow-hidden rounded-(--radius-lg)">
+      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} />
+      <div
+        {...swipe.handlers}
+        onContextMenu={onContextMenu}
+        style={swipe.motionStyle}
+        className={`rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5
+          ${bounce ? "animate-added-bounce" : ""}`}
+      >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-[15px] font-medium">{item.name}</div>
@@ -149,6 +188,7 @@ function OosRow({ item, onBackInStock }: { item: OosItemOut; onBackInStock: () =
           </Button>
         </div>
       )}
+      </div>
     </li>
   );
 }
@@ -332,6 +372,33 @@ export function OutOfStockPage() {
   // nested inside it) the moment the mark is gone — the dialog outlives that
   const [restockTarget, setRestockTarget] = useState<OosItemOut | null>(null);
   const [search, setSearch] = usePersistedState("oos.search", "");
+  const toast = useToast();
+
+  /* An empty shelf is usually a transfer waiting to happen — same gesture as
+     the restock list (swipe right on a phone, right-click on a desk). The
+     quantity is a placeholder: adjust it on the transfer itself. */
+  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const menu = useContextMenu();
+  const added = useAddedBounce();
+  const addToTransfer = (item: OosItemOut) => {
+    added.bounce(item.product_id);
+    const how = addToDraft({
+      product_id: item.product_id,
+      sku: item.sku,
+      barcode: item.barcode,
+      name: item.name,
+      category: item.category,
+      qty: 1,
+      floor_qty: item.floor_qty,
+      bwhse_qty: item.bwhse_qty,
+      case_size: 1,
+    });
+    toast.success(
+      how === "merged"
+        ? `${item.name} — quantity raised on your transfer.`
+        : `${item.name} added to your transfer.`,
+    );
+  };
 
   const visible = useMemo(
     () =>
@@ -438,6 +505,16 @@ export function OutOfStockPage() {
                 key={`${item.product_id}-${item.mark?.id ?? "z"}`}
                 item={item}
                 onBackInStock={() => setRestockTarget(item)}
+                onAdd={canRequest ? () => addToTransfer(item) : undefined}
+                onContextMenu={
+                  canRequest
+                    ? (e) =>
+                        menu.open(e, [
+                          { label: "Add to transfer", onSelect: () => addToTransfer(item) },
+                        ])
+                    : undefined
+                }
+                bounce={added.bouncing === item.product_id}
               />
             ))}
           </ul>
@@ -453,6 +530,7 @@ export function OutOfStockPage() {
           ))}
         </ul>
       )}
+      <ContextMenu menu={menu.menu} onClose={menu.close} />
       <MarkDialog open={markOpen} onClose={() => setMarkOpen(false)} />
       {restockTarget?.mark && (
         <BackInStockDialog

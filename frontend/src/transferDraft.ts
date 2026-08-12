@@ -14,6 +14,14 @@ import { useSyncExternalStore } from "react";
 import { clearPersisted } from "./persist";
 import type { PickedLine } from "./pages/shared/OpsBits";
 
+/* Two signals ride alongside the lines, both purely for motion:
+
+   - `pulse` counts additions, so the floating bubble can bump when an item
+     joins it. The page bounces the row FIRST and the bubble follows a beat
+     later — the eye tracks the item into the bubble.
+   - `burst` records the moment the bubble blew itself into the transfer page,
+     so that page knows to make its list arrive rather than just appear. */
+
 export const DRAFT_LINES_KEY = "transfer.new.lines";
 export const DRAFT_NOTES_KEY = "transfer.new.notes";
 
@@ -56,6 +64,7 @@ export function setDraftLines(
  *  twice — the API rejects duplicate products on one request. */
 export function addToDraft(line: PickedLine): "added" | "merged" {
   const existing = lines.find((l) => l.product_id === line.product_id);
+  pulse += 1;
   setDraftLines((prev) =>
     existing
       ? prev.map((l) =>
@@ -83,4 +92,25 @@ function subscribe(fn: () => void): () => void {
 
 export function useDraftLines(): PickedLine[] {
   return useSyncExternalStore(subscribe, getDraftLines, () => EMPTY);
+}
+
+/* ---------------------------------------------------------- motion signals */
+
+let pulse = 0;
+let burstAt = 0;
+
+/** Counts additions — the bubble bumps when this changes. */
+export function useDraftPulse(): number {
+  return useSyncExternalStore(subscribe, () => pulse, () => 0);
+}
+
+/** The bubble blew itself into the transfer page just now. */
+export function markBurst(): void {
+  burstAt = performance.now();
+}
+
+/** True for a short window after a burst — the destination's cue to make its
+ *  list arrive. Reads once (on mount); it deliberately doesn't subscribe. */
+export function burstedRecently(withinMs = 900): boolean {
+  return burstAt > 0 && performance.now() - burstAt < withinMs;
 }

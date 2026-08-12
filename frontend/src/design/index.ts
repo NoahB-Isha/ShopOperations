@@ -10,4 +10,12 @@ export { Dialog, Drawer } from "./Dialog";
 export { EmptyState } from "./EmptyState";
 export { Field, Input, Select, Textarea, Toggle } from "./Field";
 export { Spinner } from "./Spinner";
+export {
+  SWIPE_COMMIT_PX,
+  SWIPE_EXIT_MS,
+  SwipeBackdrop,
+  leavingStyle,
+  useAddedBounce,
+  useSwipeRow,
+} from "./SwipeRow";
 export { ToastProvider, useToast } from "./Toast";

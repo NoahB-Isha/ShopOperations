@@ -29,9 +29,8 @@ import { ReportsPage } from "./pages/reports/ReportsPage";
 import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
-import { NewTransferRequestPage } from "./pages/transfers/NewTransferRequestPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
-import { TransferRequestsPage } from "./pages/transfers/TransferRequestsPage";
+import { TransfersPage } from "./pages/transfers/TransfersPage";
 import { AdjustmentsPage } from "./pages/warehouse/AdjustmentsPage";
 import { IncomingPage } from "./pages/warehouse/IncomingPage";
 import { Staging2Page } from "./pages/warehouse/Staging2Page";
@@ -181,7 +180,7 @@ export default function App() {
               } />
               <Route path="/transfers" element={
                 <Protected title="Transfers" roles={["warehouse"]}>
-                  <TransferRequestsPage />
+                  <TransfersPage />
                 </Protected>
               } />
               <Route path="/adjustments" element={
@@ -202,15 +201,22 @@ export default function App() {
                   <RestockPage />
                 </Protected>
               } />
+              {/* one page, two tabs: /new (the draft) and /past (the board).
+                  The bare path opens on whichever half the role can use. */}
               <Route path="/transfer-requests" element={
-                <Protected title="Transfer requests" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
-                  <TransferRequestsPage />
+                <Protected title="Transfers" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
+                  <TransfersPage />
                 </Protected>
               } />
               {/* creating requests is shoppe_floor only — rotating can't */}
               <Route path="/transfer-requests/new" element={
-                <Protected title="Request stock" roles={["shoppe_floor"]}>
-                  <NewTransferRequestPage />
+                <Protected title="Transfers" roles={["shoppe_floor"]}>
+                  <TransfersPage />
+                </Protected>
+              } />
+              <Route path="/transfer-requests/past" element={
+                <Protected title="Transfers" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
+                  <TransfersPage />
                 </Protected>
               } />
               <Route path="/coming-soon" element={

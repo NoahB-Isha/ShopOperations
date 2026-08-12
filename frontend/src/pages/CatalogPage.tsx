@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ProductOut, TagOut } from "../api/types";
 import { useCreateManualProduct, useFacets, useProducts } from "../api/hooks";
 import { useAuth } from "../auth/AuthContext";
+import { addToDraft } from "../transferDraft";
 import {
   Badge,
   Button,
@@ -15,13 +16,16 @@ import {
   PageHeader,
   Pagination,
   Select,
+  SwipeBackdrop,
   toneForLabel,
+  useAddedBounce,
   useContextMenu,
   useRowSelection,
+  useSwipeRow,
   useToast,
 } from "../design";
 import type { Column } from "../design";
-import { productCode } from "./shared/OpsBits";
+import { fmtQty, productCode, toPicked } from "./shared/OpsBits";
 import { TAG_LABELS, TAG_TONES } from "./shared/tags";
 import { BulkProductDrawer, ProductDrawer } from "./ProductDrawer";
 import { useSillyLabel } from "../silly";
@@ -216,16 +220,50 @@ export function CatalogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, category, tag, page]);
 
+  // Adding to a transfer is the floor's move — on a phone it's a swipe (the
+  // restock list taught everyone the gesture), on a desk it's this menu.
+  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const added = useAddedBounce();
+  const addToTransfer = (products: ProductOut[]) => {
+    // only Odoo-tracked items can ride a transfer — the API says so too
+    const usable = products.filter((p) => p.is_stock_tracked && p.source === "odoo");
+    if (usable.length === 0) {
+      toast.error(
+        products.length === 1
+          ? `${products[0].name} isn't tracked in Odoo — it can't go on a transfer.`
+          : "None of those are tracked in Odoo, so they can't go on a transfer.",
+      );
+      return;
+    }
+    for (const p of usable) addToDraft(toPicked(p, Math.max(1, p.case_size || 1)));
+    added.bounce(usable[0].id);
+    toast.success(
+      usable.length === 1
+        ? `${usable[0].name} × ${fmtQty(Math.max(1, usable[0].case_size || 1))} added to your transfer.`
+        : `${usable.length} items added to your transfer.`,
+    );
+  };
+
   const rowMenu = (r: CatalogRow, e: React.MouseEvent) => {
     if (r.kind !== "product") return;
     const ids = selection.forContext(r.p.id);
-    if (!isAdmin) return; // bulk editing is the admin's tool
+    const byId = new Map((data?.items ?? []).map((p) => [p.id, p]));
+    const picked = [...ids].map((id) => byId.get(id)).filter((p): p is ProductOut => !!p);
     menu.open(e, [
-      {
-        label: `Edit ${ids.size} together…`,
-        onSelect: () => setBulkOpen(true),
-      },
-      { label: "Clear selection", onSelect: () => selection.clear() },
+      ...(canRequest
+        ? [
+            {
+              label: `Add ${ids.size === 1 ? "to transfer" : `${ids.size} items to transfer`}`,
+              onSelect: () => addToTransfer(picked),
+            },
+          ]
+        : []),
+      ...(isAdmin
+        ? [
+            { label: `Edit ${ids.size} together…`, onSelect: () => setBulkOpen(true) },
+            { label: "Clear selection", onSelect: () => selection.clear() },
+          ]
+        : []),
     ]);
   };
 
@@ -458,6 +496,34 @@ export function CatalogPage() {
         </div>
       )}
 
+      {/* phone: the restock list's shape and its swipe. The table below is
+          desktop-only — columns that hide one by one aren't a phone layout. */}
+      <ul className="stagger-children mb-4 flex flex-col gap-2 md:hidden">
+        {(data?.items ?? []).map((p) => (
+          <CatalogPhoneRow
+            key={p.id}
+            product={p}
+            bounce={added.bouncing === p.id}
+            onOpen={() => setSelected(p)}
+            onAdd={canRequest ? () => addToTransfer([p]) : undefined}
+          />
+        ))}
+        {!isLoading && (data?.items ?? []).length === 0 && (
+          <li className="py-16 text-center text-sm text-ink-faint">
+            No products match “{debouncedSearch}”.
+          </li>
+        )}
+      </ul>
+      <div className="mb-4 md:hidden">
+        <Pagination
+          page={page}
+          pageSize={data?.page_size ?? 50}
+          total={data?.total ?? 0}
+          onPage={setPage}
+        />
+      </div>
+
+      <div className="hidden md:block">
       <DataTable
         columns={columns}
         rows={rows}
@@ -500,6 +566,7 @@ export function CatalogPage() {
           />
         }
       />
+      </div>
 
       {isAdmin && (
         <>
@@ -592,5 +659,54 @@ function NewItemDialog({
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/** One product on a phone: tap to inspect, swipe right to drop it into the
+ *  transfer you're building. Deliberately the same shape and gesture as the
+ *  restock list — the floor learned it there. */
+function CatalogPhoneRow({
+  product,
+  bounce,
+  onOpen,
+  onAdd,
+}: {
+  product: ProductOut;
+  bounce: boolean;
+  onOpen: () => void;
+  onAdd?: () => void;
+}) {
+  const swipe = useSwipeRow({ onRight: onAdd });
+  const floor = product.stock?.floor ?? 0;
+  const bwhse = product.stock?.bwhse ?? 0;
+  return (
+    <li className="relative overflow-hidden rounded-(--radius-lg)">
+      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} />
+      <button
+        type="button"
+        {...swipe.handlers}
+        onClick={() => {
+          if (swipe.swallowClick()) return;
+          onOpen();
+        }}
+        style={swipe.motionStyle}
+        className={`state-layer flex w-full items-center gap-3 rounded-(--radius-lg)
+          bg-surface-container-low px-4 py-3.5 text-left ${bounce ? "animate-added-bounce" : ""}`}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium">{product.name}</span>
+          <span className="mt-0.5 block text-[12px] tabular-nums text-on-surface-variant">
+            <span className="font-mono">{productCode(product.barcode, product.global_sku)}</span>
+            {product.is_stock_tracked ? (
+              <> · floor {fmtQty(floor)} · whse {fmtQty(bwhse)}</>
+            ) : (
+              <> · not tracked in Odoo</>
+            )}
+            {product.retail_price > 0 && <> · ${product.retail_price.toFixed(2)}</>}
+          </span>
+        </span>
+        {product.blacklisted && <Badge tone="outline">hidden</Badge>}
+      </button>
+    </li>
   );
 }

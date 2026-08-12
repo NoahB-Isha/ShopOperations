@@ -2,7 +2,7 @@
    accumulator (sold enough since last restock → bring more out). Back list =
    floor cover running thin vs the warehouse. Check-off resets daily. */
 import { usePersistedState } from "../../persist";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useCheckRestock,
@@ -21,7 +21,11 @@ import {
   EmptyState,
   PageHeader,
   Spinner,
+  SwipeBackdrop,
+  leavingStyle,
+  useAddedBounce,
   useContextMenu,
+  useSwipeRow,
   useToast,
 } from "../../design";
 import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
@@ -158,12 +162,14 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
   // don't raise requests
   const canRequest = roles.has("shoppe_floor") || roles.has("admin");
   const menu = useContextMenu(); // swipes are touch-only — right-click is the desk equivalent
+  const added = useAddedBounce();
 
   /* Swipe right on a row the back stock can't cover: the item joins the
      transfer request you're building (the floating bubble carries it), and
      the row stays put — the shelf still needs filling today. */
   const requestMore = (item: RestockFloorItem) => {
     const qty = Math.max(1, Math.round(item.qty));
+    added.bounce(item.line_id);
     const how = addToDraft({
       product_id: item.product_id,
       sku: item.sku,
@@ -212,6 +218,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
             )
           }
           onRequestMore={canRequest ? () => requestMore(item) : undefined}
+          bounce={added.bouncing === item.line_id}
           onContextMenu={
             canRequest
               ? (e) =>
@@ -325,8 +332,6 @@ function BackList({ items }: { items: RestockBackItem[] }) {
   );
 }
 
-/** How far the row must travel before "not today" commits. Below this it
- *  springs back, so a scroll that wanders sideways can't defer an item. */
 /** "Added 3 days ago" reads faster on the floor than a bare date — the useful
  *  question is how long it has been sitting there, not which day it was. */
 function addedAgo(day: string): string {
@@ -342,17 +347,13 @@ function addedAgo(day: string): string {
   return `Added ${days} days ago`;
 }
 
-const SWIPE_COMMIT_PX = 96;
-/** Exit animation length. The snooze mutation is optimistic, so the row is
- *  only dropped from the list after this — otherwise it disappears mid-swipe. */
-const SWIPE_EXIT_MS = 220;
-
 function CheckRow({
   checked,
   onToggle,
   onSnooze,
   onRequestMore,
   onContextMenu,
+  bounce,
   title,
   sku,
   sub,
@@ -363,149 +364,40 @@ function CheckRow({
   /** swipe LEFT — "not today", the row leaves the list until tomorrow */
   onSnooze?: () => void;
   /** swipe RIGHT — "request more", the row stays and the item joins the
-   *  transfer request being built */
+   *  transfer being built */
   onRequestMore?: () => void;
   /** the same action for a mouse: swipes are touch-only by design */
   onContextMenu?: (e: React.MouseEvent) => void;
+  /** true for one beat right after this row joined the transfer */
+  bounce?: boolean;
   title: string;
   sku: string;
   sub: React.ReactNode;
   right: React.ReactNode;
 }) {
-  const [dx, setDx] = useState(0);
-  // The commit test reads this ref, never the state: on a fast flick the last
-  // pointermove and the pointerup land in the same frame, so the state in
-  // endDrag's closure is still the previous value and the swipe would be
-  // silently dropped. The state exists only to drive the paint.
-  const dxRef = useRef(0);
-  // Whether the finger is down has to be state, not a ref: the transition is
-  // decided at render, and a ref read there is stale, so the row kept its
-  // 200ms ease WHILE being dragged and lagged behind the finger.
-  const [dragging, setDragging] = useState(false);
-  // Slide-and-collapse on the way out. Without it the optimistic update pulled
-  // the row from the array the instant the swipe committed, so it vanished
-  // mid-gesture instead of leaving.
-  const [leaving, setLeaving] = useState(false);
-  const drag = useRef<{ x0: number; y0: number; axis: "" | "x" | "y" } | null>(null);
-  // A swipe ends with a synthetic click on some browsers; this swallows it so
-  // deferring an item can never also tick it off.
-  const swallowClick = useRef(false);
-  const canSnooze = Boolean(onSnooze) && !checked;
-  const canRequest = Boolean(onRequestMore) && !checked;
-  const canSwipe = canSnooze || canRequest;
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!canSwipe || e.pointerType === "mouse" || leaving) return;
-    drag.current = { x0: e.clientX, y0: e.clientY, axis: "" };
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const mx = e.clientX - d.x0;
-    const my = e.clientY - d.y0;
-    if (d.axis === "") {
-      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
-      // Commit to an axis once: a vertical intent stays a scroll, forever.
-      d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
-    }
-    if (d.axis !== "x") return;
-    // each direction only travels if it has an action behind it
-    const next = mx < 0 ? (canSnooze ? mx : 0) : canRequest ? mx : 0;
-    dxRef.current = next;
-    if (!dragging) setDragging(true);
-    setDx(next);
-  };
-  const endDrag = () => {
-    const d = drag.current;
-    drag.current = null;
-    setDragging(false);
-    if (d?.axis === "x" && canSnooze && dxRef.current <= -SWIPE_COMMIT_PX) {
-      swallowClick.current = true;
-      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      if (reduced) {
-        onSnooze?.();
-        return;
-      }
-      // Let it finish leaving, THEN drop it from the list — the mutation is
-      // optimistic, so calling it first would delete the row mid-animation.
-      setLeaving(true);
-      window.setTimeout(() => onSnooze?.(), SWIPE_EXIT_MS);
-      return;
-    }
-    if (d?.axis === "x" && canRequest && dxRef.current >= SWIPE_COMMIT_PX) {
-      // No exit animation here: requesting more doesn't take the item off
-      // today's list — the shelf still needs filling. The row springs back.
-      swallowClick.current = true;
-      onRequestMore?.();
-    }
-    dxRef.current = 0;
-    setDx(0);
-  };
+  const swipe = useSwipeRow({
+    onLeft: onSnooze,
+    onRight: onRequestMore,
+    disabled: checked,
+  });
 
   return (
-    <li
-      className="relative overflow-hidden rounded-(--radius-lg)"
-      style={
-        leaving
-          ? {
-              maxHeight: 0,
-              opacity: 0,
-              marginBottom: "-0.5rem", // cancels the list's gap as it closes
-              transition: `max-height ${SWIPE_EXIT_MS}ms ease, opacity ${SWIPE_EXIT_MS}ms ease,
-                margin-bottom ${SWIPE_EXIT_MS}ms ease`,
-            }
-          : { maxHeight: 200, transition: `max-height ${SWIPE_EXIT_MS}ms ease` }
-      }
-    >
-      {canSnooze && dx < 0 && (
-        <span
-          aria-hidden
-          style={{ opacity: Math.min(1, -dx / SWIPE_COMMIT_PX) }}
-          className="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-(--radius-lg)
-            bg-tertiary-container px-4 text-[13px] font-medium text-on-tertiary-container"
-        >
-          Not today
-        </span>
-      )}
-      {canRequest && dx > 0 && (
-        <span
-          aria-hidden
-          style={{ opacity: Math.min(1, dx / SWIPE_COMMIT_PX) }}
-          className="absolute inset-y-0 left-0 flex items-center gap-1.5 rounded-(--radius-lg)
-            bg-primary-container px-4 text-[13px] font-medium text-on-primary-container"
-        >
-          Request more
-        </span>
-      )}
+    <li className="relative overflow-hidden rounded-(--radius-lg)" style={leavingStyle(swipe.leaving)}>
+      <SwipeBackdrop side="right" label="Not today" dx={swipe.dx} tone="tertiary" />
+      <SwipeBackdrop side="left" label="Request more" dx={swipe.dx} />
       <button
         type="button"
         role="checkbox"
         aria-checked={checked}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        {...swipe.handlers}
         onContextMenu={onContextMenu}
         onClick={() => {
-          if (swallowClick.current) {
-            swallowClick.current = false;
-            return;
-          }
+          if (swipe.swallowClick()) return;
           onToggle(!checked);
         }}
-        style={{
-          transform: leaving
-            ? "translate3d(-100%,0,0)"
-            : dx
-              ? `translate3d(${dx}px,0,0)`
-              : undefined,
-          // No transition while the finger is down, or the row lags behind it.
-          transition: dragging ? "none" : `transform ${SWIPE_EXIT_MS}ms var(--ease-spring)`,
-          willChange: dragging || leaving ? "transform" : undefined,
-          touchAction: canSwipe ? "pan-y" : undefined,
-        }}
+        style={swipe.motionStyle}
         className={`state-layer relative flex w-full items-center gap-3.5 rounded-(--radius-lg)
-          px-4 py-3.5 text-left transition-all duration-200 ${
+          px-4 py-3.5 text-left ${bounce ? "animate-added-bounce" : ""} ${
             checked ? "bg-surface-container opacity-60" : "bg-surface-container-low"
           }`}
       >

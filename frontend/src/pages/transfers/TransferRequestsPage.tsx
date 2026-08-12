@@ -1,6 +1,9 @@
 /* The BWHSE→Floor board — live like a food-POS screen (the query layer polls
    every few seconds, and the backend listens for Odoo barcode validations on
-   each refresh). Orders carry their Odoo picking names. */
+   each refresh). Orders carry their Odoo picking names.
+
+   This is the "Past transfers" half of TransfersPage — the page title, the
+   tabs and the route live there; everything below is just the board. */
 import { usePersistedState } from "../../persist";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -18,8 +21,6 @@ import {
   DataTable,
   Dialog,
   EmptyState,
-  Fab,
-  PageHeader,
   useContextMenu,
   useToast,
 } from "../../design";
@@ -48,7 +49,7 @@ const ACTIVE = "requested,working_on_it,sent,counting";
 // from offering something the API would reject).
 const CANCELLABLE = new Set(["requested", "working_on_it"]);
 
-export function TransferRequestsPage() {
+export function PastTransfersPanel() {
   const { roles } = useAuth();
   const isFloor = roles.has("shoppe_floor") || roles.has("admin");
   const [filter, setFilter] = usePersistedState<string>("transfers.filter", "active");
@@ -162,27 +163,7 @@ export function TransferRequestsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Transfer requests"
-        subtitle={
-          <span className="flex items-center gap-2">
-            Floor asks, warehouse sends, the barcode count closes it — live board, no refreshing.
-            {dataUpdatedAt > 0 && (
-              <span className="inline-flex items-center gap-1 text-[12px] text-on-surface-variant">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" aria-hidden />
-                live
-              </span>
-            )}
-          </span>
-        }
-        actions={
-          isFloor ? (
-            <Button onClick={() => navigate("/transfer-requests/new")}>New request</Button>
-          ) : undefined
-        }
-      />
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {FILTERS.map(([value, label]) => (
           <button
             key={label}
@@ -196,6 +177,12 @@ export function TransferRequestsPage() {
             {label}
           </button>
         ))}
+        {dataUpdatedAt > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[12px] text-on-surface-variant">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+            live
+          </span>
+        )}
       </div>
 
       <DataTable
@@ -215,18 +202,14 @@ export function TransferRequestsPage() {
             }
             action={
               isFloor ? (
-                <Button onClick={() => navigate("/transfer-requests/new")}>New request</Button>
+                <Button onClick={() => navigate("/transfer-requests/new")}>
+                  Start a transfer
+                </Button>
               ) : undefined
             }
           />
         }
       />
-
-      {isFloor && (
-        <div className="fixed right-5 bottom-24 z-30 md:hidden">
-          <Fab label="New request" onClick={() => navigate("/transfer-requests/new")} />
-        </div>
-      )}
 
       <ContextMenu menu={menu.menu} onClose={menu.close} />
 

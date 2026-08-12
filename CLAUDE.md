@@ -713,3 +713,38 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   orbitron stay in package.json (unused now; node_modules is a container
   volume, so dropping them is a rebuild, not an edit). The page is recoverable
   from git history if it ever comes back.
+- Transfers rework + swipe-to-add everywhere (2026-08-12, same build-on rule):
+  **`design/SwipeRow.tsx` is now the ONE swipe gesture** — `useSwipeRow`
+  ({onLeft, onRight, leftExits}) + `SwipeBackdrop` + `leavingStyle` +
+  `useAddedBounce`, extracted verbatim from the restock row (dxRef-not-state
+  commit test, axis lock, click swallow, exit-then-mutate — the comments
+  explain why; don't re-derive them). TOUCH ONLY by design; a mouse gets the
+  row's context menu instead. Wired: restock floor rows (left = snooze w/ exit,
+  right = request more), **All SKUs phone list** (new `md:hidden` card list
+  mirroring restock — the DataTable is now `hidden md:block` desk furniture,
+  with "Add to transfer" in its right-click menu, multi-select aware), and the
+  **floor OOS board** (swipe right / right-click → add to transfer). Catalog
+  adds default to case size and refuse untracked/manual products (the API
+  would too). **Transfers page** = `TransfersPage.tsx`, pill tabs like restock:
+  New transfer (default) | Past transfers, URL-driven
+  (/transfer-requests/new · /past; the bare path opens New) because the bubble
+  keys its burst off the path. NewTransferRequestPage exports
+  `NewTransferPanel`, TransferRequestsPage exports `PastTransfersPanel` —
+  both lost their PageHeader/Fab to the shell. Roles that can't create
+  (warehouse, floor_rotating) get the board with NO tabs; the warehouse's
+  own /transfers route renders the same page. Nav + Protected titles are
+  "Transfers" now (one silly entry, "Big moves"). **Bubble round 3**: momentum
+  — pointer velocity is smoothed per move, released as a friction coast
+  (`Math.pow(0.9, dt/16)`, dt clamped to 32ms so a backgrounded tab can't
+  teleport it), edges kill that axis rather than bouncing, position saves at
+  rest. Motion vocabulary in tokens.css: `bubble-in` (liquid squash/stretch),
+  `bubble-bump` (an item joined — fires 150ms AFTER the row's own
+  `added-bounce`, so the eye follows the item over), `bubble-burst` + 8
+  `burst-spark` particles when you reach the New-transfer tab, and the panel
+  answers with `animate-rise-in` (`burstedRecently()`). Two live-caught traps:
+  measure the pill with **offsetWidth/Height, never getBoundingClientRect** (a
+  running scale animation makes the rect a third of the real size and parks it
+  off-screen), and clear the entrance class on a **timer, not animationend** (a
+  backgrounded tab never delivers the event, and the class then outranks every
+  later motion). setPointerCapture/release are wrapped in try/catch — a throw
+  there swallows the tap.

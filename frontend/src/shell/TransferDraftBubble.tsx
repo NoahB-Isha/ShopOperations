@@ -3,27 +3,38 @@
    A draft survives navigation (it lives in transferDraft.ts), but nothing
    said so — you could add three items from the restock list, walk to another
    page, and have no way back except remembering the route. This is that way
-   back: a floating pill with the item count that opens the request page.
+   back: a floating pill with the item count that opens the transfer page.
 
    It follows you everywhere a draft exists, and it does NOT hide: the way to
-   get it out of your way is to DRAG it somewhere else (position sticks per
-   device, in localStorage), and the way to make it go away is to place the
-   request. It hides only on the request page itself — you're already there.
+   get it out of your way is to FLING it somewhere else (it carries momentum
+   and settles against the edges; the spot sticks per device), and the way to
+   make it go away is to place the request.
 
-   Arrives with a bounce, leaves with a wind-up and a shrink; both honor
-   prefers-reduced-motion through the global rule in tokens.css. */
+   Three motions, all in the same liquid vocabulary (tokens.css):
+     · arrive  — squash, stretch, settle
+     · bump    — an item joined the draft (a beat after the row's own bounce)
+     · burst   — you reached the transfer page; it blows into it
+
+   All of them honor prefers-reduced-motion through the global rule. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { useDraftLines } from "../transferDraft";
+import { markBurst, useDraftLines, useDraftPulse } from "../transferDraft";
 import { fmtQty } from "../pages/shared/OpsBits";
 
-const NEW_REQUEST_PATH = "/transfer-requests/new";
+/** The transfer page's "New transfer" tab — where the draft lives, so the
+ *  pill has nothing to say there. */
+const DRAFT_PATHS = ["/transfer-requests", "/transfer-requests/new"];
 const POSITION_KEY = "ilops_transfer_bubble_pos";
 const EDGE = 12; // keeps the pill off the very edge of the viewport
 /** Below this, a pointer gesture is a tap (open) rather than a drag (move). */
 const DRAG_SLOP_PX = 5;
 const EXIT_MS = 300; // must match --animate-bubble-out
+const BURST_MS = 420; // must match --animate-bubble-burst
+/** The row bounces first, then the bubble — the eye follows the item over. */
+const BUMP_DELAY_MS = 150;
+const BUMP_MS = 500; // must match --animate-bubble-bump
+const ENTER_MS = 720; // must match --animate-bubble-in
 
 interface Pos {
   x: number;
@@ -57,49 +68,93 @@ function clamp(pos: Pos, w: number, h: number, vw: number, vh: number): Pos {
   };
 }
 
-/** Where it sits before anyone drags it: bottom-right, above the phone's
- *  bottom navigation and clear of the snackbar row. */
+/** Where it sits before anyone moves it: inset from the corner, well clear of
+ *  the phone's bottom navigation and the snackbar row — it should read as
+ *  floating over the page, not stuck to its edge. */
 function defaultPos(w: number, h: number, vw: number, vh: number): Pos {
   const phone = vw < 768;
-  return { x: vw - w - 16, y: vh - h - (phone ? 168 : 24) };
+  return {
+    x: vw - w - (phone ? 20 : 40),
+    y: vh - h - (phone ? 200 : 96),
+  };
 }
 
 export function TransferDraftBubble() {
   const lines = useDraftLines();
+  const pulse = useDraftPulse();
   const location = useLocation();
   const navigate = useNavigate();
   const { roles } = useAuth();
   const canRequest = roles.has("shoppe_floor") || roles.has("admin");
 
-  const show =
-    canRequest && lines.length > 0 && location.pathname !== NEW_REQUEST_PATH;
+  const atDraftPage = DRAFT_PATHS.includes(location.pathname);
+  const show = canRequest && lines.length > 0 && !atDraftPage;
 
-  // rendered outlives `show` by one exit animation
+  // rendered outlives `show` by one exit animation. Which exit depends on WHY
+  // it's going: reaching the transfer page is a burst (the draft is about to
+  // fill that page), an emptied draft is a plain shrink.
   const [rendered, setRendered] = useState(show);
-  const [leaving, setLeaving] = useState(false);
+  const [exit, setExit] = useState<"" | "out" | "burst">("");
   useEffect(() => {
     if (show) {
-      setLeaving(false);
+      setExit("");
       setRendered(true);
       return;
     }
     if (!rendered) return;
-    setLeaving(true);
-    const t = window.setTimeout(() => setRendered(false), EXIT_MS);
+    const bursting = lines.length > 0 && atDraftPage;
+    setExit(bursting ? "burst" : "out");
+    if (bursting) markBurst();
+    const t = window.setTimeout(() => setRendered(false), bursting ? BURST_MS : EXIT_MS);
     return () => window.clearTimeout(t);
-  }, [show, rendered]);
+  }, [show, rendered, lines.length, atDraftPage]);
+
+  // an item joined the draft: bump, a beat after the row's own bounce
+  const [bumping, setBumping] = useState(false);
+  const firstPulse = useRef(true);
+  useEffect(() => {
+    if (firstPulse.current) {
+      firstPulse.current = false;
+      return;
+    }
+    const start = window.setTimeout(() => setBumping(true), BUMP_DELAY_MS);
+    const end = window.setTimeout(() => setBumping(false), BUMP_DELAY_MS + BUMP_MS);
+    return () => {
+      window.clearTimeout(start);
+      window.clearTimeout(end);
+    };
+  }, [pulse]);
 
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<Pos | null>(readStoredPos);
-  // mirrored: the pointerup handler saves the spot, and reading it from the
-  // ref can't catch a stale closure mid-gesture
+  // mirrored: the pointerup handler and the momentum loop both need the live
+  // position, and reading it from a closure can be a frame stale
   const posRef = useRef<Pos | null>(pos);
   posRef.current = pos;
-  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const drag = useRef<{
+    dx: number;
+    dy: number;
+    moved: boolean;
+    vx: number;
+    vy: number;
+    lastX: number;
+    lastY: number;
+    lastT: number;
+  } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const glide = useRef(0);
   // the entrance animation has fill-mode `both`, so its final transform would
   // outrank the hover scale — drop the class once it has played
   const [entering, setEntering] = useState(true);
+
+  const savePos = useCallback(() => {
+    try {
+      const p = posRef.current;
+      if (p) localStorage.setItem(POSITION_KEY, JSON.stringify(p));
+    } catch {
+      /* private browsing — the spot just won't stick */
+    }
+  }, []);
 
   // measure once mounted: the default position and every clamp need the
   // pill's real size, which depends on the item count text
@@ -107,7 +162,11 @@ export function TransferDraftBubble() {
   const place = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
+    // offsetWidth/Height, never getBoundingClientRect: the entrance animation
+    // scales the pill, and a transformed rect makes it measure a third of its
+    // real size — which parks it half off the right edge of a phone
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
     const { vw, vh } = viewport();
     // hidden tab / pre-layout: measuring now would park the pill in the
     // top-left corner forever, so wait for a frame with real numbers
@@ -126,33 +185,111 @@ export function TransferDraftBubble() {
     return () => {
       window.removeEventListener("resize", place);
       cancelAnimationFrame(retry.current);
+      cancelAnimationFrame(glide.current);
     };
   }, [rendered, lines.length, place]);
 
+  // The entrance class must come off on a TIMER, not on animationend: a tab
+  // that was backgrounded mid-animation never delivers the event, and the
+  // class then outranks every later motion (the bump would never show).
   useEffect(() => {
-    if (show) setEntering(true);
+    if (!show) return;
+    setEntering(true);
+    const t = window.setTimeout(() => setEntering(false), ENTER_MS);
+    return () => window.clearTimeout(t);
   }, [show]);
+
+  /** Fling physics: keep the last pointer velocity, then coast with friction
+   *  and stop dead at the edges. It should feel thrown, not dragged-and-set. */
+  const coast = (vx: number, vy: number) => {
+    cancelAnimationFrame(glide.current);
+    const el = ref.current;
+    if (!el) return;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    let speedX = vx;
+    let speedY = vy;
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(32, now - last); // a backgrounded tab must not teleport it
+      last = now;
+      const { vw, vh } = viewport();
+      const current = posRef.current;
+      if (!vw || !vh || !current) return;
+      const moved = { x: current.x + speedX * dt, y: current.y + speedY * dt };
+      const next = clamp(moved, width, height, vw, vh);
+      // hitting an edge kills that axis rather than bouncing — a pill that
+      // ricochets around the screen reads as a bug, not as personality
+      if (next.x !== moved.x) speedX = 0;
+      if (next.y !== moved.y) speedY = 0;
+      setPos(next);
+      const friction = Math.pow(0.9, dt / 16);
+      speedX *= friction;
+      speedY *= friction;
+      if (Math.abs(speedX) > 0.02 || Math.abs(speedY) > 0.02) {
+        glide.current = requestAnimationFrame(step);
+      } else {
+        savePos();
+      }
+    };
+    glide.current = requestAnimationFrame(step);
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     const el = ref.current;
-    if (!el || leaving) return;
-    const r = el.getBoundingClientRect();
-    drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-    el.setPointerCapture(e.pointerId);
+    if (!el || exit) return;
+    cancelAnimationFrame(glide.current);
+    // grab offset against the LOGICAL position, so a running bump animation
+    // can't make the pill jump under the finger
+    const origin = posRef.current ?? { x: el.offsetLeft, y: el.offsetTop };
+    drag.current = {
+      dx: e.clientX - origin.x,
+      dy: e.clientY - origin.y,
+      moved: false,
+      vx: 0,
+      vy: 0,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      lastT: performance.now(),
+    };
+    // capture keeps the drag alive if the finger leaves the pill. It can
+    // legitimately fail (a pointer already released), and that must never
+    // cost us the gesture — a throw here would swallow the tap.
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      /* no capture — the drag still works while the pointer stays on the pill */
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     const el = ref.current;
     if (!d || !el) return;
-    const r = el.getBoundingClientRect();
     const { vw, vh } = viewport();
-    const next = clamp({ x: e.clientX - d.dx, y: e.clientY - d.dy }, r.width, r.height, vw, vh);
+    const next = clamp(
+      { x: e.clientX - d.dx, y: e.clientY - d.dy },
+      el.offsetWidth,
+      el.offsetHeight,
+      vw,
+      vh,
+    );
+    const from = posRef.current ?? next;
     // ignore the jitter of a tap: only a real move becomes a drag
-    if (!d.moved && Math.abs(next.x - r.left) + Math.abs(next.y - r.top) < DRAG_SLOP_PX) return;
+    if (!d.moved && Math.abs(next.x - from.x) + Math.abs(next.y - from.y) < DRAG_SLOP_PX) return;
     if (!d.moved) {
       d.moved = true;
       setDragging(true);
+    }
+    const now = performance.now();
+    const dt = now - d.lastT;
+    if (dt > 0) {
+      // px per ms, smoothed — a single jittery frame shouldn't decide the throw
+      d.vx = 0.6 * ((e.clientX - d.lastX) / dt) + 0.4 * d.vx;
+      d.vy = 0.6 * ((e.clientY - d.lastY) / dt) + 0.4 * d.vy;
+      d.lastX = e.clientX;
+      d.lastY = e.clientY;
+      d.lastT = now;
     }
     setPos(next);
   };
@@ -161,80 +298,116 @@ export function TransferDraftBubble() {
     const d = drag.current;
     drag.current = null;
     setDragging(false);
-    ref.current?.releasePointerCapture?.(e.pointerId);
+    try {
+      ref.current?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* never captured — nothing to release */
+    }
     if (!d) return;
     if (!d.moved) {
-      navigate(NEW_REQUEST_PATH); // a tap is "take me there"
+      navigate(DRAFT_PATHS[1]); // a tap is "take me there"
       return;
     }
-    try {
-      const p = posRef.current;
-      if (p) localStorage.setItem(POSITION_KEY, JSON.stringify(p));
-    } catch {
-      /* private browsing — the spot just won't stick */
-    }
+    // a slow set-down keeps its spot; a flick keeps flying
+    if (Math.abs(d.vx) > 0.05 || Math.abs(d.vy) > 0.05) coast(d.vx, d.vy);
+    else savePos();
   };
 
   if (!rendered) return null;
 
   const units = lines.reduce((sum, l) => sum + l.qty, 0);
+  const motion = exit
+    ? exit === "burst"
+      ? "animate-bubble-burst pointer-events-none"
+      : "animate-bubble-out pointer-events-none"
+    : entering
+      ? "animate-bubble-in"
+      : bumping
+        ? "animate-bubble-bump"
+        : dragging
+          ? "scale-105 shadow-(--shadow-e3)"
+          : "transition-transform duration-200 ease-(--ease-spring) hover:scale-[1.04]";
 
   return (
-    <div
-      ref={ref}
-      role="button"
-      tabIndex={0}
-      aria-label={`Transfer request in progress — ${lines.length} item${
-        lines.length === 1 ? "" : "s"
-      }. Open it, or drag to move.`}
-      title="Open the request you're building — drag to move it out of the way"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onAnimationEnd={() => setEntering(false)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          navigate(NEW_REQUEST_PATH);
-        }
-      }}
-      style={{
-        left: pos?.x ?? -9999, // off-screen for the one frame before measuring
-        top: pos?.y ?? -9999,
-        touchAction: "none", // the pill owns its gestures; the page still scrolls elsewhere
-        cursor: dragging ? "grabbing" : "grab",
-      }}
-      className={`state-layer fixed z-40 flex touch-none items-center gap-2.5 rounded-full
-        bg-primary-container py-2.5 pr-4 pl-3.5 text-on-primary-container select-none
-        shadow-(--shadow-e2) ${
-          leaving
-            ? "animate-bubble-out pointer-events-none"
-            : entering
-              ? "animate-bubble-in"
-              : dragging
-                ? "scale-105 shadow-(--shadow-e3)"
-                : "transition-transform duration-200 ease-(--ease-spring) hover:scale-[1.04]"
-        }`}
-    >
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-        <path
-          d="M2.5 4.5h2l1.7 7.2a1 1 0 0 0 1 .8h5.4a1 1 0 0 0 1-.77l1.1-4.23H5.2"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="7.5" cy="15" r="1" fill="currentColor" />
-        <circle cx="12.5" cy="15" r="1" fill="currentColor" />
-      </svg>
-      <span className="text-left text-[13px] leading-tight font-semibold">
-        Transfer request
-        {/* keyed on the count so every added item re-pops the line */}
-        <span key={lines.length} className="animate-pop block text-[11.5px] font-medium opacity-80">
-          {lines.length} item{lines.length === 1 ? "" : "s"} · {fmtQty(units)} units
+    <>
+      {exit === "burst" && <BurstSparks pos={pos} />}
+      <div
+        ref={ref}
+        role="button"
+        tabIndex={0}
+        aria-label={`Transfer request in progress — ${lines.length} item${
+          lines.length === 1 ? "" : "s"
+        }. Open it, or drag to move.`}
+        title="Open the transfer you're building — drag to move it out of the way"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            navigate(DRAFT_PATHS[1]);
+          }
+        }}
+        style={{
+          left: pos?.x ?? -9999, // off-screen for the one frame before measuring
+          top: pos?.y ?? -9999,
+          touchAction: "none", // the pill owns its gestures; the page still scrolls elsewhere
+          cursor: dragging ? "grabbing" : "grab",
+        }}
+        className={`state-layer fixed z-40 flex touch-none items-center gap-2.5 rounded-full
+          bg-primary-container py-2.5 pr-4 pl-3.5 text-on-primary-container shadow-(--shadow-e2)
+          select-none ${motion}`}
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+          <path
+            d="M2.5 4.5h2l1.7 7.2a1 1 0 0 0 1 .8h5.4a1 1 0 0 0 1-.77l1.1-4.23H5.2"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="7.5" cy="15" r="1" fill="currentColor" />
+          <circle cx="12.5" cy="15" r="1" fill="currentColor" />
+        </svg>
+        {/* nowrap: a narrow phone would otherwise wrap this into a paragraph */}
+        <span className="text-left text-[13px] leading-tight font-semibold whitespace-nowrap">
+          Transfer request
+          <span className="block text-[11.5px] font-medium opacity-80">
+            {lines.length} item{lines.length === 1 ? "" : "s"} · {fmtQty(units)} units
+          </span>
         </span>
-      </span>
+      </div>
+    </>
+  );
+}
+
+/** The confetti of the burst — eight sparks thrown outward from the pill.
+ *  Purely decorative, and gone with the animation. */
+function BurstSparks({ pos }: { pos: Pos | null }) {
+  if (!pos) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed z-40"
+      style={{ left: pos.x + 24, top: pos.y + 22 }}
+    >
+      {Array.from({ length: 8 }).map((_, i) => {
+        const angle = (i / 8) * Math.PI * 2;
+        return (
+          <span
+            key={i}
+            className="animate-burst-spark absolute h-2 w-2 rounded-full bg-primary"
+            style={
+              {
+                "--spark-x": `${Math.cos(angle) * 90}px`,
+                "--spark-y": `${Math.sin(angle) * 90}px`,
+                animationDelay: `${i * 8}ms`,
+              } as React.CSSProperties
+            }
+          />
+        );
+      })}
     </div>
   );
 }
