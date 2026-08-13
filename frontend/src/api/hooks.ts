@@ -405,13 +405,15 @@ export function useResolveAdjustment() {
 
 // ------------------------------------------------------------------ restock
 // ------------------------------------------------------- floor team asks
-export function useFloorRequests(opts: { mine?: boolean; status?: string } = {}) {
+export function useFloorRequests(
+  opts: { mine?: boolean; status?: string; enabled?: boolean } = {},
+) {
+  const { mine = false, status = "open", enabled = true } = opts;
   return useQuery({
-    queryKey: ["floor-requests", opts],
+    queryKey: ["floor-requests", { mine, status }],
     queryFn: () =>
-      api<import("./types").FloorRequestOut[]>("/floor-requests", {
-        params: { mine: opts.mine ?? false, status: opts.status ?? "open" },
-      }),
+      api<import("./types").FloorRequestOut[]>("/floor-requests", { params: { mine, status } }),
+    enabled,
     refetchInterval: 30_000,
   });
 }
@@ -438,6 +440,19 @@ export function useResolveFloorRequest() {
         method: "POST",
       }),
   );
+}
+
+/** "Not this week" on a computed suggestion — it comes back on its own. */
+export function useSnoozeSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productId, days = 7 }: { productId: number; days?: number }) =>
+      api<{ product_id: number; snoozed_until: string }>(
+        `/restock/back/${productId}/snooze`,
+        { method: "POST", body: { days } },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["restock"] }),
+  });
 }
 
 export function useRestock() {

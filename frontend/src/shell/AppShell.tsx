@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { useHealth } from "../api/hooks";
+import { useFloorRequests, useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
@@ -43,8 +43,27 @@ function Brand() {
   );
 }
 
+/** A quiet "someone is waiting on you" mark. Not a count — the page says how
+ *  many; the dot only says "look here". */
+function NavDot() {
+  return (
+    <span
+      aria-label="new"
+      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-error"
+    />
+  );
+}
+
 /** M3 navigation drawer items: full-width pills, secondary-container when active. */
-function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+function NavList({
+  items,
+  dotted,
+  onNavigate,
+}: {
+  items: NavItem[];
+  dotted?: Set<string>;
+  onNavigate?: () => void;
+}) {
   const s = useSillyLabel();
   return (
     <nav className="stagger-children mt-5 flex flex-col gap-1" aria-label="Main">
@@ -65,6 +84,7 @@ function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => v
         >
           {item.icon}
           {s(item.label)}
+          {dotted?.has(item.path) && <NavDot />}
         </NavLink>
       ))}
     </nav>
@@ -72,7 +92,7 @@ function NavList({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => v
 }
 
 /** M3 bottom navigation bar — phones, roles with few destinations. */
-function BottomNav({ items }: { items: NavItem[] }) {
+function BottomNav({ items, dotted }: { items: NavItem[]; dotted?: Set<string> }) {
   const s = useSillyLabel();
   return (
     <nav
@@ -90,7 +110,7 @@ function BottomNav({ items }: { items: NavItem[] }) {
           {({ isActive }) => (
             <>
               <span
-                className={`grid h-8 w-16 place-items-center rounded-full transition-all
+                className={`relative grid h-8 w-16 place-items-center rounded-full transition-all
                   duration-300 ease-(--ease-spring)
                   ${
                     isActive
@@ -99,6 +119,12 @@ function BottomNav({ items }: { items: NavItem[] }) {
                   }`}
               >
                 {item.icon}
+                {dotted?.has(item.path) && (
+                  <span
+                    aria-label="new"
+                    className="absolute top-1 right-4 h-2 w-2 rounded-full bg-error"
+                  />
+                )}
               </span>
               <span className={isActive ? "font-semibold text-on-surface" : "text-on-surface-variant"}>
                 {s(item.label)}
@@ -163,6 +189,12 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   const s = useSillyLabel();
 
   const items = navForRoles(roles, { departments: isDepartments });
+  // a red dot on Suggested items while the floor team is waiting on someone
+  const canReview = roles.has("shoppe_floor") || roles.has("admin");
+  const openAsks = useFloorRequests({ enabled: canReview });
+  const dotted = new Set(
+    canReview && (openAsks.data?.length ?? 0) > 0 ? ["/suggested-items"] : [],
+  );
   // the one route whose name depends on the review zone rather than the role
   const shownTitle = isDepartments && title === "My centers" ? "My departments" : title;
   // M3: bottom bar handles up to 5 destinations; busier roles get the drawer.
@@ -178,7 +210,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       {/* desktop: standard navigation drawer */}
       <aside className="hidden bg-surface-container-low px-3 py-6 md:block">
         <Brand />
-        <NavList items={items} />
+        <NavList items={items} dotted={dotted} />
       </aside>
 
       {/* mobile top app bar — standalone (home-screen) mode draws under the
@@ -224,7 +256,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       </div>
       {menuOpen && !bottomBar && (
         <div className="bg-surface-container-low px-4 pb-4 shadow-(--shadow-e1) md:hidden">
-          <NavList items={items} onNavigate={() => setMenuOpen(false)} />
+          <NavList items={items} dotted={dotted} onNavigate={() => setMenuOpen(false)} />
           <button
             onClick={logout}
             className="state-layer mt-3 w-full rounded-full border border-outline-variant px-4
@@ -271,7 +303,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         </main>
       </div>
 
-      {bottomBar && <BottomNav items={items} />}
+      {bottomBar && <BottomNav items={items} dotted={dotted} />}
 
       {/* a half-built transfer request follows you between pages */}
       <TransferDraftBubble />

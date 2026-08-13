@@ -439,3 +439,24 @@ class FloorRequest(Base, TimestampMixin):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     product: Mapped[Product] = relationship()
+
+
+class SuggestionSnooze(Base):
+    """"Not this week" — a computed warehouse suggestion the Inventory Flow
+    Manager swiped away.
+
+    The app will keep finding this product as long as the numbers say so, and
+    re-offering it every morning is noise once a human has judged it. One row
+    per product, replaced on each swipe; the suggestion returns on its own
+    when the date passes (the judgement was about this week, not forever —
+    unlike a Floor Team ask, which a person can settle for good)."""
+
+    __tablename__ = "suggestion_snoozes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), unique=True, index=True)
+    snoozed_until: Mapped[date] = mapped_column(Date)  # first day it's visible again
+    snoozed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    product: Mapped[Product] = relationship()

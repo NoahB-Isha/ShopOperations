@@ -49,6 +49,7 @@ from ..models import (
     RestockLine,
     SalesDaily,
     StockLevel,
+    SuggestionSnooze,
     TransferRequest,
     TransferRequestLine,
     not_blacklisted,
@@ -271,6 +272,14 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
             )
         )
     }
+    # "Not this week" — a manager swiped this suggestion away. The numbers
+    # haven't changed, so it would otherwise be back tomorrow morning.
+    snoozed = {
+        pid
+        for (pid,) in db.execute(
+            select(SuggestionSnooze.product_id).where(SuggestionSnooze.snoozed_until > today)
+        )
+    }
     # Already asked for. The one action on this list is "turn it into a
     # transfer request", so anything riding an open request is handled —
     # leaving it visible just invites a second request for the same stock.
@@ -288,7 +297,7 @@ def back_list(db: Session, settings: Settings, today: date) -> list[BackItem]:
     target_cover = float(settings.restock_target_cover_days)
     items: list[BackItem] = []
     for pid, units in sold.items():
-        if pid not in eligible or pid in on_open_request:
+        if pid not in eligible or pid in on_open_request or pid in snoozed:
             continue
         avg_daily = units / window
         if avg_daily <= 0:

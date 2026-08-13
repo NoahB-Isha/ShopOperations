@@ -7,7 +7,7 @@ for the back list — both read fresh each morning.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,6 +24,7 @@ from ..models import (
     RestockFoldState,
     RestockLine,
     Role,
+    SuggestionSnooze,
     StockLevel,
     SyncState,
     User,
@@ -309,6 +310,35 @@ def snooze_floor_line_endpoint(
 class BackCheckIn(BaseModel):
     checked: bool
     list_type: Literal["back"] = "back"
+
+
+class SnoozeSuggestionIn(BaseModel):
+    days: int = 7
+
+
+@router.post("/back/{product_id}/snooze")
+def snooze_suggestion(
+    product_id: int,
+    body: SnoozeSuggestionIn,
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+) -> dict:
+    """"Not this week." A computed suggestion can't be settled for good — the
+    numbers will keep saying the same thing — so it parks for a week and
+    comes back on its own. (A Floor Team ask, judged by a person, is
+    dismissed permanently instead; that lives in floor_requests.)"""
+    if db.get(Product, product_id) is None:
+        raise HTTPException(404, "Product not found.")
+    days = max(1, min(int(body.days), 90))
+    until = utcnow().date() + timedelta(days=days)
+    row = db.scalar(select(SuggestionSnooze).where(SuggestionSnooze.product_id == product_id))
+    if row is None:
+        row = SuggestionSnooze(product_id=product_id)
+        db.add(row)
+    row.snoozed_until = until
+    row.snoozed_by_id = authed.id
+    db.commit()
+    return {"product_id": product_id, "snoozed_until": until.isoformat()}
 
 
 @router.post("/back/{product_id}/check")

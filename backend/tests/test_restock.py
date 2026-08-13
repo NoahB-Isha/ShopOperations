@@ -486,3 +486,37 @@ def test_back_list_hides_items_already_on_an_open_transfer(client, db, settings_
     req.status = TransferRequestStatus.CANCELLED.value
     db.commit()
     assert {i.product_id for i in back_list(db, settings, T)} == {a.id, b.id}
+
+
+def test_swiping_a_suggestion_away_parks_it_for_a_week(client, db):
+    """A computed suggestion can't be settled for good — the numbers keep
+    saying the same thing — so it goes quiet for a week and comes back."""
+    from datetime import UTC, datetime
+
+    from app.models import SuggestionSnooze
+
+    today = datetime.now(UTC).date()
+    a = mk_product(db, "CA9000000001", "Snoozable Item", odoo_id=9001)
+    _sale(db, a.id, today - timedelta(days=1), 12)
+    _stock(db, a.id, "floor", 0)
+    _stock(db, a.id, "bwhse", 90)
+    db.commit()
+    mk_user(db, "mgr@test.io", (Role.SHOPPE_FLOOR, None, None))
+    headers = login(client, "mgr@test.io")
+
+    back = client.get("/api/v1/restock", headers=headers).json()["back"]
+    assert any(i["product_id"] == a.id for i in back)
+
+    r = client.post(f"/api/v1/restock/back/{a.id}/snooze", json={"days": 7}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["snoozed_until"] == (today + timedelta(days=7)).isoformat()
+
+    back = client.get("/api/v1/restock", headers=headers).json()["back"]
+    assert not any(i["product_id"] == a.id for i in back), "swiped away — quiet for a week"
+
+    # …and back on its own once the week is up
+    row = db.scalar(select(SuggestionSnooze).where(SuggestionSnooze.product_id == a.id))
+    row.snoozed_until = today
+    db.commit()
+    back = client.get("/api/v1/restock", headers=headers).json()["back"]
+    assert any(i["product_id"] == a.id for i in back)

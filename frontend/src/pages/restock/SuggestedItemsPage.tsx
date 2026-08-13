@@ -11,11 +11,11 @@
 
    Both sections feed the same transfer draft (the floating bubble), so a
    mixed pull is one request. */
-import { useNavigate } from "react-router-dom";
 import {
   useFloorRequests,
   useResolveFloorRequest,
   useRestock,
+  useSnoozeSuggestion,
 } from "../../api/hooks";
 import type { FloorRequestOut, RestockBackItem } from "../../api/types";
 import { addToDraft } from "../../transferDraft";
@@ -27,6 +27,7 @@ import {
   PageHeader,
   Spinner,
   SwipeBackdrop,
+  leavingStyle,
   useSwipeRow,
   useToast,
 } from "../../design";
@@ -45,26 +46,20 @@ function SourceChip({ kind }: { kind: "people" | "app" }) {
 function Section({
   title,
   chip,
-  blurb,
-  count,
   children,
 }: {
   title: string;
   chip: "people" | "app";
-  blurb: string;
-  count: number;
   children: React.ReactNode;
 }) {
   return (
     <section className="mb-10">
-      <div className="mb-1 flex flex-wrap items-center gap-2">
+      {/* the chip is the whole explanation — where these came from is the
+          only thing a heading here needs to say */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="headline text-[19px]">{title}</h2>
         <SourceChip kind={chip} />
-        {count > 0 && (
-          <span className="text-[13px] tabular-nums text-on-surface-variant">{count}</span>
-        )}
       </div>
-      <p className="mb-3 text-[13px] text-on-surface-variant">{blurb}</p>
       {children}
     </section>
   );
@@ -84,9 +79,14 @@ function RequestRow({
   onAdd: (from: ActionBox) => void;
   onDismiss: () => void;
 }) {
-  const swipe = useSwipeRow({ onRight: onAdd, morphOnRight: true });
+  // left = "not needed" (a person judged it, so it's settled for good)
+  const swipe = useSwipeRow({ onLeft: onDismiss, onRight: onAdd, morphOnRight: true });
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)">
+    <li
+      className="relative overflow-hidden rounded-(--radius-lg)"
+      style={leavingStyle(swipe.leaving)}
+    >
+      <SwipeBackdrop side="right" label="Not needed" dx={swipe.dx} tone="tertiary" />
       <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <div
         {...swipe.handlers}
@@ -137,10 +137,24 @@ function RequestRow({
 
 /* --------------------------------------------- computed back stock (the app) */
 
-function SuggestionRow({ item, onAdd }: { item: RestockBackItem; onAdd: (from: ActionBox) => void }) {
-  const swipe = useSwipeRow({ onRight: onAdd, morphOnRight: true });
+function SuggestionRow({
+  item,
+  onAdd,
+  onSnooze,
+}: {
+  item: RestockBackItem;
+  onAdd: (from: ActionBox) => void;
+  onSnooze: () => void;
+}) {
+  // left = "not this week": the numbers will say the same thing tomorrow, so
+  // this one goes quiet rather than away
+  const swipe = useSwipeRow({ onLeft: onSnooze, onRight: onAdd, morphOnRight: true });
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)">
+    <li
+      className="relative overflow-hidden rounded-(--radius-lg)"
+      style={leavingStyle(swipe.leaving)}
+    >
+      <SwipeBackdrop side="right" label="Not this week" dx={swipe.dx} tone="tertiary" />
       <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <div
         {...swipe.handlers}
@@ -183,8 +197,8 @@ export function SuggestedItemsPage() {
   const { data, isLoading } = useRestock();
   const requests = useFloorRequests();
   const resolve = useResolveFloorRequest();
+  const snooze = useSnoozeSuggestion();
   const toast = useToast();
-  const navigate = useNavigate();
 
   const asks = requests.data ?? [];
   const suggestions = data?.back ?? [];
@@ -222,32 +236,32 @@ export function SuggestedItemsPage() {
     flyToBubble(from, qty);
   };
 
-  const allSuggested = () =>
-    navigate("/transfer-requests/new", {
-      state: {
-        prefill: {
-          notes: "From the warehouse suggestions",
-          lines: suggestions.map((item) => ({
-            product_id: item.product_id,
-            sku: item.sku,
-            barcode: item.barcode,
-            name: item.name,
-            category: item.category,
-            qty: Math.max(1, item.suggested_qty),
-            floor_qty: item.floor_qty,
-            bwhse_qty: item.bwhse_qty,
-            case_size: 1,
-          })),
-        },
-      },
-    });
+  /** Everything the app found, into whatever transfer is already being
+   *  built — no navigation, no replacing a half-picked draft. With nothing
+   *  in progress the draft simply starts here (the bubble appears). */
+  const addAll = (from: ActionBox) => {
+    let total = 0;
+    for (const item of suggestions) {
+      const qty = Math.max(1, Math.round(item.suggested_qty));
+      total += qty;
+      addToDraft({
+        product_id: item.product_id,
+        sku: item.sku,
+        barcode: item.barcode,
+        name: item.name,
+        category: item.category,
+        qty,
+        floor_qty: item.floor_qty,
+        bwhse_qty: item.bwhse_qty,
+        case_size: 1,
+      });
+    }
+    if (total > 0) flyToBubble(from, total);
+  };
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader
-        title="Suggested items"
-        subtitle="What's worth pulling from the warehouse — what people asked for first, then what the numbers say."
-      />
+      <PageHeader title="Suggested items" />
 
       {isLoading || requests.isLoading ? (
         <div className="grid place-items-center py-24">
@@ -255,12 +269,7 @@ export function SuggestedItemsPage() {
         </div>
       ) : (
         <>
-          <Section
-            title="Floor Team Requests"
-            chip="people"
-            count={asks.length}
-            blurb="Raised by the floor team from the shop. Adding one to a transfer takes it off this board and tells them it's coming."
-          >
+          <Section title="Floor Team Requests" chip="people">
             {asks.length === 0 ? (
               <EmptyState
                 title="No asks right now"
@@ -289,12 +298,7 @@ export function SuggestedItemsPage() {
             )}
           </Section>
 
-          <Section
-            title="Database Suggestions"
-            chip="app"
-            count={suggestions.length}
-            blurb="Worked out from the last few weeks of sales: the shop is under a week of cover and the warehouse has stock."
-          >
+          <Section title="Database Suggestions" chip="app">
             {suggestions.length === 0 ? (
               <EmptyState
                 title="Back stock looks covered"
@@ -308,16 +312,26 @@ export function SuggestedItemsPage() {
                       key={item.product_id}
                       item={item}
                       onAdd={(from) => takeSuggestion(item, from)}
+                      onSnooze={() =>
+                        snooze.mutate(
+                          { productId: item.product_id },
+                          {
+                            onSuccess: () =>
+                              toast.info(`${item.name} — hidden for a week.`),
+                            onError: (e) => toast.error(e.message),
+                          },
+                        )
+                      }
                     />
                   ))}
                 </ul>
                 <div className="mt-4 pb-24">
-                  <Button className="w-full sm:w-auto" onClick={allSuggested}>
-                    New transfer from these items · {suggestions.length}
+                  <Button
+                    className="w-full sm:w-auto"
+                    onClick={(e) => addAll(boxAt(e.clientX, e.clientY))}
+                  >
+                    Add all · {suggestions.length}
                   </Button>
-                  <div className="mt-1.5 text-center text-[12px] text-on-surface-variant sm:text-left">
-                    Opens a request prefilled with the suggested quantities — adjust before sending.
-                  </div>
                 </div>
               </>
             )}

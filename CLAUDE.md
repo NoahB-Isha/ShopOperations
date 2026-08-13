@@ -829,6 +829,18 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   first, deliberately, since someone standing at an empty shelf knows what
   the numbers don't. Both sections feed the same draft, so a mixed pull is
   one transfer; taking an ask marks it picked_up so the asker sees it landed.
+  The Suggested items page is deliberately BARE — headings + provenance chip,
+  no blurbs and no counts (Noah 2026-08-13) — and the nav carries a red dot
+  while any ask is open (`useFloorRequests({enabled})` in AppShell, dotted
+  paths through NavList/BottomNav). **Swipe LEFT removes**, and the two
+  sections differ on purpose: an ask is dismissed FOR GOOD (a person judged
+  it), while a computed suggestion only goes quiet for a week —
+  `suggestion_snoozes` + `POST /restock/back/{id}/snooze` (migration
+  `c8e4a1b93f26`), excluded by `back_list` while `snoozed_until > today`,
+  because the numbers will say the same thing tomorrow morning. The bulk
+  button is **"Add all"**: it pours the suggestions into whatever draft is
+  already open (no navigation, no replacing a half-picked draft) — with
+  nothing in progress the draft simply starts there.
   The restock page's **"From warehouse" tab is GONE** — that computed
   back-stock list is now the Database Suggestions section (the `back` half of
   GET /restock is unchanged and still feeds it); /restock is one list again.
