@@ -15,11 +15,20 @@ export const SWIPE_COMMIT_PX = 96;
 /** Exit animation length — callers time optimistic mutations against it. */
 export const SWIPE_EXIT_MS = 220;
 
+/** The box the revealed action label occupies — handed to the commit callback
+ *  so it can launch something from exactly where the label was. */
+export interface ActionBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface SwipeOptions {
   /** commit on a left swipe; the row slides out unless leftExits is false */
-  onLeft?: () => void;
+  onLeft?: (from: ActionBox) => void;
   /** commit on a right swipe; the row springs back */
-  onRight?: () => void;
+  onRight?: (from: ActionBox) => void;
   leftExits?: boolean;
   disabled?: boolean;
 }
@@ -68,13 +77,30 @@ export function useSwipeRow({
   // A swipe ends with a synthetic click on some browsers; this swallows it so
   // a gesture can never also fire the row's tap action.
   const swallow = useRef(false);
+  // the row element, captured on pointerdown: the commit callbacks want to
+  // know where the action label sat on screen
+  const rowEl = useRef<Element | null>(null);
 
   const canLeft = Boolean(onLeft) && !disabled;
   const canRight = Boolean(onRight) && !disabled;
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((!canLeft && !canRight) || e.pointerType === "mouse" || leaving) return;
+    rowEl.current = e.currentTarget;
     drag.current = { x0: e.clientX, y0: e.clientY, axis: "" };
+  };
+
+  /** Where the backdrop label sits: pinned to one edge, vertically centred. */
+  const actionBox = (side: "left" | "right"): ActionBox => {
+    const r = rowEl.current?.getBoundingClientRect();
+    if (!r) return { left: 0, top: 0, width: 140, height: 36 };
+    const width = Math.min(150, Math.max(90, r.width * 0.42));
+    return {
+      left: side === "left" ? r.left + 8 : r.right - width - 8,
+      top: r.top + r.height / 2 - 18,
+      width,
+      height: 36,
+    };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -102,18 +128,19 @@ export function useSwipeRow({
     if (d?.axis === "x" && canLeft && dxRef.current <= -SWIPE_COMMIT_PX) {
       swallow.current = true;
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const box = actionBox("right");
       if (!leftExits || reduced) {
-        onLeft?.();
+        onLeft?.(box);
       } else {
         // Let it finish leaving, THEN drop it from the list — an optimistic
         // mutation would delete the row mid-animation.
         setLeaving(true);
-        window.setTimeout(() => onLeft?.(), SWIPE_EXIT_MS);
+        window.setTimeout(() => onLeft?.(box), SWIPE_EXIT_MS);
         return;
       }
     } else if (d?.axis === "x" && canRight && dxRef.current >= SWIPE_COMMIT_PX) {
       swallow.current = true;
-      onRight?.();
+      onRight?.(actionBox("left"));
     }
     dxRef.current = 0;
     setDx(0);
@@ -173,20 +200,6 @@ export function SwipeBackdrop({
       {label}
     </span>
   );
-}
-
-/** "That one just joined the transfer" — the row bounces first, and the
- *  floating bubble bumps a beat later (see transferDraft's pulse), so the eye
- *  follows the item from the list into the pill. */
-export function useAddedBounce(ms = 450) {
-  const [id, setId] = useState<number | null>(null);
-  const timer = useRef(0);
-  const bounce = (next: number) => {
-    window.clearTimeout(timer.current);
-    setId(next);
-    timer.current = window.setTimeout(() => setId(null), ms);
-  };
-  return { bouncing: id, bounce };
 }
 
 /** Collapse styles for a row on its way out (pairs with `leaving`). */

@@ -19,7 +19,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { markBurst, useDraftLines, useDraftPulse } from "../transferDraft";
+import { markBurst, useDraftLines } from "../transferDraft";
+import { clearBubbleAnchor, setBubbleAnchor, useArrival } from "./flyToBubble";
 import { fmtQty } from "../pages/shared/OpsBits";
 
 /** The transfer page's "New transfer" tab — where the draft lives, so the
@@ -31,10 +32,9 @@ const EDGE = 12; // keeps the pill off the very edge of the viewport
 const DRAG_SLOP_PX = 5;
 const EXIT_MS = 300; // must match --animate-bubble-out
 const BURST_MS = 420; // must match --animate-bubble-burst
-/** The row bounces first, then the bubble — the eye follows the item over. */
-const BUMP_DELAY_MS = 150;
-const BUMP_MS = 500; // must match --animate-bubble-bump
-const ENTER_MS = 720; // must match --animate-bubble-in
+const BUMP_MS = 420; // must match --animate-bubble-bump
+const ENTER_MS = 550; // must match --animate-bubble-in
+const COUNT_MS = 1100; // must match --animate-count-pop
 
 interface Pos {
   x: number;
@@ -81,7 +81,8 @@ function defaultPos(w: number, h: number, vw: number, vh: number): Pos {
 
 export function TransferDraftBubble() {
   const lines = useDraftLines();
-  const pulse = useDraftPulse();
+  // a ball thrown by a swipe (or a menu) just landed — see shell/flyToBubble
+  const arrival = useArrival();
   const location = useLocation();
   const navigate = useNavigate();
   const { roles } = useAuth();
@@ -109,21 +110,27 @@ export function TransferDraftBubble() {
     return () => window.clearTimeout(t);
   }, [show, rendered, lines.length, atDraftPage]);
 
-  // an item joined the draft: bump, a beat after the row's own bounce
+  // the ball lands: catch it (bump) and float the quantity that joined
   const [bumping, setBumping] = useState(false);
-  const firstPulse = useRef(true);
+  const [gained, setGained] = useState<{ qty: number; seq: number } | null>(null);
+  const firstArrival = useRef(true);
   useEffect(() => {
-    if (firstPulse.current) {
-      firstPulse.current = false;
+    if (firstArrival.current) {
+      firstArrival.current = false;
       return;
     }
-    const start = window.setTimeout(() => setBumping(true), BUMP_DELAY_MS);
-    const end = window.setTimeout(() => setBumping(false), BUMP_DELAY_MS + BUMP_MS);
+    setBumping(true);
+    setGained({ qty: arrival.qty, seq: arrival.seq });
+    const stopBump = window.setTimeout(() => setBumping(false), BUMP_MS);
+    const clearGain = window.setTimeout(
+      () => setGained((g) => (g?.seq === arrival.seq ? null : g)),
+      COUNT_MS,
+    );
     return () => {
-      window.clearTimeout(start);
-      window.clearTimeout(end);
+      window.clearTimeout(stopBump);
+      window.clearTimeout(clearGain);
     };
-  }, [pulse]);
+  }, [arrival]);
 
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<Pos | null>(readStoredPos);
@@ -192,6 +199,14 @@ export function TransferDraftBubble() {
   // The entrance class must come off on a TIMER, not on animationend: a tab
   // that was backgrounded mid-animation never delivers the event, and the
   // class then outranks every later motion (the bump would never show).
+  // the flight target is the pill's centre, wherever it currently sits
+  useEffect(() => {
+    const el = ref.current;
+    if (!rendered || !pos || !el) return;
+    setBubbleAnchor(pos.x + el.offsetWidth / 2, pos.y + el.offsetHeight / 2);
+  }, [rendered, pos, lines.length]);
+  useEffect(() => () => clearBubbleAnchor(), []);
+
   useEffect(() => {
     if (!show) return;
     setEntering(true);
@@ -331,6 +346,17 @@ export function TransferDraftBubble() {
   return (
     <>
       {exit === "burst" && <BurstSparks pos={pos} />}
+      {gained && pos && (
+        <span
+          key={gained.seq}
+          aria-hidden
+          className="animate-count-pop pointer-events-none fixed z-50 text-[15px] font-bold
+            text-primary drop-shadow-sm"
+          style={{ left: pos.x + 12, top: pos.y - 18 }}
+        >
+          +{fmtQty(gained.qty)}
+        </span>
+      )}
       <div
         ref={ref}
         role="button"

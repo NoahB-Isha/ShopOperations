@@ -4,6 +4,7 @@ import type { ProductOut, TagOut } from "../api/types";
 import { useCreateManualProduct, useFacets, useProducts } from "../api/hooks";
 import { useAuth } from "../auth/AuthContext";
 import { addToDraft } from "../transferDraft";
+import { boxAt, centerOf, flyToBubble } from "../shell/flyToBubble";
 import {
   Badge,
   Button,
@@ -18,13 +19,12 @@ import {
   Select,
   SwipeBackdrop,
   toneForLabel,
-  useAddedBounce,
   useContextMenu,
   useRowSelection,
   useSwipeRow,
   useToast,
 } from "../design";
-import type { Column } from "../design";
+import type { ActionBox, Column } from "../design";
 import { fmtQty, productCode, toPicked } from "./shared/OpsBits";
 import { TAG_LABELS, TAG_TONES } from "./shared/tags";
 import { BulkProductDrawer, ProductDrawer } from "./ProductDrawer";
@@ -143,14 +143,31 @@ export function CatalogPage() {
   const [priceMin, setPriceMin] = usePersistedState("catalog.priceMin", "");
   const [priceMax, setPriceMax] = usePersistedState("catalog.priceMax", "");
   const [soldDays, setSoldDays] = usePersistedState("catalog.soldDays", "");
+  // "no quantity anywhere" — the shelf question, not the catalogue question
+  const [hideOos, setHideOos] = usePersistedState("catalog.hideOos", false);
+  // phones show the search alone; the rest lives behind "Filter by…" so the
+  // list starts near the top of the screen instead of below a wall of selects
+  const [filtersOpen, setFiltersOpen] = usePersistedState("catalog.filtersOpen", false);
 
   const debouncedSearch = useDebounced(search, 200);
   const debouncedMin = useDebounced(priceMin, 300);
   const debouncedMax = useDebounced(priceMax, 300);
   useEffect(
     () => setPage(1),
-    [debouncedSearch, category, tag, hideOld, prefix, debouncedMin, debouncedMax, soldDays],
+    [debouncedSearch, category, tag, hideOld, hideOos, prefix, debouncedMin, debouncedMax, soldDays],
   );
+
+  // what the collapsed rail is holding, so nobody wonders why the list is short
+  // (hideOld is the default, so it only counts when switched OFF)
+  const activeFilters =
+    (category ? 1 : 0) +
+    (tag ? 1 : 0) +
+    (prefix ? 1 : 0) +
+    (soldDays ? 1 : 0) +
+    (priceMin ? 1 : 0) +
+    (priceMax ? 1 : 0) +
+    (hideOld ? 0 : 1) +
+    (hideOos ? 1 : 0);
 
   const num = (v: string) => (v.trim() === "" || Number.isNaN(Number(v)) ? undefined : Number(v));
   const { data, isLoading, isFetching } = useProducts({
@@ -161,6 +178,7 @@ export function CatalogPage() {
     sort: sort.key,
     dir: sort.dir,
     in_pos_only: hideOld,
+    in_stock_only: hideOos,
     barcode_prefix: prefix || undefined,
     price_min: num(debouncedMin),
     price_max: num(debouncedMax),
@@ -223,8 +241,7 @@ export function CatalogPage() {
   // Adding to a transfer is the floor's move — on a phone it's a swipe (the
   // restock list taught everyone the gesture), on a desk it's this menu.
   const canRequest = roles.has("shoppe_floor") || roles.has("admin");
-  const added = useAddedBounce();
-  const addToTransfer = (products: ProductOut[]) => {
+  const addToTransfer = (products: ProductOut[], from?: ActionBox) => {
     // only Odoo-tracked items can ride a transfer — the API says so too
     const usable = products.filter((p) => p.is_stock_tracked && p.source === "odoo");
     if (usable.length === 0) {
@@ -235,13 +252,14 @@ export function CatalogPage() {
       );
       return;
     }
-    for (const p of usable) addToDraft(toPicked(p, Math.max(1, p.case_size || 1)));
-    added.bounce(usable[0].id);
-    toast.success(
-      usable.length === 1
-        ? `${usable[0].name} × ${fmtQty(Math.max(1, usable[0].case_size || 1))} added to your transfer.`
-        : `${usable.length} items added to your transfer.`,
-    );
+    let qty = 0;
+    for (const p of usable) {
+      const each = Math.max(1, p.case_size || 1);
+      qty += each;
+      addToDraft(toPicked(p, each));
+    }
+    // the bubble catching the ball is the acknowledgement — no snackbar
+    flyToBubble(from ?? centerOf(), qty);
   };
 
   const rowMenu = (r: CatalogRow, e: React.MouseEvent) => {
@@ -254,7 +272,7 @@ export function CatalogPage() {
         ? [
             {
               label: `Add ${ids.size === 1 ? "to transfer" : `${ids.size} items to transfer`}`,
-              onSelect: () => addToTransfer(picked),
+              onSelect: () => addToTransfer(picked, boxAt(e.clientX, e.clientY)),
             },
           ]
         : []),
@@ -394,14 +412,35 @@ export function CatalogPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2.5">
-        <Input
-          placeholder={s("Search products…")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs [--control-radius:9999px]"
-          aria-label="Search products"
-        />
+      <Input
+        placeholder={s("Search products…")}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-2 w-full [--control-radius:9999px] md:mb-4 md:max-w-xs"
+        aria-label="Search products"
+      />
+
+      {/* phones: one quiet line that opens the rest. Desktop always shows them. */}
+      <button
+        onClick={() => setFiltersOpen((v) => !v)}
+        aria-expanded={filtersOpen}
+        className="mb-3 flex items-center gap-1.5 text-[13px] font-medium text-on-surface-variant md:hidden"
+      >
+        Filter by…
+        {activeFilters > 0 && (
+          <span className="grid h-4.5 min-w-4.5 place-items-center rounded-full bg-primary-container
+            px-1 text-[11px] font-bold text-on-primary-container">
+            {activeFilters}
+          </span>
+        )}
+        <span aria-hidden className={filtersOpen ? "rotate-180" : ""}>
+          ⌄
+        </span>
+      </button>
+
+      <div
+        className={`mb-4 flex-wrap items-center gap-2.5 ${filtersOpen ? "flex" : "hidden md:flex"}`}
+      >
         <div className="w-52">
           <Select value={category} onChange={(e) => setCategory(e.target.value)}
             aria-label="Filter by category">
@@ -474,6 +513,17 @@ export function CatalogPage() {
           />
           <span title="Only products still on the register in Odoo">Hide old SKUs</span>
         </label>
+        <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={hideOos}
+            onChange={(e) => setHideOos(e.target.checked)}
+            className="m3-control h-4 w-4 accent-[var(--color-primary)]"
+          />
+          <span title="Only products with stock somewhere — warehouse, floor or staging">
+            Hide OOS
+          </span>
+        </label>
         {isFetching && !isLoading && <span className="text-[13px] text-ink-faint">refreshing…</span>}
       </div>
 
@@ -503,9 +553,8 @@ export function CatalogPage() {
           <CatalogPhoneRow
             key={p.id}
             product={p}
-            bounce={added.bouncing === p.id}
             onOpen={() => setSelected(p)}
-            onAdd={canRequest ? () => addToTransfer([p]) : undefined}
+            onAdd={canRequest ? (from) => addToTransfer([p], from) : undefined}
           />
         ))}
         {!isLoading && (data?.items ?? []).length === 0 && (
@@ -667,14 +716,12 @@ function NewItemDialog({
  *  restock list — the floor learned it there. */
 function CatalogPhoneRow({
   product,
-  bounce,
   onOpen,
   onAdd,
 }: {
   product: ProductOut;
-  bounce: boolean;
   onOpen: () => void;
-  onAdd?: () => void;
+  onAdd?: (from: ActionBox) => void;
 }) {
   const swipe = useSwipeRow({ onRight: onAdd });
   const floor = product.stock?.floor ?? 0;
@@ -691,7 +738,7 @@ function CatalogPhoneRow({
         }}
         style={swipe.motionStyle}
         className={`state-layer flex w-full items-center gap-3 rounded-(--radius-lg)
-          bg-surface-container-low px-4 py-3.5 text-left ${bounce ? "animate-added-bounce" : ""}`}
+          bg-surface-container-low px-4 py-3.5 text-left`}
       >
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-medium">{product.name}</span>

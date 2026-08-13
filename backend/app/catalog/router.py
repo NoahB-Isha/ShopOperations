@@ -126,6 +126,9 @@ def list_products(
     # "Hide old SKUs" — the register is the honest test of what the shop still
     # sells. On by default; the retired ~24% only appear when asked for.
     in_pos_only: bool = True,
+    # "Hide OOS" — only items with stock SOMEWHERE (warehouse, floor, staging,
+    # staging2). Off by default: the catalog is the whole book, not a shelf.
+    in_stock_only: bool = False,
     price_min: float | None = Query(None, ge=0, le=1_000_000),
     price_max: float | None = Query(None, ge=0, le=1_000_000),
     barcode_prefix: str = Query("", max_length=8),
@@ -170,6 +173,15 @@ def list_products(
         q = q.join(ProductTag, ProductTag.product_id == Product.id).where(ProductTag.tag == tag)
     if in_pos_only:
         q = q.where(Product.available_in_pos.is_(True))
+    if in_stock_only:
+        # any location with a positive quantity counts; Odoo vacuums zero
+        # quants, so a product with no StockLevel rows at all is simply out
+        with_stock = (
+            select(StockLevel.product_id)
+            .group_by(StockLevel.product_id)
+            .having(func.coalesce(func.sum(StockLevel.qty), 0) > 0)
+        )
+        q = q.where(Product.id.in_(with_stock))
     if price_min is not None:
         q = q.where(Product.retail_price >= price_min)
     if price_max is not None:

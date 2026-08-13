@@ -30,14 +30,15 @@ import {
   Spinner,
   SwipeBackdrop,
   Textarea,
-  useAddedBounce,
   useContextMenu,
   useSwipeRow,
   useToast,
 } from "../../design";
 import { LowCountHint, OdooLink, ProductPicker, WriteStatusChip, fmtQty, fmtWhen, productCode, type PickedLine } from "../shared/OpsBits";
+import type { ActionBox } from "../../design";
 import { matchesSearch } from "../../search";
 import { addToDraft } from "../../transferDraft";
+import { boxAt, centerOf, flyToBubble } from "../../shell/flyToBubble";
 import { useSillyLabel } from "../../silly";
 
 function MarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -135,14 +136,12 @@ function OosRow({
   onBackInStock,
   onAdd,
   onContextMenu,
-  bounce,
 }: {
   item: OosItemOut;
   onBackInStock: () => void;
   /** swipe right / right-click — the empty shelf becomes a transfer line */
-  onAdd?: () => void;
+  onAdd?: (from: ActionBox) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
-  bounce?: boolean;
 }) {
   const m = item.mark;
   const swipe = useSwipeRow({ onRight: onAdd });
@@ -153,8 +152,7 @@ function OosRow({
         {...swipe.handlers}
         onContextMenu={onContextMenu}
         style={swipe.motionStyle}
-        className={`rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5
-          ${bounce ? "animate-added-bounce" : ""}`}
+        className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5"
       >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -372,17 +370,14 @@ export function OutOfStockPage() {
   // nested inside it) the moment the mark is gone — the dialog outlives that
   const [restockTarget, setRestockTarget] = useState<OosItemOut | null>(null);
   const [search, setSearch] = usePersistedState("oos.search", "");
-  const toast = useToast();
 
   /* An empty shelf is usually a transfer waiting to happen — same gesture as
      the restock list (swipe right on a phone, right-click on a desk). The
      quantity is a placeholder: adjust it on the transfer itself. */
   const canRequest = roles.has("shoppe_floor") || roles.has("admin");
   const menu = useContextMenu();
-  const added = useAddedBounce();
-  const addToTransfer = (item: OosItemOut) => {
-    added.bounce(item.product_id);
-    const how = addToDraft({
+  const addToTransfer = (item: OosItemOut, from?: ActionBox) => {
+    addToDraft({
       product_id: item.product_id,
       sku: item.sku,
       barcode: item.barcode,
@@ -393,11 +388,7 @@ export function OutOfStockPage() {
       bwhse_qty: item.bwhse_qty,
       case_size: 1,
     });
-    toast.success(
-      how === "merged"
-        ? `${item.name} — quantity raised on your transfer.`
-        : `${item.name} added to your transfer.`,
-    );
+    flyToBubble(from ?? centerOf(), 1);
   };
 
   const visible = useMemo(
@@ -505,16 +496,18 @@ export function OutOfStockPage() {
                 key={`${item.product_id}-${item.mark?.id ?? "z"}`}
                 item={item}
                 onBackInStock={() => setRestockTarget(item)}
-                onAdd={canRequest ? () => addToTransfer(item) : undefined}
+                onAdd={canRequest ? (from) => addToTransfer(item, from) : undefined}
                 onContextMenu={
                   canRequest
                     ? (e) =>
                         menu.open(e, [
-                          { label: "Add to transfer", onSelect: () => addToTransfer(item) },
+                          {
+                            label: "Add to transfer",
+                            onSelect: () => addToTransfer(item, boxAt(e.clientX, e.clientY)),
+                          },
                         ])
                     : undefined
                 }
-                bounce={added.bouncing === item.product_id}
               />
             ))}
           </ul>

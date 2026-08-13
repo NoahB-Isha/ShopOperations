@@ -236,3 +236,36 @@ def test_all_skus_filters(client, db):
     # the prefix list is derived from real barcodes, not hardcoded
     facets = client.get("/api/v1/products/facets", headers=h).json()
     assert "barcode_prefixes" in facets
+
+
+def test_hide_oos_keeps_only_products_with_stock_somewhere(client, db):
+    """'Hide OOS' means no quantity in ANY location — a product Odoo has
+    vacuumed to no rows at all counts as out, not as unknown."""
+    from app.models import Product, StockLevel
+
+    stocked = Product(global_sku="OOS-IN", name="Has stock in staging", is_active=True,
+                      available_in_pos=True, source="odoo")
+    empty = Product(global_sku="OOS-ZERO", name="Zero everywhere", is_active=True,
+                    available_in_pos=True, source="odoo")
+    missing = Product(global_sku="OOS-NOROW", name="No stock rows at all", is_active=True,
+                      available_in_pos=True, source="odoo")
+    db.add_all([stocked, empty, missing])
+    db.flush()
+    db.add_all([
+        StockLevel(product_id=stocked.id, location_key="bwhse", qty=0),
+        StockLevel(product_id=stocked.id, location_key="staging", qty=3),
+        StockLevel(product_id=empty.id, location_key="bwhse", qty=0),
+        StockLevel(product_id=empty.id, location_key="floor", qty=0),
+    ])
+    db.commit()
+
+    mk_user(db, "stock@test.io", (Role.ADMIN, None, None))
+    headers = login(client, "stock@test.io")
+    r = client.get("/api/v1/products", params={"search": "OOS-", "in_stock_only": True},
+                   headers=headers)
+    assert r.status_code == 200, r.text
+    skus = {i["global_sku"] for i in r.json()["items"]}
+    assert skus == {"OOS-IN"}
+
+    r = client.get("/api/v1/products", params={"search": "OOS-"}, headers=headers)
+    assert {"OOS-IN", "OOS-ZERO", "OOS-NOROW"} <= {i["global_sku"] for i in r.json()["items"]}

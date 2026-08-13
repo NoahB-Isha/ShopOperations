@@ -13,6 +13,7 @@ import {
 import type { RestockBackItem, RestockFloorItem, RestockOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { addToDraft } from "../../transferDraft";
+import { boxAt, centerOf, flyToBubble } from "../../shell/flyToBubble";
 import {
   Badge,
   Button,
@@ -23,11 +24,11 @@ import {
   Spinner,
   SwipeBackdrop,
   leavingStyle,
-  useAddedBounce,
   useContextMenu,
   useSwipeRow,
   useToast,
 } from "../../design";
+import type { ActionBox } from "../../design";
 import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
 
 export function RestockPage() {
@@ -162,15 +163,14 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
   // don't raise requests
   const canRequest = roles.has("shoppe_floor") || roles.has("admin");
   const menu = useContextMenu(); // swipes are touch-only — right-click is the desk equivalent
-  const added = useAddedBounce();
 
   /* Swipe right on a row the back stock can't cover: the item joins the
-     transfer request you're building (the floating bubble carries it), and
-     the row stays put — the shelf still needs filling today. */
-  const requestMore = (item: RestockFloorItem) => {
+     transfer request you're building and gets slingshot into the floating
+     bubble, which is the whole acknowledgement — no snackbar. The row stays
+     put; the shelf still needs filling today. */
+  const requestMore = (item: RestockFloorItem, from?: ActionBox) => {
     const qty = Math.max(1, Math.round(item.qty));
-    added.bounce(item.line_id);
-    const how = addToDraft({
+    addToDraft({
       product_id: item.product_id,
       sku: item.sku,
       barcode: item.barcode,
@@ -181,11 +181,7 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
       bwhse_qty: item.bwhse_qty,
       case_size: 1,
     });
-    toast.success(
-      how === "merged"
-        ? `${item.name} — quantity raised on your transfer request.`
-        : `${item.name} × ${fmtQty(qty)} added to your transfer request.`,
-    );
+    flyToBubble(from ?? centerOf(), qty);
   };
 
   if (items.length === 0) {
@@ -217,13 +213,15 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
               },
             )
           }
-          onRequestMore={canRequest ? () => requestMore(item) : undefined}
-          bounce={added.bouncing === item.line_id}
+          onRequestMore={canRequest ? (from) => requestMore(item, from) : undefined}
           onContextMenu={
             canRequest
               ? (e) =>
                   menu.open(e, [
-                    { label: "Request more from the warehouse", onSelect: () => requestMore(item) },
+                    {
+                      label: "Request more from the warehouse",
+                      onSelect: () => requestMore(item, boxAt(e.clientX, e.clientY)),
+                    },
                   ])
               : undefined
           }
@@ -353,7 +351,6 @@ function CheckRow({
   onSnooze,
   onRequestMore,
   onContextMenu,
-  bounce,
   title,
   sku,
   sub,
@@ -363,13 +360,11 @@ function CheckRow({
   onToggle: (checked: boolean) => void;
   /** swipe LEFT — "not today", the row leaves the list until tomorrow */
   onSnooze?: () => void;
-  /** swipe RIGHT — "request more", the row stays and the item joins the
-   *  transfer being built */
-  onRequestMore?: () => void;
+  /** swipe RIGHT — "request more": the row stays put and the action morphs
+   *  into a ball that flies into the transfer bubble */
+  onRequestMore?: (from: ActionBox) => void;
   /** the same action for a mouse: swipes are touch-only by design */
   onContextMenu?: (e: React.MouseEvent) => void;
-  /** true for one beat right after this row joined the transfer */
-  bounce?: boolean;
   title: string;
   sku: string;
   sub: React.ReactNode;
@@ -397,7 +392,7 @@ function CheckRow({
         }}
         style={swipe.motionStyle}
         className={`state-layer relative flex w-full items-center gap-3.5 rounded-(--radius-lg)
-          px-4 py-3.5 text-left ${bounce ? "animate-added-bounce" : ""} ${
+          px-4 py-3.5 text-left ${
             checked ? "bg-surface-container opacity-60" : "bg-surface-container-low"
           }`}
       >

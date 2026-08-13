@@ -56,6 +56,8 @@ export interface ProductQuery {
   blacklisted?: boolean;
   /** "Hide old SKUs" — only products still on the register. Defaults ON server-side. */
   in_pos_only?: boolean;
+  /** "Hide OOS" — only products with stock in some location. Off by default. */
+  in_stock_only?: boolean;
   price_min?: number;
   price_max?: number;
   barcode_prefix?: string;
