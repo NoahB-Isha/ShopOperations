@@ -23,8 +23,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { markBurst, useDraftLines } from "../transferDraft";
+import { clearDraft, markBurst, setDraftLines, useDraftLines } from "../transferDraft";
 import { clearBubbleAnchor, setBubbleAnchor, useArrival } from "./flyToBubble";
+import { useToast } from "../design";
+import { Icons } from "../nav";
 import { fmtQty } from "../pages/shared/OpsBits";
 
 /** Where the draft lives — the pill has nothing to say once you're there.
@@ -42,6 +44,10 @@ const BURST_MS = 420; // must match --animate-bubble-burst
 const BUMP_MS = 420; // must match --animate-bubble-bump
 const ENTER_MS = 550; // must match --animate-bubble-in
 const COUNT_MS = 1100; // must match --animate-count-pop
+/** Drag the pill into this band at the bottom of the screen to bin the draft.
+ *  Kept shallower than the pill's resting inset below, so a small nudge where
+ *  the pill already lives can never land in the bin. */
+const DROP_ZONE_H = 104;
 
 interface Pos {
   x: number;
@@ -82,7 +88,9 @@ function defaultPos(w: number, h: number, vw: number, vh: number): Pos {
   const phone = vw < 768;
   return {
     x: vw - w - (phone ? 20 : 40),
-    y: vh - h - (phone ? 200 : 96),
+    // clear of the bin band by a wide margin: the pill rests where a drag
+    // must be deliberate to reach the bottom
+    y: vh - h - (phone ? 200 : 150),
   };
 }
 
@@ -93,6 +101,7 @@ export function TransferDraftBubble() {
   const location = useLocation();
   const navigate = useNavigate();
   const { roles } = useAuth();
+  const toast = useToast();
   const canTransfer = roles.has("shoppe_floor") || roles.has("admin");
   const canAsk = roles.has("floor_rotating");
   const home = canTransfer ? TRANSFER_PATHS[1] : REQUEST_PATH;
@@ -160,6 +169,13 @@ export function TransferDraftBubble() {
     lastT: number;
   } | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Over the bin right now. The DROP TEST reads the ref, never the state:
+  // on a quick flick down the last pointermove and the pointerup land in the
+  // same frame, so the state in endDrag's closure is still false and the
+  // drop would be silently ignored (same lesson as the swipe rows). The
+  // state exists only to paint the zone's highlight.
+  const overBinRef = useRef(false);
+  const [overBin, setOverBin] = useState(false);
   const glide = useRef(0);
   // the entrance animation has fill-mode `both`, so its final transform would
   // outrank the hover scale — drop the class once it has played
@@ -307,6 +323,10 @@ export function TransferDraftBubble() {
       d.moved = true;
       setDragging(true);
     }
+    const { vh: viewH } = viewport();
+    const inBin = viewH > 0 && e.clientY > viewH - DROP_ZONE_H;
+    overBinRef.current = inBin;
+    if (inBin !== overBin) setOverBin(inBin);
     const now = performance.now();
     const dt = now - d.lastT;
     if (dt > 0) {
@@ -324,6 +344,9 @@ export function TransferDraftBubble() {
     const d = drag.current;
     drag.current = null;
     setDragging(false);
+    const binned = overBinRef.current;
+    overBinRef.current = false;
+    setOverBin(false);
     try {
       ref.current?.releasePointerCapture?.(e.pointerId);
     } catch {
@@ -332,6 +355,17 @@ export function TransferDraftBubble() {
     if (!d) return;
     if (!d.moved) {
       navigate(home); // a tap is "take me there"
+      return;
+    }
+    if (binned) {
+      // dropped in the bin: bin it — but a half-built pull list is real work,
+      // so it comes back with one tap rather than behind a confirm dialog
+      const kept = lines;
+      clearDraft();
+      toast.info(`${kept.length} item${kept.length === 1 ? "" : "s"} cleared.`, {
+        label: "Undo",
+        onClick: () => setDraftLines(kept),
+      });
       return;
     }
     // a slow set-down keeps its spot; a flick keeps flying
@@ -356,6 +390,7 @@ export function TransferDraftBubble() {
 
   return (
     <>
+      {dragging && <DropZone active={overBin} />}
       {exit === "burst" && <BurstSparks pos={pos} />}
       {gained && pos && (
         <span
@@ -398,17 +433,10 @@ export function TransferDraftBubble() {
           bg-primary-container py-2.5 pr-4 pl-3.5 text-on-primary-container shadow-(--shadow-e2)
           select-none ${motion}`}
       >
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-          <path
-            d="M2.5 4.5h2l1.7 7.2a1 1 0 0 0 1 .8h5.4a1 1 0 0 0 1-.77l1.1-4.23H5.2"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="7.5" cy="15" r="1" fill="currentColor" />
-          <circle cx="12.5" cy="15" r="1" fill="currentColor" />
-        </svg>
+        {/* a van for stock on the move, a box for an ask */}
+        <span aria-hidden className="grid place-items-center">
+          {canTransfer ? Icons.truck : Icons.box}
+        </span>
         {/* nowrap: a narrow phone would otherwise wrap this into a paragraph */}
         <span className="text-left text-[13px] leading-tight font-semibold whitespace-nowrap">
           {canTransfer ? "Transfer request" : "Item request"}
@@ -447,6 +475,43 @@ function BurstSparks({ pos }: { pos: Pos | null }) {
           />
         );
       })}
+    </div>
+  );
+}
+
+/** The bin: a band across the bottom of the screen, only while a pill is
+ *  being dragged. Releasing in it clears the draft (undoable). */
+function DropZone({ active }: { active: boolean }) {
+  return (
+    <div
+      aria-hidden
+      style={{ height: DROP_ZONE_H }}
+      className={`pointer-events-none fixed inset-x-0 bottom-0 z-30 flex items-end justify-center
+        pb-[max(1.5rem,env(safe-area-inset-bottom))] transition-all duration-200 ${
+          active
+            ? "bg-gradient-to-t from-error/25 to-transparent"
+            : "bg-gradient-to-t from-on-surface/10 to-transparent"
+        }`}
+    >
+      <span
+        className={`flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold
+          transition-transform duration-200 ease-(--ease-spring) ${
+            active
+              ? "scale-110 bg-error text-on-error"
+              : "bg-surface-container-high text-on-surface-variant"
+          }`}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        {active ? "Release to clear" : "Drag here to clear"}
+      </span>
     </div>
   );
 }

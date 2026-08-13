@@ -846,3 +846,19 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   GET /restock is unchanged and still feeds it); /restock is one list again.
   Swipe-to-add on restock / catalog / OOS now includes floor_rotating: the
   draft is role-neutral, only its destination differs.
+- Bubble bin + icons (2026-08-13): **drag the pill to the bottom of the screen
+  to clear the draft.** A `DropZone` band (`DROP_ZONE_H` 104px) appears only
+  while dragging and turns red under the finger; releasing in it clears and
+  raises an UNDO snackbar (Toast gained an optional `ToastAction` — one M3
+  action, 7s instead of 3.8s) that restores the exact lines. No confirm
+  dialog: a half-built pull list is real work, but the gesture is deliberate
+  and the undo is one tap. Two traps handled: the drop test reads
+  `overBinRef`, NEVER the `overBin` state (a fast flick puts the last
+  pointermove and the pointerup in one frame, and the state would still be
+  false — the same lesson as the swipe rows), and the pill's resting inset
+  (150px desktop / 200px phone) is deliberately deeper than the band, so a
+  nudge where the pill already lives can't bin anything. Icons: the pill wears
+  `Icons.truck` for a transfer and `Icons.box` for a Floor Team ask (was a
+  shopping cart). NOTE for browser-pane testing: HMR duplicates
+  transferDraft.ts, so an undo can write to a stale store instance and the
+  pill won't reappear — hard-reload before believing that failure.
