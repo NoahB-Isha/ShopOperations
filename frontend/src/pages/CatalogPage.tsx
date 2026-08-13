@@ -241,7 +241,7 @@ export function CatalogPage() {
 
   // Adding to a transfer is the floor's move — on a phone it's a swipe (the
   // restock list taught everyone the gesture), on a desk it's this menu.
-  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const canRequest = roles.has("shoppe_floor") || roles.has("floor_rotating") || roles.has("admin");
   const addToTransfer = (products: ProductOut[], from?: ActionBox) => {
     // only Odoo-tracked items can ride a transfer — the API says so too
     const usable = products.filter((p) => p.is_stock_tracked && p.source === "odoo");

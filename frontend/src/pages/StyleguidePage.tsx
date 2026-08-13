@@ -186,7 +186,7 @@ export function StyleguidePage() {
             <Field label="Display name">
               <Input defaultValue="Sachi Mutluru" />
             </Field>
-            <Field label="Zone" error="Pick a zone for this coordinator.">
+            <Field label="Review zone" error="Pick a review zone for this reviewer.">
               <Select defaultValue="">
                 <option value="" disabled>Choose…</option>
                 <option>Zone 1 (Lili)</option>

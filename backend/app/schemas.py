@@ -10,6 +10,10 @@ class RoleOut(BaseModel):
     role: str
     zone_id: int | None = None
     zone_name: str | None = None
+    # field | departments — the app's "center" vs "department" wording keys off
+    # this, now that a departments reviewer is just an Order Reviewer whose
+    # review zone happens to be III Departments
+    zone_kind: str | None = None
     center_id: int | None = None
     center_name: str | None = None
 
@@ -35,6 +39,7 @@ def user_out(user: User) -> UserOut:
                 role=a.role,
                 zone_id=a.zone_id,
                 zone_name=a.zone.name if a.zone else None,
+                zone_kind=a.zone.kind if a.zone else None,
                 center_id=a.center_id,
                 center_name=a.center.name if a.center else None,
             )

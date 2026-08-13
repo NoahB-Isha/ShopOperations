@@ -270,7 +270,7 @@ function ReviewSheet({
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes for your coordinator (optional)"
+          placeholder="Notes for your reviewer (optional)"
           aria-label="Order notes"
           rows={2}
         />
@@ -560,7 +560,7 @@ export function PlaceOrderPage() {
           hint={
             isDept
               ? "No department items are marked orderable yet — ask the office."
-              : "Your coordinator hasn't shared a catalog with this center yet."
+              : "Your reviewer hasn't shared a catalog with this center yet."
           }
         />
       ) : (

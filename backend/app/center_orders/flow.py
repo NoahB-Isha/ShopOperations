@@ -15,7 +15,7 @@ from __future__ import annotations
 from ..models import CenterOrderStatus as S
 from ..models import Role
 
-COORDINATOR_ROLES = {Role.ZONE_COORDINATOR, Role.DEPT_LIAISON}
+COORDINATOR_ROLES = {Role.ZONE_COORDINATOR}
 
 # (from, to) -> roles that may perform the transition (admin always may).
 # ORDERER entries additionally require owning the order's center — the router
@@ -24,7 +24,7 @@ TRANSITIONS: dict[tuple[str, str], set[Role]] = {
     (S.PENDING.value, S.APPROVED.value): set(COORDINATOR_ROLES),
     (S.PENDING.value, S.REJECTED.value): set(COORDINATOR_ROLES),
     (S.PENDING.value, S.CANCELLED.value): (
-        COORDINATOR_ROLES | {Role.CENTER_ORDERER, Role.DEPT_ORDERER}
+        COORDINATOR_ROLES | {Role.CENTER_ORDERER}
     ),
 }
 

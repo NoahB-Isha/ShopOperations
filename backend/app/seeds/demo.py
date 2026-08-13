@@ -851,12 +851,14 @@ def main() -> None:
         if austin:
             ensure_role(db, orderer, Role.CENTER_ORDERER, center_id=austin.id)
 
-        liaison = get_or_create_user(db, f"liaison@{DEMO_DOMAIN}", "Demo Dept Liaison")
-        ensure_role(db, liaison, Role.DEPT_LIAISON, zone_id=dept_zone.id)
+        # the departments reviewer is an ordinary Order Reviewer whose review
+        # zone is III Departments (the dept-specific roles merged 2026-08-13)
+        liaison = get_or_create_user(db, f"liaison@{DEMO_DOMAIN}", "Demo Dept Reviewer")
+        ensure_role(db, liaison, Role.ZONE_COORDINATOR, zone_id=dept_zone.id)
         kitchen = db.scalar(select(Center).where(Center.name == "Kitchen"))
-        dept_orderer = get_or_create_user(db, f"kitchen@{DEMO_DOMAIN}", "Demo Kitchen Orderer")
+        dept_orderer = get_or_create_user(db, f"kitchen@{DEMO_DOMAIN}", "Demo Kitchen Requester")
         if kitchen:
-            ensure_role(db, dept_orderer, Role.DEPT_ORDERER, center_id=kitchen.id)
+            ensure_role(db, dept_orderer, Role.CENTER_ORDERER, center_id=kitchen.id)
 
         db.commit()
         print(
@@ -888,15 +890,15 @@ def main() -> None:
         print("\nLog in at the web UI with any of these (dev mode shows the code on screen):")
         for label, email in [
             ("Admin", f"admin@{DEMO_DOMAIN}"),
-            ("Warehouse", f"warehouse@{DEMO_DOMAIN}"),
-            ("Shoppe floor", f"floor@{DEMO_DOMAIN}"),
-            ("Floor (rotating)", f"rotating@{DEMO_DOMAIN}"),
-            ("Zone coordinator", f"coordinator@{DEMO_DOMAIN}"),
-            ("Center orderer", f"orderer@{DEMO_DOMAIN}"),
-            ("Dept liaison", f"liaison@{DEMO_DOMAIN}"),
-            ("Dept orderer", f"kitchen@{DEMO_DOMAIN}"),
+            ("Warehouse Team", f"warehouse@{DEMO_DOMAIN}"),
+            ("Inventory Flow Manager", f"floor@{DEMO_DOMAIN}"),
+            ("Floor Team", f"rotating@{DEMO_DOMAIN}"),
+            ("Order Reviewer", f"coordinator@{DEMO_DOMAIN}"),
+            ("Order Requester", f"orderer@{DEMO_DOMAIN}"),
+            ("Order Reviewer (depts)", f"liaison@{DEMO_DOMAIN}"),
+            ("Order Requester (depts)", f"kitchen@{DEMO_DOMAIN}"),
         ]:
-            print(f"  {label:<17} {email}")
+            print(f"  {label:<24} {email}")
     finally:
         db.close()
 

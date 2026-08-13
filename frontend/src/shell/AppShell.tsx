@@ -156,13 +156,15 @@ function HealthChip() {
    for whatever wants a 4th-wall moment next. */
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
-  const { user, roles, signOut } = useAuth();
+  const { user, roles, isDepartments, signOut } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const s = useSillyLabel();
 
-  const items = navForRoles(roles);
+  const items = navForRoles(roles, { departments: isDepartments });
+  // the one route whose name depends on the review zone rather than the role
+  const shownTitle = isDepartments && title === "My centers" ? "My departments" : title;
   // M3: bottom bar handles up to 5 destinations; busier roles get the drawer.
   const bottomBar = items.length <= 5;
 
@@ -237,7 +239,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         {/* desktop top app bar */}
         <header className="sticky top-0 z-20 hidden items-center justify-between bg-surface/85
           px-8 py-3.5 backdrop-blur md:flex">
-          <div className="title-l text-on-surface">{s(title)}</div>
+          <div className="title-l text-on-surface">{s(shownTitle)}</div>
           <div className="flex items-center gap-4">
             <HealthChip />
             <div className="flex items-center gap-1">

@@ -47,12 +47,7 @@ from .flow import InvalidTransition, NotAllowedError, check_transition
 from .reasonability import assess_order
 
 S = CenterOrderStatus
-PARTICIPANTS = (
-    Role.CENTER_ORDERER,
-    Role.DEPT_ORDERER,
-    Role.ZONE_COORDINATOR,
-    Role.DEPT_LIAISON,
-)
+PARTICIPANTS = (Role.CENTER_ORDERER, Role.ZONE_COORDINATOR)
 
 router = APIRouter(
     prefix="/center-orders",
@@ -254,7 +249,7 @@ def _is_coordinator_of(authed: AuthedUser, center: Center) -> bool:
     if authed.has_role(Role.ADMIN):
         return True
     return (
-        authed.has_role(Role.ZONE_COORDINATOR, Role.DEPT_LIAISON)
+        authed.has_role(Role.ZONE_COORDINATOR)
         and center.zone_id is not None
         and center.zone_id in authed.scoped_zone_ids
     )

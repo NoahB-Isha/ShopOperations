@@ -36,7 +36,9 @@ from ..models import (
 
 router = APIRouter(prefix="/order-lists", tags=["order-lists"])
 
-COORDINATOR_ROLES = (Role.ZONE_COORDINATOR, Role.DEPT_LIAISON)
+# Order Reviewers — the departments reviewer is one of these too, scoped to
+# the III Departments review zone (the roles merged 2026-08-13).
+COORDINATOR_ROLES = (Role.ZONE_COORDINATOR,)
 
 
 # ------------------------------------------------------------------ schemas

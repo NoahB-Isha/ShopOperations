@@ -10,8 +10,8 @@ import { money } from "./orderBits";
 
 export function PendingOrdersPage() {
   const navigate = useNavigate();
-  const { roles } = useAuth();
-  const noun = roles.has("dept_liaison") && !roles.has("zone_coordinator") ? "department" : "center";
+  const { isDepartments } = useAuth();
+  const noun = isDepartments ? "department" : "center";
   const { data: orders, isLoading } = useCenterOrders({ status: "pending" });
 
   return (

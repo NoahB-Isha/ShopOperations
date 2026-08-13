@@ -51,6 +51,9 @@ export const Icons = {
   timeMachine: (
     <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8.5" cy="8" r="5" /><path {...stroke} d="M8.5 5.5V8l1.8 1.2M3.5 4 1.5 6M1.5 6l2.4.9M1.5 6" /></svg>
   ),
+  sparkle: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 1.8l1.5 3.9L13.4 7l-3.9 1.4L8 12.3 6.5 8.4 2.6 7l3.9-1.3L8 1.8Z" /><path {...stroke} d="M12.6 11.2l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" /></svg>
+  ),
   radar: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 8 12.2 4.2M8 1.5A6.5 6.5 0 1 1 1.5 8" /><path {...stroke} d="M8 4.5A3.5 3.5 0 1 0 11.5 8" /><circle cx="8" cy="8" r="1" fill="currentColor" /></svg>
   ),
@@ -93,20 +96,26 @@ const byRole: Record<string, NavItem[]> = {
   ],
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
+    { path: "/suggested-items", label: "Suggested items", icon: Icons.sparkle },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],
-  // rotating floor volunteers: the floor toolkit minus creating transfers
-  // (the pages hide the "new request" entry points; the API refuses too)
+  // Floor Team: the floor toolkit minus creating transfers (the pages hide
+  // the "new request" entry points; the API refuses too). What they CAN do is
+  // ask — /request-items feeds the manager's Suggested items page.
   floor_rotating: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
+    { path: "/request-items", label: "Request items", icon: Icons.bag },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
     { path: "/catalog", label: "All SKUs", icon: Icons.box },
   ],
+  // Order Reviewer — one nav whether the review zone is a field zone or III
+  // Departments; the pages themselves say "center" or "department" based on
+  // the zone's kind (the dept-specific roles merged 2026-08-13).
   zone_coordinator: [
     // pending orders first: it's the job — and the landing page (homeForRoles)
     { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
@@ -114,33 +123,33 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
+  // Order Requester
   center_orderer: [
-    { path: "/place-order", label: "Place an order", icon: Icons.bag },
-    { path: "/order-history", label: "Order history", icon: Icons.history },
-  ],
-  dept_liaison: [
-    { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
-    { path: "/my-centers", label: "My departments", icon: Icons.mapPin },
-    { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
-    { path: "/order-history", label: "History", icon: Icons.history },
-  ],
-  dept_orderer: [
     { path: "/place-order", label: "Place an order", icon: Icons.bag },
     { path: "/order-history", label: "Order history", icon: Icons.history },
   ],
 };
 
+export interface NavOptions {
+  /** the user's review zone is III Departments — the one label that differs
+   *  between an Order Reviewer's two flavours */
+  departments?: boolean;
+}
+
 /** Union of the user's roles' nav items, deduped by path, role order preserved. */
-export function navForRoles(roles: Set<string>): NavItem[] {
+export function navForRoles(roles: Set<string>, opts: NavOptions = {}): NavItem[] {
   const seen = new Set<string>();
   const items: NavItem[] = [];
   for (const role of Object.keys(byRole)) {
     if (!roles.has(role)) continue;
     for (const item of byRole[role]) {
-      if (!seen.has(item.path)) {
-        seen.add(item.path);
-        items.push(item);
-      }
+      if (seen.has(item.path)) continue;
+      seen.add(item.path);
+      items.push(
+        opts.departments && item.path === "/my-centers"
+          ? { ...item, label: "My departments" }
+          : item,
+      );
     }
   }
   return items;

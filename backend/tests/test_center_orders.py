@@ -72,8 +72,10 @@ def _setup(db):
     mk_user(db, "orderer@test.io", (Role.CENTER_ORDERER, None, austin.id))
     mk_user(db, "coord@test.io", (Role.ZONE_COORDINATOR, zone.id, None))
     mk_user(db, "othercoord@test.io", (Role.ZONE_COORDINATOR, other_zone.id, None))
-    mk_user(db, "kitchen@test.io", (Role.DEPT_ORDERER, None, kitchen.id))
-    mk_user(db, "liaison@test.io", (Role.DEPT_LIAISON, dept_zone.id, None))
+    # departments people are ordinary requesters/reviewers whose scope is the
+    # III Departments review zone (the dept roles merged 2026-08-13)
+    mk_user(db, "kitchen@test.io", (Role.CENTER_ORDERER, None, kitchen.id))
+    mk_user(db, "liaison@test.io", (Role.ZONE_COORDINATOR, dept_zone.id, None))
     mk_user(db, "admin@test.io", (Role.ADMIN, None, None))
     return {
         "zone": zone, "austin": austin, "boston": boston, "kitchen": kitchen,

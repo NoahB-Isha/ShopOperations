@@ -27,7 +27,9 @@ import { PurchasingPage } from "./pages/purchasing/PurchasingPage";
 import { VendorsPage } from "./pages/purchasing/VendorsPage";
 import { ReportsPage } from "./pages/reports/ReportsPage";
 import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
+import { RequestItemsPage } from "./pages/restock/RequestItemsPage";
 import { RestockPage } from "./pages/restock/RestockPage";
+import { SuggestedItemsPage } from "./pages/restock/SuggestedItemsPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
 import { TransfersPage } from "./pages/transfers/TransfersPage";
@@ -134,31 +136,31 @@ export default function App() {
 
               {/* coordinator / liaison */}
               <Route path="/my-centers" element={
-                <Protected title="My centers" roles={["zone_coordinator", "dept_liaison"]}>
+                <Protected title="My centers" roles={["zone_coordinator"]}>
                   <MyCentersPage />
                 </Protected>
               } />
               <Route path="/pending-orders" element={
-                <Protected title="Pending orders" roles={["zone_coordinator", "dept_liaison"]}>
+                <Protected title="Pending orders" roles={["zone_coordinator"]}>
                   <PendingOrdersPage />
                 </Protected>
               } />
               <Route path="/my-order-lists" element={
-                <Protected title="Catalogs" roles={["zone_coordinator", "dept_liaison"]}>
+                <Protected title="Catalogs" roles={["zone_coordinator"]}>
                   <CoordinatorListsPage />
                 </Protected>
               } />
 
               {/* orderers */}
               <Route path="/place-order" element={
-                <Protected title="Place an order" roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}>
+                <Protected title="Place an order" roles={["center_orderer", "zone_coordinator"]}>
                   <PlaceOrderPage />
                 </Protected>
               } />
               <Route path="/order-history" element={
                 <Protected
                   title="Order history"
-                  roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}
+                  roles={["center_orderer", "zone_coordinator"]}
                 >
                   <OrderHistoryPage />
                 </Protected>
@@ -166,7 +168,7 @@ export default function App() {
               <Route path="/order/:id" element={
                 <Protected
                   title="Order"
-                  roles={["center_orderer", "dept_orderer", "zone_coordinator", "dept_liaison"]}
+                  roles={["center_orderer", "zone_coordinator"]}
                 >
                   <OrderDetailPage />
                 </Protected>
@@ -199,6 +201,18 @@ export default function App() {
               <Route path="/restock" element={
                 <Protected title="Restock" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <RestockPage />
+                </Protected>
+              } />
+              {/* the Floor Team can't raise transfers — they ask, and the
+                  Inventory Flow Manager decides on /suggested-items */}
+              <Route path="/request-items" element={
+                <Protected title="Request items" roles={["floor_rotating", "shoppe_floor"]}>
+                  <RequestItemsPage />
+                </Protected>
+              } />
+              <Route path="/suggested-items" element={
+                <Protected title="Suggested items" roles={["shoppe_floor"]}>
+                  <SuggestedItemsPage />
                 </Protected>
               } />
               {/* one page, two tabs: /new (the draft) and /past (the board).

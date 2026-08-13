@@ -404,6 +404,42 @@ export function useResolveAdjustment() {
 }
 
 // ------------------------------------------------------------------ restock
+// ------------------------------------------------------- floor team asks
+export function useFloorRequests(opts: { mine?: boolean; status?: string } = {}) {
+  return useQuery({
+    queryKey: ["floor-requests", opts],
+    queryFn: () =>
+      api<import("./types").FloorRequestOut[]>("/floor-requests", {
+        params: { mine: opts.mine ?? false, status: opts.status ?? "open" },
+      }),
+    refetchInterval: 30_000,
+  });
+}
+
+function useFloorRequestMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["floor-requests"] }),
+  });
+}
+
+export function useRaiseFloorRequests() {
+  return useFloorRequestMutation(
+    (body: { note?: string; lines: { product_id: number; qty: number }[] }) =>
+      api<import("./types").FloorRequestOut[]>("/floor-requests", { method: "POST", body }),
+  );
+}
+
+export function useResolveFloorRequest() {
+  return useFloorRequestMutation(
+    ({ id, action }: { id: number; action: "picked-up" | "dismiss" | "reopen" }) =>
+      api<import("./types").FloorRequestOut>(`/floor-requests/${id}/${action}`, {
+        method: "POST",
+      }),
+  );
+}
+
 export function useRestock() {
   return useQuery({
     queryKey: ["restock"],

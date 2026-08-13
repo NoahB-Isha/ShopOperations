@@ -405,3 +405,37 @@ class FloorOosMark(Base, TimestampMixin):
     odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
 
     product: Mapped[Product] = relationship()
+
+
+# ------------------------------------------------------- floor team requests
+class FloorRequestStatus(str, enum.Enum):
+    OPEN = "open"  # waiting on the Inventory Flow Manager
+    PICKED_UP = "picked_up"  # rolled into a transfer
+    DISMISSED = "dismissed"  # looked at, not needed
+
+
+class FloorRequest(Base, TimestampMixin):
+    """"We need more of this" — raised by the Floor Team, who work the lists
+    but can't create transfers themselves.
+
+    It is deliberately NOT a transfer request: it's a person's ask, sitting
+    next to the app's own computed suggestions on the Inventory Flow
+    Manager's Suggested items page, where a human decides what actually gets
+    pulled. One row per ask, always — two people asking for the same product
+    are two entries, each carrying who raised it and how much they wanted."""
+
+    __tablename__ = "floor_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    qty: Mapped[float] = mapped_column(Float)
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(
+        String(12), default=FloorRequestStatus.OPEN.value, index=True
+    )
+    requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # who took it off the board, and when — the floor can see their ask landed
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    product: Mapped[Product] = relationship()

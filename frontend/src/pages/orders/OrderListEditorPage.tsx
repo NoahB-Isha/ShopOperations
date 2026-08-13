@@ -139,7 +139,7 @@ function Editor({ ol }: { ol: OrderListOut }) {
                   { id: ol.id, is_archived: !ol.is_archived },
                   {
                     onSuccess: () =>
-                      toast.info(ol.is_archived ? "Restored." : "Archived — hidden from zones."),
+                      toast.info(ol.is_archived ? "Restored." : "Archived — hidden from review zones."),
                     onError: (e) => toast.error(e.message),
                   },
                 )
@@ -296,7 +296,7 @@ function ZoneGrantsCard({ ol }: { ol: OrderListOut }) {
     setZones.mutate(
       { id: ol.id, zone_ids: [...next] },
       {
-        onSuccess: () => toast.success("Zone grants updated."),
+        onSuccess: () => toast.success("Review-zone grants updated."),
         onError: (e) => toast.error(e.message),
       },
     );
@@ -304,7 +304,7 @@ function ZoneGrantsCard({ ol }: { ol: OrderListOut }) {
 
   return (
     <Card>
-      <h3 className="headline mb-1 text-[16px]">Zones</h3>
+      <h3 className="headline mb-1 text-[16px]">Review zones</h3>
       <p className="mb-3 text-[13px] text-on-surface-variant">
         Granted zones' coordinators can open this catalog to their centers. Revoking a zone also
         revokes its centers.

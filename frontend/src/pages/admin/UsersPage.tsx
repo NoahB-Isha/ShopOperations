@@ -16,19 +16,30 @@ import {
 import type { Column } from "../../design";
 import { useSillyLabel } from "../../silly";
 
+/* The six user types, as people see them. The keys are the historical role
+   strings the backend stores — deliberately unchanged (see models/users.py);
+   only these labels moved (2026-08-13). The departments roles were folded in:
+   a departments reviewer is an Order Reviewer whose review zone is III
+   Departments. */
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
-  warehouse: "Warehouse",
-  shoppe_floor: "Shoppe floor",
-  floor_rotating: "Floor (rotating — no transfer creation)",
-  zone_coordinator: "Zone coordinator",
-  center_orderer: "Center orderer",
-  dept_liaison: "Dept liaison",
-  dept_orderer: "Dept orderer",
+  warehouse: "Warehouse Team",
+  shoppe_floor: "Inventory Flow Manager",
+  floor_rotating: "Floor Team",
+  zone_coordinator: "Order Reviewer",
+  center_orderer: "Order Requester",
 };
 
-const ZONE_ROLES = new Set(["zone_coordinator", "dept_liaison"]);
-const CENTER_ROLES = new Set(["center_orderer", "dept_orderer"]);
+const ROLE_HINTS: Record<string, string> = {
+  warehouse: "Receives, picks and sends — the warehouse side of every transfer.",
+  shoppe_floor: "Runs stock on the floor: restock, transfers, out-of-stock.",
+  floor_rotating: "The floor toolkit without creating transfers.",
+  zone_coordinator: "Approves the orders from one review zone's centers.",
+  center_orderer: "Places orders for one center.",
+};
+
+const ZONE_ROLES = new Set(["zone_coordinator"]);
+const CENTER_ROLES = new Set(["center_orderer"]);
 
 export function UsersPage() {
   const { data: users, isLoading } = useUsers();
@@ -309,7 +320,7 @@ function EditUserDialog({ user, onClose }: { user: UserOut; onClose: () => void 
               </div>
               {ZONE_ROLES.has(r.role) && (
                 <Select value={r.zone_id} onChange={(e) => patch(i, { zone_id: e.target.value })}>
-                  <option value="">Choose a zone…</option>
+                  <option value="">Choose a review zone…</option>
                   {zones?.map((z) => (
                     <option key={z.id} value={z.id}>
                       {z.name}
@@ -374,6 +385,7 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
   const [error, setError] = useState("");
 
   const needsZone = ZONE_ROLES.has(role);
+  const roleHint = ROLE_HINTS[role];
   const needsCenter = CENTER_ROLES.has(role);
 
   const submit = () => {
@@ -432,7 +444,7 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(512) 555-0100" />
           </Field>
         </div>
-        <Field label="Role" error={error}>
+        <Field label="Role" error={error} help={roleHint}>
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             {Object.entries(ROLE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
@@ -440,9 +452,9 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
           </Select>
         </Field>
         {needsZone && (
-          <Field label="Zone">
+          <Field label="Review zone">
             <Select value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
-              <option value="">Choose a zone…</option>
+              <option value="">Choose a review zone…</option>
               {zones?.map((z) => (
                 <option key={z.id} value={z.id}>{z.name}</option>
               ))}

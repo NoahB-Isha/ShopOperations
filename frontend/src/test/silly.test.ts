@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { navForRoles } from "../nav";
 import { SILLY_LABELS, sillyLabel } from "../silly";
 
+// the six user types (the departments roles merged into reviewer/requester
+// on 2026-08-13 — see models/users.py)
 const ALL_ROLES = [
   "admin",
   "warehouse",
@@ -9,8 +11,6 @@ const ALL_ROLES = [
   "floor_rotating",
   "zone_coordinator",
   "center_orderer",
-  "dept_liaison",
-  "dept_orderer",
 ];
 
 describe("silly mode", () => {

@@ -376,7 +376,7 @@ export function OutOfStockPage() {
   /* An empty shelf is usually a transfer waiting to happen — same gesture as
      the restock list (swipe right on a phone, right-click on a desk). The
      quantity is a placeholder: adjust it on the transfer itself. */
-  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const canRequest = roles.has("shoppe_floor") || roles.has("floor_rotating") || roles.has("admin");
   const menu = useContextMenu();
   const addToTransfer = (item: OosItemOut, from?: ActionBox) => {
     addToDraft({

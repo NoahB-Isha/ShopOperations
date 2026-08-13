@@ -51,7 +51,7 @@ export function OrderListsPage() {
     },
     {
       key: "zone_names",
-      header: "Granted to zones",
+      header: "Granted to review zones",
       hideBelow: "sm",
       value: (r) => r.zone_names.join(", "),
       render: (r) =>
@@ -94,7 +94,7 @@ export function OrderListsPage() {
     <>
       <PageHeader
         title="Catalogs"
-        subtitle="Safe menus of currently-active products. Zones get catalogs from you; coordinators open them to their centers; centers order from them."
+        subtitle="Safe menus of currently-active products. Review zones get catalogs from you; reviewers open them to their centers; centers order from them."
         actions={
           <>
             <Toggle
@@ -190,7 +190,7 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
         }
       >
         <div className="flex flex-col gap-4">
-          <Field label="Name" help="e.g. “Center starter kit” — coordinators and centers see this.">
+          <Field label="Name" help="e.g. “Center starter kit” — reviewers and centers see this.">
             <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </Field>
           <Field label="Notes (optional)">

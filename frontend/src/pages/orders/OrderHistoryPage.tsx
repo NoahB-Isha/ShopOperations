@@ -56,8 +56,8 @@ export function OrderHistoryPage() {
   const { roles } = useAuth();
   const navigate = useNavigate();
   const isCoordinator =
-    roles.has("zone_coordinator") || roles.has("dept_liaison") || roles.has("admin");
-  const isOrderer = roles.has("center_orderer") || roles.has("dept_orderer");
+    roles.has("zone_coordinator") || roles.has("admin");
+  const isOrderer = roles.has("center_orderer");
   const [filter, setFilter] = useState("");
   const { data: orders, isLoading } = useCenterOrders(filter ? { status: filter } : {});
 
@@ -69,7 +69,7 @@ export function OrderHistoryPage() {
         title="Order history"
         subtitle={
           isCoordinator
-            ? "Every order across your zone — tap one for the full story."
+            ? "Every order across your review zone — tap one for the full story."
             : "Everything you've ordered. One tap re-orders the same basket."
         }
         actions={

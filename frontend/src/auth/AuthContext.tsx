@@ -7,6 +7,9 @@ interface AuthState {
   user: UserOut | null;
   loading: boolean;
   roles: Set<string>;
+  /** true when every one of this user's scoped roles sits in a departments
+   *  review zone — drives "department" vs "center" copy */
+  isDepartments: boolean;
   signIn: (token: string, user: UserOut) => void;
   signOut: () => void;
 }
@@ -15,6 +18,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
   roles: new Set(),
+  isDepartments: false,
   signIn: () => {},
   signOut: () => {},
 });
@@ -39,6 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       roles: new Set(user?.roles.map((r) => r.role) ?? []),
+      // Departments people are ordinary reviewers/requesters whose review zone
+      // is III Departments — the wording follows the zone, never the role.
+      isDepartments: (user?.roles ?? []).some((r) => r.zone_kind === "departments"),
       signIn: (token, u) => {
         setToken(token);
         setUser(u);

@@ -6,12 +6,12 @@ import { Badge, Card, EmptyState, PageHeader, Spinner } from "../design";
 import { fmtWhen } from "./shared/OpsBits";
 
 export function MyCentersPage() {
-  const { roles } = useAuth();
+  const { isDepartments } = useAuth();
   const navigate = useNavigate();
   const { data: centers, isLoading } = useCenters();
   const { data: pending } = useCenterOrders({ status: "pending" });
-  const isDept = roles.has("dept_liaison") || roles.has("dept_orderer");
-  const noun = isDept ? "departments" : "centers";
+  // departments vs centers follows the review zone, not the role
+  const noun = isDepartments ? "departments" : "centers";
 
   const pendingByCenter = useMemo(() => {
     const map = new Map<number, { count: number; latest: string }>();
@@ -28,15 +28,15 @@ export function MyCentersPage() {
   return (
     <>
       <PageHeader
-        title={isDept ? "My departments" : "My centers"}
-        subtitle={`The ${noun} in your zone, with whatever's waiting on you.`}
+        title={isDepartments ? "My departments" : "My centers"}
+        subtitle={`The ${noun} in your review zone, with whatever's waiting on you.`}
       />
       {isLoading ? (
         <div className="grid place-items-center py-20"><Spinner size={22} /></div>
       ) : !centers?.length ? (
         <EmptyState
           title={`No ${noun} assigned yet`}
-          hint="Ask the office to assign your zone — everything in it then shows up here."
+          hint="Ask the office to assign your review zone — everything in it then shows up here."
         />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

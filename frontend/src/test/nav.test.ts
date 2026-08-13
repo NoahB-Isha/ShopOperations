@@ -27,10 +27,26 @@ test("each role sees its own nav", () => {
   expect(adminPaths).not.toContain("/time-machine");
 });
 
-test("floor_rotating mirrors the floor nav (creation is gated in-page)", () => {
+test("a departments reviewer gets the same nav, one label reworded", () => {
+  const field = navForRoles(new Set(["zone_coordinator"]));
+  const depts = navForRoles(new Set(["zone_coordinator"]), { departments: true });
+  expect(field.map((i) => i.path)).toEqual(depts.map((i) => i.path));
+  expect(field.find((i) => i.path === "/my-centers")?.label).toBe("My centers");
+  expect(depts.find((i) => i.path === "/my-centers")?.label).toBe("My departments");
+});
+
+test("the Floor Team asks where the manager decides", () => {
   const floor = navForRoles(new Set(["shoppe_floor"])).map((i) => i.path);
   const rotating = navForRoles(new Set(["floor_rotating"])).map((i) => i.path);
-  expect(rotating).toEqual(floor);
+  // same toolkit either way…
+  expect(rotating.filter((p) => p !== "/request-items")).toEqual(
+    floor.filter((p) => p !== "/suggested-items"),
+  );
+  // …but the Floor Team raises asks, and only the manager sees the board of
+  // them (with the app's own suggestions underneath)
+  expect(rotating).toContain("/request-items");
+  expect(rotating).not.toContain("/suggested-items");
+  expect(floor).toContain("/suggested-items");
 });
 
 test("multi-role users get a deduped union", () => {

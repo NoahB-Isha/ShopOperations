@@ -2,6 +2,9 @@ export interface RoleOut {
   role: string;
   zone_id: number | null;
   zone_name: string | null;
+  /** field | departments — the "center" vs "department" wording follows the
+   *  review zone, not the role (the dept roles merged 2026-08-13). */
+  zone_kind: string | null;
   center_id: number | null;
   center_name: string | null;
 }
@@ -400,6 +403,26 @@ export interface RestockBackItem {
   days_of_cover: number | null;
   suggested_qty: number;
   checked: boolean;
+}
+
+/** A Floor Team ask — a person's "we need more of this", waiting for the
+ *  Inventory Flow Manager on the Suggested items page. */
+export interface FloorRequestOut {
+  id: number;
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  category: string;
+  qty: number;
+  note: string;
+  status: "open" | "picked_up" | "dismissed";
+  requested_by: string;
+  created_at: string;
+  resolved_by: string;
+  resolved_at: string | null;
+  floor_qty: number;
+  bwhse_qty: number;
 }
 
 export interface RestockOut {

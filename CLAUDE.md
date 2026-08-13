@@ -788,3 +788,49 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   and a new **"Hide OOS"** checkbox → `in_stock_only` on GET /products (sum of
   StockLevel across ALL locations > 0; no rows at all counts as OUT, since
   Odoo vacuums zero quants — test_catalog locks that).
+- Roles: six user types, renamed (2026-08-13, Noah's call): **the stored role
+  keys are UNCHANGED** — `admin`, `warehouse`, `shoppe_floor`,
+  `floor_rotating`, `zone_coordinator`, `center_orderer` — only what people
+  SEE moved, in the frontend's `ROLE_LABELS` (UsersPage): Admin · Warehouse
+  Team · Inventory Flow Manager · Floor Team · Order Reviewer · Order
+  Requester. Renaming the keys would rewrite every `require_roles`, test and
+  seeded row for no user-visible gain; don't. **`dept_liaison` and
+  `dept_orderer` are GONE** — a departments reviewer is an Order Reviewer
+  whose review zone is III Departments, and a departments requester an Order
+  Requester whose center is a department. That works because every
+  departments-specific behaviour already keys off `zone.kind == departments`
+  (center_orders/catalog.py + service.py), never off the role. Migration
+  `a7c3e91d64b8` rewrites the role strings in place (dropping a duplicate row
+  first, so uq_role_scope can't trip); its downgrade is a deliberate no-op —
+  nothing records which reviewer used to be a liaison. The frontend gets the
+  signal from **`RoleOut.zone_kind`** (new field) → `useAuth().isDepartments`,
+  which drives the "department" vs "center" wording on MyCentersPage,
+  PendingOrdersPage, the /my-centers nav label (`navForRoles(roles, {
+  departments })`) and the top-bar title. **"Zone" is "Review zone" in all
+  UI copy** — zone NAMES are untouched ("Zone 1 (Lili)", "III Departments"),
+  as are the tables, columns, API fields and `zone_coordinator` itself.
+- Floor Team asks + Suggested items (2026-08-13, same build-on rule): the
+  Floor Team can't raise transfers, so they raise **asks** —
+  `app/floor_requests/` (`FloorRequest`: product, qty, note, status
+  open|picked_up|dismissed, who asked / who resolved; migration
+  `b5f18c26d3a7`). POST is floor_rotating+shoppe_floor, resolving is
+  shoppe_floor only, and **every ask is its own row with its own name** —
+  two people flagging the same shelf are two entries (who noticed and how
+  much each wanted is the information), resolvable one at a time; the
+  Suggested items row says "N other people have asked for this" so adding
+  both doesn't silently double the pull. Nothing here touches Odoo.
+  **/request-items** (Floor Team) reuses the SHARED DRAFT and the floating
+  bubble — same store, same gestures; the bubble just reads "Item request"
+  and lands on /request-items instead of the transfer page (`canTransfer` vs
+  `canAsk` in TransferDraftBubble). Below the picker they see their own asks
+  and what became of them. **/suggested-items** (Inventory Flow Manager) is
+  the other end: **"Floor Team Requests"** (chip: *asked for by the floor
+  team*) ABOVE **"Database Suggestions"** (chip: *found by the app*) — people
+  first, deliberately, since someone standing at an empty shelf knows what
+  the numbers don't. Both sections feed the same draft, so a mixed pull is
+  one transfer; taking an ask marks it picked_up so the asker sees it landed.
+  The restock page's **"From warehouse" tab is GONE** — that computed
+  back-stock list is now the Database Suggestions section (the `back` half of
+  GET /restock is unchanged and still feeds it); /restock is one list again.
+  Swipe-to-add on restock / catalog / OOS now includes floor_rotating: the
+  draft is role-neutral, only its destination differs.

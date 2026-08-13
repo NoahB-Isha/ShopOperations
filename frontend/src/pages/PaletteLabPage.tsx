@@ -181,7 +181,7 @@ function ExamplePage() {
           <DataTable columns={COLUMNS} rows={ROWS} rowKey={(r) => r.sku} />
         </div>
         <div className="flex flex-col gap-4">
-          <Field label="Zone coordinator" help="Floating label, filled field.">
+          <Field label="Order Reviewer" help="Floating label, filled field.">
             <Input defaultValue="Lili" />
           </Field>
           <Toggle checked={toggled} onChange={setToggled} label="Dept-orderable" />

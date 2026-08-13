@@ -1,4 +1,4 @@
-/* Zone coordinator: the catalogs the office granted to your zone. You decide
+/* Order Reviewer: the catalogs the office granted to your review zone. You decide
    which of YOUR centers can order from each — that's what the phase-3 order
    form will show them. */
 import { useState } from "react";
@@ -30,7 +30,7 @@ export function CoordinatorListsPage() {
     <>
       <PageHeader
         title="Catalogs"
-        subtitle="Catalogs the office gave your zone. Open each one to the centers that should order from it."
+        subtitle="Catalogs the office gave your review zone. Open each one to the centers that should order from it."
       />
       {isLoading ? (
         <div className="grid place-items-center py-24">
@@ -39,7 +39,7 @@ export function CoordinatorListsPage() {
       ) : (data ?? []).length === 0 ? (
         <EmptyState
           title="No lists granted yet"
-          hint="When the office grants a catalog to your zone, it lands here."
+          hint="When the office grants a catalog to your review zone, it lands here."
         />
       ) : (
         <div className="stagger-children grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -107,7 +107,7 @@ function DialogBody({ ol }: { ol: OrderListOut }) {
   const { user } = useAuth();
   const myZoneIds = new Set(
     (user?.roles ?? [])
-      .filter((r) => (r.role === "zone_coordinator" || r.role === "dept_liaison") && r.zone_id)
+      .filter((r) => r.role === "zone_coordinator" && r.zone_id)
       .map((r) => r.zone_id as number),
   );
   const grantedToMe = ol.zones.filter((z) => myZoneIds.has(z.zone_id)).map((z) => z.zone_id);
@@ -147,7 +147,7 @@ function DialogBody({ ol }: { ol: OrderListOut }) {
       <div>
         <div className="label-caps mb-2">Your centers</div>
         {myCenters.length === 0 ? (
-          <p className="text-sm text-on-surface-variant">No active centers in your zone.</p>
+          <p className="text-sm text-on-surface-variant">No active centers in your review zone.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {myCenters.map((c) => {

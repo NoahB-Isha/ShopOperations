@@ -63,9 +63,9 @@ def _validate_role_scopes(db: Session, roles: list[RoleIn]) -> None:
             raise HTTPException(422, f"Zone {r.zone_id} doesn't exist.")
         if r.center_id and db.get(Center, r.center_id) is None:
             raise HTTPException(422, f"Center {r.center_id} doesn't exist.")
-        if r.role in (Role.ZONE_COORDINATOR, Role.DEPT_LIAISON) and not r.zone_id:
-            raise HTTPException(422, f"{r.role.value} needs a zone.")
-        if r.role in (Role.CENTER_ORDERER, Role.DEPT_ORDERER) and not r.center_id:
+        if r.role is Role.ZONE_COORDINATOR and not r.zone_id:
+            raise HTTPException(422, f"{r.role.value} needs a review zone.")
+        if r.role is Role.CENTER_ORDERER and not r.center_id:
             raise HTTPException(422, f"{r.role.value} needs a center.")
 
 

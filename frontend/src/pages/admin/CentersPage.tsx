@@ -17,7 +17,7 @@ import { useSillyLabel } from "../../silly";
 
 const REASON_LABELS: Record<string, string> = {
   ambiguous_active: "active status unclear",
-  no_zone: "no zone assigned",
+  no_zone: "no review zone assigned",
   no_reachable_contact: "no email or phone on file",
   contact_missing_email: "contact missing email",
   contact_missing_email_and_phone: "a contact has no email/phone",
@@ -69,7 +69,7 @@ export function CentersPage() {
       },
       { key: "state", header: "State", hideBelow: "md", sortable: true,
         render: (c) => <span className="text-ink-soft">{c.state}</span> },
-      { key: "zone_name", header: "Zone", sortable: true,
+      { key: "zone_name", header: "Review zone", sortable: true,
         value: (c) => c.zone_name ?? "",
         render: (c) => c.zone_name ?? <span className="text-ink-faint">unassigned</span> },
       {
@@ -155,7 +155,7 @@ export function CentersPage() {
         />
         <div className="w-52">
           <Select value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
-            <option value="">All zones</option>
+            <option value="">All review zones</option>
             {zones?.map((z) => (
               <option key={z.id} value={z.id}>
                 {z.name} ({z.center_count})

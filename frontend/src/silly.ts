@@ -70,6 +70,8 @@ export const SILLY_LABELS: Record<string, string> = {
   Adjustments: "Damage control",
   // floor
   Restock: "The re-up",
+  "Request items": "Gimme gimme",
+  "Suggested items": "The hit list",
   "Transfer request": "The wishlist",
   // coordinators + orderers
   "Pending orders": "The waitlist",

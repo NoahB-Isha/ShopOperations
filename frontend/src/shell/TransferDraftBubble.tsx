@@ -1,4 +1,8 @@
-/* The half-built transfer request, following you around.
+/* The half-built request, following you around.
+
+   Whose request depends on the role: the Inventory Flow Manager builds a
+   TRANSFER, the Floor Team builds an ASK (they can't raise transfers). One
+   draft, one bubble, two destinations.
 
    A draft survives navigation (it lives in transferDraft.ts), but nothing
    said so — you could add three items from the restock list, walk to another
@@ -23,9 +27,12 @@ import { markBurst, useDraftLines } from "../transferDraft";
 import { clearBubbleAnchor, setBubbleAnchor, useArrival } from "./flyToBubble";
 import { fmtQty } from "../pages/shared/OpsBits";
 
-/** The transfer page's "New transfer" tab — where the draft lives, so the
- *  pill has nothing to say there. */
-const DRAFT_PATHS = ["/transfer-requests", "/transfer-requests/new"];
+/** Where the draft lives — the pill has nothing to say once you're there.
+ *  The Inventory Flow Manager's draft becomes a transfer; the Floor Team's
+ *  becomes an ask on /request-items (they can't raise transfers). Same
+ *  draft, same bubble, different destination. */
+const TRANSFER_PATHS = ["/transfer-requests", "/transfer-requests/new"];
+const REQUEST_PATH = "/request-items";
 const POSITION_KEY = "ilops_transfer_bubble_pos";
 const EDGE = 12; // keeps the pill off the very edge of the viewport
 /** Below this, a pointer gesture is a tap (open) rather than a drag (move). */
@@ -86,10 +93,14 @@ export function TransferDraftBubble() {
   const location = useLocation();
   const navigate = useNavigate();
   const { roles } = useAuth();
-  const canRequest = roles.has("shoppe_floor") || roles.has("admin");
+  const canTransfer = roles.has("shoppe_floor") || roles.has("admin");
+  const canAsk = roles.has("floor_rotating");
+  const home = canTransfer ? TRANSFER_PATHS[1] : REQUEST_PATH;
 
-  const atDraftPage = DRAFT_PATHS.includes(location.pathname);
-  const show = canRequest && lines.length > 0 && !atDraftPage;
+  const atDraftPage = canTransfer
+    ? TRANSFER_PATHS.includes(location.pathname)
+    : location.pathname === REQUEST_PATH;
+  const show = (canTransfer || canAsk) && lines.length > 0 && !atDraftPage;
 
   // rendered outlives `show` by one exit animation. Which exit depends on WHY
   // it's going: reaching the transfer page is a burst (the draft is about to
@@ -320,7 +331,7 @@ export function TransferDraftBubble() {
     }
     if (!d) return;
     if (!d.moved) {
-      navigate(DRAFT_PATHS[1]); // a tap is "take me there"
+      navigate(home); // a tap is "take me there"
       return;
     }
     // a slow set-down keeps its spot; a flick keeps flying
@@ -361,10 +372,12 @@ export function TransferDraftBubble() {
         ref={ref}
         role="button"
         tabIndex={0}
-        aria-label={`Transfer request in progress — ${lines.length} item${
-          lines.length === 1 ? "" : "s"
-        }. Open it, or drag to move.`}
-        title="Open the transfer you're building — drag to move it out of the way"
+        aria-label={`${canTransfer ? "Transfer request" : "Item request"} in progress — ${
+          lines.length
+        } item${lines.length === 1 ? "" : "s"}. Open it, or drag to move.`}
+        title={`Open the ${
+          canTransfer ? "transfer" : "request"
+        } you're building — drag to move it out of the way`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -372,7 +385,7 @@ export function TransferDraftBubble() {
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            navigate(DRAFT_PATHS[1]);
+            navigate(home);
           }
         }}
         style={{
@@ -398,7 +411,7 @@ export function TransferDraftBubble() {
         </svg>
         {/* nowrap: a narrow phone would otherwise wrap this into a paragraph */}
         <span className="text-left text-[13px] leading-tight font-semibold whitespace-nowrap">
-          Transfer request
+          {canTransfer ? "Transfer request" : "Item request"}
           <span className="block text-[11.5px] font-medium opacity-80">
             {lines.length} item{lines.length === 1 ? "" : "s"} · {fmtQty(units)} units
           </span>

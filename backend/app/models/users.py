@@ -19,22 +19,40 @@ from .base import Base, JSONVariant, TimestampMixin
 
 
 class Role(str, enum.Enum):
+    """The six user types. The stored keys are historical and deliberately
+    unchanged — renaming them would rewrite every permission check, every
+    test and every seeded row for no user-visible gain. What people SEE lives
+    in the frontend's ROLE_LABELS (2026-08-13):
+
+        admin            → Admin
+        warehouse        → Warehouse Team
+        shoppe_floor     → Inventory Flow Manager
+        floor_rotating   → Floor Team
+        zone_coordinator → Order Reviewer
+        center_orderer   → Order Requester
+
+    The separate dept_liaison / dept_orderer roles were FOLDED IN on
+    2026-08-13: a departments reviewer is simply an Order Reviewer whose
+    review zone is "III Departments", and a departments requester is an Order
+    Requester whose center is a department. Everything that behaves
+    differently for departments already keys off the ZONE's kind, never off
+    the role (see center_orders/catalog.py and service.py), so the merge cost
+    nothing behaviourally.
+    """
+
     ADMIN = "admin"
     WAREHOUSE = "warehouse"
     SHOPPE_FLOOR = "shoppe_floor"
-    # Rotating floor volunteers: the shoppe_floor views minus the ability to
+    # Floor Team: the Inventory Flow Manager's views minus the ability to
     # create (or edit the lines of) transfer requests.
     FLOOR_ROTATING = "floor_rotating"
     ZONE_COORDINATOR = "zone_coordinator"
     CENTER_ORDERER = "center_orderer"
-    DEPT_LIAISON = "dept_liaison"
-    DEPT_ORDERER = "dept_orderer"
 
 
-# Roles whose row-scope is a zone / a center. Dept roles are the same shapes,
-# pointed at the "III Departments" zone and its department pseudo-centers.
-ZONE_SCOPED_ROLES = {Role.ZONE_COORDINATOR, Role.DEPT_LIAISON}
-CENTER_SCOPED_ROLES = {Role.CENTER_ORDERER, Role.DEPT_ORDERER}
+# Roles whose row-scope is a review zone / a center.
+ZONE_SCOPED_ROLES = {Role.ZONE_COORDINATOR}
+CENTER_SCOPED_ROLES = {Role.CENTER_ORDERER}
 SEE_EVERYTHING_ROLES = {Role.ADMIN, Role.WAREHOUSE, Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING}
 
 
