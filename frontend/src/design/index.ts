@@ -12,6 +12,9 @@ export { Field, Input, Select, Textarea, Toggle } from "./Field";
 export { Spinner } from "./Spinner";
 export type { ActionBox } from "./SwipeRow";
 export {
+  MORPH_BALL_PX,
+  MORPH_START,
+  MorphBall,
   SWIPE_COMMIT_PX,
   SWIPE_EXIT_MS,
   SwipeBackdrop,

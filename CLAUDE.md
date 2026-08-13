@@ -748,3 +748,43 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   backgrounded tab never delivers the event, and the class then outranks every
   later motion). setPointerCapture/release are wrapped in try/catch — a throw
   there swallows the tap.
+- Slingshot round + morph refinement (2026-08-12, same build-on rule):
+  **`shell/flyToBubble.ts` is the add-to-transfer feedback — the toasts are
+  GONE** (restock, catalog, OOS). Two halves. (1) THE MORPH, in
+  `design/SwipeRow.tsx` (`morphOnRight`): past `MORPH_START` (0.8 of the row's
+  OWN width, measured on pointerdown) the row itself collapses toward a
+  `MORPH_BALL_PX` (30) ball, driven continuously by the swipe — scale from
+  `transform-origin: 0% 50%` so the ball forms under the finger, travel capped
+  at `w - 38` so it can't slide out of the list, `border-radius` in PERCENT
+  (a px radius on a non-uniformly scaled box is a squircle, not a circle), a
+  `<MorphBall>` overlay fading the row orange, and `SwipeBackdrop` fading OUT
+  by the same fraction. Release still commits at the old 96px threshold; a
+  morphed release hands the flight its exact ball box and suppresses the
+  spring-back (`snap`), so the hand-off is invisible. (2) THE FLIGHT:
+  `buildFlightFrames` is PURE and unit-tested (flyToBubble.test.ts — starts at
+  the action box, winds up AWAY from the target, arcs above the straight line,
+  lands dead on the anchor, no NaN at zero distance). Keyframes are sampled
+  with the easing baked into the SAMPLE SPACING and the animation runs
+  `linear`; that's what makes the release read as a slingshot. The bump fires
+  at `hitOffset` — the frame where the ball is within 10px of the pill — NOT
+  at the end of the timeline, because a decelerating tail covers two pixels in
+  its last 60ms and waiting for it read as lag. Data first, always:
+  `addToDraft` runs on release; the flight only decides WHEN the "+N"
+  (`count-pop`) and the bump show. The bubble publishes its centre via
+  `setBubbleAnchor` on every place/drag/coast, and `withAnchor` waits on a
+  TIMER (never rAF — a hidden tab pauses frames and the "+N" would never
+  land; `document.hidden` skips the flight outright and just announces).
+  Row-bounce/`useAddedBounce` are deleted — the ball leaving the row IS the
+  acknowledgement — and bubble-in/bump were cut from six wobbling keyframes to
+  one clean overshoot (the old ones read as jitter).
+  **Verifying animation in the browser pane**: it reports `document.hidden`
+  true and freezes the document timeline, so nothing animates and React
+  batches state so mid-gesture DOM reads look empty. Spoof `document.hidden`,
+  read AFTER a timeout, and scrub `animation.currentTime` by hand, cloning the
+  node at each mark, to see the path. Stale HMR modules duplicate the anchor
+  store — hard-reload before trusting a "the ball never spawned" result.
+  **Catalog**: phones show the search alone with a "Filter by… (n)" disclosure
+  over the rest (`catalog.filtersOpen`; the badge counts non-default filters),
+  and a new **"Hide OOS"** checkbox → `in_stock_only` on GET /products (sum of
+  StockLevel across ALL locations > 0; no rows at all counts as OUT, since
+  Odoo vacuums zero quants — test_catalog locks that).

@@ -68,12 +68,16 @@ export interface FlyOrigin {
 
 const BALL = 30; // px — the ball's real size; the pill shape is a scale of it
 const WIND_UP = 0.16; // fraction of the timeline spent pulling back
-const DURATION = 640;
+const DURATION = 560;
 const SAMPLES = 34;
+/** Close enough to the pill to call it a hit — the bump fires HERE, not at
+ *  the formal end of the timeline. A hard-decelerating tail covers a couple
+ *  of pixels over its last 60ms, and waiting for it read as lag. */
+const HIT_PX = 10;
 
 const easeOutQuad = (t: number) => 1 - (1 - t) * (1 - t);
-/** Sharp release, long settle — the slingshot's signature. */
-const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
+/** Sharp release, then settle — the slingshot's signature. */
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
 function reducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -136,8 +140,8 @@ export function buildFlightFrames(
       });
       continue;
     }
-    // flight: quadratic Bézier pull → control → target, decelerating hard
-    const u = easeOutQuart((t - WIND_UP) / (1 - WIND_UP));
+    // flight: quadratic Bézier pull → control → target, decelerating
+    const u = easeOutCubic((t - WIND_UP) / (1 - WIND_UP));
     const inv = 1 - u;
     const x = inv * inv * pull.x + 2 * inv * u * control.x + u * u * target.x;
     const y = inv * inv * pull.y + 2 * inv * u * control.y + u * u * target.y;
@@ -148,10 +152,31 @@ export function buildFlightFrames(
       transform: `translate(${(x - from.x).toFixed(2)}px, ${(y - from.y).toFixed(2)}px) scale(${scale.toFixed(
         3,
       )}) rotate(${(u * 40).toFixed(1)}deg)`,
-      opacity: u > 0.9 ? 0.15 : 1,
+      // stays solid all the way in — it disappears INTO the pill, and the
+      // pill's bump is what carries the last beat
+      opacity: 1,
     });
   }
   return frames;
+}
+
+/** The moment the ball is effectively on the pill, as a fraction of the
+ *  timeline — the bump is scheduled here so the catch looks instant. */
+export function hitOffset(
+  frames: Keyframe[],
+  from: { x: number; y: number },
+  target: { x: number; y: number },
+): number {
+  const wantX = target.x - from.x;
+  const wantY = target.y - from.y;
+  for (const f of frames) {
+    const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(String(f.transform));
+    if (!m) continue;
+    if (Math.hypot(Number(m[1]) - wantX, Number(m[2]) - wantY) <= HIT_PX) {
+      return (f.offset as number) ?? 1;
+    }
+  }
+  return 1;
 }
 
 /**
@@ -181,7 +206,8 @@ export function flyToBubble(origin: FlyOrigin, qty: number): void {
       background:var(--color-primary);box-shadow:var(--shadow-e2);will-change:transform,opacity`;
     document.body.appendChild(ball);
 
-    const animation = ball.animate(buildFlightFrames(from, target, origin), {
+    const frames = buildFlightFrames(from, target, origin);
+    const animation = ball.animate(frames, {
       duration: DURATION,
       easing: "linear",
       fill: "forwards",
@@ -193,10 +219,11 @@ export function flyToBubble(origin: FlyOrigin, qty: number): void {
       ball.remove();
       announceArrival(qty);
     };
-    animation.onfinish = land;
     animation.oncancel = land;
-    // belt and braces: a tab backgrounded mid-flight may never finish the
-    // animation, and the pill would then never acknowledge the item
-    window.setTimeout(land, DURATION + 400);
+    // fire on contact, not on completion — the pill bumps as the ball touches
+    // it, and the ball is removed in the same beat
+    window.setTimeout(land, hitOffset(frames, from, target) * DURATION);
+    // belt and braces: a tab backgrounded mid-flight may never run the timer
+    animation.onfinish = land;
   });
 }

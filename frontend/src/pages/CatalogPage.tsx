@@ -16,6 +16,7 @@ import {
   Input,
   PageHeader,
   Pagination,
+  MorphBall,
   Select,
   SwipeBackdrop,
   toneForLabel,
@@ -723,12 +724,12 @@ function CatalogPhoneRow({
   onOpen: () => void;
   onAdd?: (from: ActionBox) => void;
 }) {
-  const swipe = useSwipeRow({ onRight: onAdd });
+  const swipe = useSwipeRow({ onRight: onAdd, morphOnRight: true });
   const floor = product.stock?.floor ?? 0;
   const bwhse = product.stock?.bwhse ?? 0;
   return (
     <li className="relative overflow-hidden rounded-(--radius-lg)">
-      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} />
+      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <button
         type="button"
         {...swipe.handlers}
@@ -737,8 +738,8 @@ function CatalogPhoneRow({
           onOpen();
         }}
         style={swipe.motionStyle}
-        className={`state-layer flex w-full items-center gap-3 rounded-(--radius-lg)
-          bg-surface-container-low px-4 py-3.5 text-left`}
+        className="state-layer relative flex w-full items-center gap-3 rounded-(--radius-lg)
+          bg-surface-container-low px-4 py-3.5 text-left"
       >
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-medium">{product.name}</span>
@@ -753,6 +754,7 @@ function CatalogPhoneRow({
           </span>
         </span>
         {product.blacklisted && <Badge tone="outline">hidden</Badge>}
+        <MorphBall progress={swipe.morph} />
       </button>
     </li>
   );

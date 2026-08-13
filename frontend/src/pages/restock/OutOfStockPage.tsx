@@ -26,6 +26,7 @@ import {
   Dialog,
   EmptyState,
   Input,
+  MorphBall,
   PageHeader,
   Spinner,
   SwipeBackdrop,
@@ -144,15 +145,15 @@ function OosRow({
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const m = item.mark;
-  const swipe = useSwipeRow({ onRight: onAdd });
+  const swipe = useSwipeRow({ onRight: onAdd, morphOnRight: true });
   return (
     <li className="relative overflow-hidden rounded-(--radius-lg)">
-      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} />
+      <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <div
         {...swipe.handlers}
         onContextMenu={onContextMenu}
         style={swipe.motionStyle}
-        className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5"
+        className="relative rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5"
       >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -186,6 +187,7 @@ function OosRow({
           </Button>
         </div>
       )}
+      <MorphBall progress={swipe.morph} />
       </div>
     </li>
   );

@@ -2,7 +2,7 @@
    worth a test; the throw is — it has to start where the swipe action was,
    wind up AWAY from the target, arc above the straight line, and land dead on
    the bubble. */
-import { buildFlightFrames } from "../shell/flyToBubble";
+import { buildFlightFrames, hitOffset } from "../shell/flyToBubble";
 
 const FROM = { x: 100, y: 600 };
 const TARGET = { x: 340, y: 200 };
@@ -25,7 +25,9 @@ test("starts at the action's own box and lands on the bubble", () => {
   const last = offsetOf(frames[frames.length - 1]);
   expect(last.x).toBeCloseTo(TARGET.x - FROM.x, 0);
   expect(last.y).toBeCloseTo(TARGET.y - FROM.y, 0);
-  expect(frames[frames.length - 1].opacity).toBe(0.15);
+  // solid all the way in: it disappears INTO the pill, and the pill's bump
+  // carries the last beat
+  expect(frames[frames.length - 1].opacity).toBe(1);
 });
 
 test("winds up backwards before launching", () => {
@@ -58,4 +60,18 @@ test("a bubble already under the finger still gets a valid throw", () => {
   const frames = buildFlightFrames(FROM, FROM, ORIGIN);
   expect(frames).toHaveLength(35);
   for (const f of frames) expect(String(f.transform)).not.toContain("NaN");
+});
+
+test("the hit fires when the ball reaches the pill, not when the timeline ends", () => {
+  const frames = buildFlightFrames(FROM, TARGET, ORIGIN);
+  const hit = hitOffset(frames, FROM, TARGET);
+  // it must land early enough that the bump reads as instant…
+  expect(hit).toBeLessThan(1);
+  // …but only once the ball is actually there
+  expect(hit).toBeGreaterThan(0.5);
+});
+
+test("a throw that never gets close still lands at the end", () => {
+  // one frame, nowhere near the target: the fallback keeps the beat
+  expect(hitOffset([{ offset: 0, transform: "translate(0px, 0px)" }], FROM, TARGET)).toBe(1);
 });

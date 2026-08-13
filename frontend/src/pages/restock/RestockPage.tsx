@@ -22,6 +22,7 @@ import {
   EmptyState,
   PageHeader,
   Spinner,
+  MorphBall,
   SwipeBackdrop,
   leavingStyle,
   useContextMenu,
@@ -374,12 +375,14 @@ function CheckRow({
     onLeft: onSnooze,
     onRight: onRequestMore,
     disabled: checked,
+    // drag it most of the way across and the row itself becomes the ball
+    morphOnRight: true,
   });
 
   return (
     <li className="relative overflow-hidden rounded-(--radius-lg)" style={leavingStyle(swipe.leaving)}>
       <SwipeBackdrop side="right" label="Not today" dx={swipe.dx} tone="tertiary" />
-      <SwipeBackdrop side="left" label="Request more" dx={swipe.dx} />
+      <SwipeBackdrop side="left" label="Request more" dx={swipe.dx} morph={swipe.morph} />
       <button
         type="button"
         role="checkbox"
@@ -426,6 +429,7 @@ function CheckRow({
           </span>
         </span>
         <span className="shrink-0">{right}</span>
+        <MorphBall progress={swipe.morph} />
       </button>
     </li>
   );
