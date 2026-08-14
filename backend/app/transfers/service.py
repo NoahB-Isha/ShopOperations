@@ -175,11 +175,16 @@ def find_received_pickings(
     picking (III/INT/04676, different products entirely) carries none. Matching
     on products or timing instead would have swept that one up.
 
-    Only the app's own placement is excluded; anything else sharing the
-    reference and landing on the floor counts, so a follow-up transfer for
-    extras adds to the tally rather than being missed.
+    The count transfer's own ILAPP-CNT- reference counts too: the floor may
+    duplicate the picking the app prepared rather than the placement, and that
+    copy carries the CNT origin. The app's own two pickings are excluded — the
+    count picking has its own closer, matched by id.
+
+    Anything else sharing either reference and landing on the floor counts, so
+    a follow-up transfer for extras adds to the tally rather than being missed.
     """
-    if not req.picking_reference:
+    references = [r for r in (req.picking_reference, req.count_reference) if r]
+    if not references:
         return []
     floor = db.scalar(select(OdooLocation).where(OdooLocation.key == "floor"))
     if floor is None:
@@ -187,13 +192,14 @@ def find_received_pickings(
     rows = conn.search_read(
         "stock.picking",
         [
-            ["origin", "=", req.picking_reference],
+            ["origin", "in", references],
             ["location_dest_id", "child_of", floor.odoo_id],
             ["state", "=", "done"],
         ],
         ["name", "date_done"],
     )
-    return [r for r in rows if r.get("id") != req.odoo_picking_id]
+    ours = {req.odoo_picking_id, req.count_picking_id}
+    return [r for r in rows if r.get("id") not in ours]
 
 
 # ------------------------------------------------------------- count transfer
@@ -363,32 +369,52 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
 
 
 # ------------------------------------------------------- validation listener
-def poll_received_in_odoo(db: Session, settings: Settings, req: TransferRequest) -> bool:
-    """Close a request from the floor's OWN receiving picking(s).
+def poll_close_out(db: Session, settings: Settings, req: TransferRequest) -> bool:
+    """Watch Odoo for a sent/counting request finishing — BOTH ways it can:
+    the count transfer the app prepared, or the floor's own receiving picking.
 
-    This is the path that actually happens. `poll_count_validation` only ever
-    watches a picking the app created, which requires
-    `write_prepare_count_transfer` to be live — it isn't, so count_status is
-    simulated or none and that poll bails on its first condition. A request
-    could then sit in `counting` forever while the stock had long since landed
-    on the floor. This watches for the receiving picking the floor makes
-    instead, and works from `sent` too (both close to done in the state
-    machine), so it doesn't depend on the count transfer ever being prepared.
-    """
+    One throttle stamp covers both checks, and that is the whole point of this
+    function existing. The two closers always shared `count_checked_at`, but
+    each also TOOK it before doing its own Odoo read — so whichever ran first
+    stamped the throttle and the second one bailed on that fresh stamp, every
+    single time. The count-picking closer was therefore dead on live from the
+    day `write_prepare_count_transfer` went on: III/INT/04691 was validated
+    2026-08-12 and request 42 sat in `counting` regardless. The suite never saw
+    it because every transfer test runs with ODOO_COUNT_POLL_SECONDS=0, which
+    is exactly the setting that hides a stolen throttle — so
+    test_count_validation_survives_a_real_throttle uses a real one.
+
+    Returns True when the request just transitioned to done."""
     if req.status not in (TransferRequestStatus.SENT.value, TransferRequestStatus.COUNTING.value):
         return False
-    if not req.picking_reference:
-        return False
     now = utcnow()
-    if req.count_checked_at is not None:  # shares the count poll's throttle
+    if req.count_checked_at is not None:
         checked = req.count_checked_at
         if checked.tzinfo is None:
             checked = checked.replace(tzinfo=now.tzinfo)
         if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
             return False
     req.count_checked_at = now
-    db.commit()
+    db.commit()  # persist the throttle stamp even if the reads below fail
 
+    # The app's own count picking first — it is the deliberate count, matched
+    # by id rather than inferred. The floor's duplicate is the fallback, and
+    # the usual path whenever the count transfer wasn't prepared.
+    return _close_from_count_picking(db, settings, req) or _close_from_floor_receipt(
+        db, settings, req
+    )
+
+
+def _close_from_floor_receipt(db: Session, settings: Settings, req: TransferRequest) -> bool:
+    """Close a request from the floor's OWN receiving picking(s).
+
+    The floor receives by duplicating a picking in Odoo rather than validating
+    the one the app prepared, so this path doesn't depend on the count transfer
+    existing at all, and works from `sent` too (both close to done in the state
+    machine). Throttling belongs to poll_close_out — never take the stamp here.
+    """
+    if not req.picking_reference and not req.count_reference:
+        return False
     try:
         conn = get_connection(settings, read_only=True)
         received = find_received_pickings(db, conn, req)
@@ -408,37 +434,26 @@ def poll_received_in_odoo(db: Session, settings: Settings, req: TransferRequest)
         counted,
         source=(
             f"received on the floor in Odoo ({names}) — matched by reference "
-            f"{req.picking_reference}"
+            f"{req.picking_reference or req.count_reference}"
         ),
     )
     db.commit()
     return True
 
 
-def poll_count_validation(db: Session, settings: Settings, req: TransferRequest) -> bool:
+def _close_from_count_picking(db: Session, settings: Settings, req: TransferRequest) -> bool:
     """Check Odoo for the count picking's validation; on 'done', pull the
     counted quantities, reconcile against sent, and close the request.
-    Throttled per request; safe to call on every UI refresh. Returns True
-    when the request just transitioned to done.
 
-    Only covers the picking the APP prepared — see poll_received_in_odoo() for
-    the floor's own duplicate, which is the usual case."""
+    Only covers the picking the APP prepared — see _close_from_floor_receipt()
+    for the floor's own duplicate. Throttling belongs to poll_close_out —
+    never take the stamp here."""
     if (
         req.status != TransferRequestStatus.COUNTING.value
         or req.count_status != OdooWriteOutcome.CREATED.value
         or not req.count_picking_id
     ):
         return False
-    now = utcnow()
-    if req.count_checked_at is not None:
-        checked = req.count_checked_at
-        if checked.tzinfo is None:
-            checked = checked.replace(tzinfo=now.tzinfo)
-        if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
-            return False
-    req.count_checked_at = now
-    db.commit()  # persist the throttle stamp even if the read below fails
-
     try:
         conn = get_connection(settings, read_only=True)
         rows = conn.search_read(

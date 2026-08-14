@@ -396,10 +396,10 @@ def list_requests(
             break
         if req.status in (S.COUNTING.value, S.SENT.value):
             polled += 1
-            # The floor's own receiving picking is the usual close; the count
-            # picking the app prepared only exists when its flag is live.
-            if not service.poll_received_in_odoo(db, settings, req):
-                service.poll_count_validation(db, settings, req)
+            # One call, both closers — they share a throttle stamp, so calling
+            # them separately let the first one starve the second (see
+            # service.poll_close_out).
+            service.poll_close_out(db, settings, req)
         elif req.status in (S.REQUESTED.value, S.WORKING.value):
             polled += 1
             service.poll_outbound_status(db, settings, req)
@@ -653,11 +653,9 @@ def get_request(
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    # both listeners: Odoo-side warehouse actions and the count validation
-    if (
-        service.poll_outbound_status(db, settings, req)
-        or service.poll_received_in_odoo(db, settings, req)
-        or service.poll_count_validation(db, settings, req)
+    # both listeners: Odoo-side warehouse actions and the close-out
+    if service.poll_outbound_status(db, settings, req) or service.poll_close_out(
+        db, settings, req
     ):
         req = _get_request(db, request_id)
     return _request_out(db, settings, req, authed)

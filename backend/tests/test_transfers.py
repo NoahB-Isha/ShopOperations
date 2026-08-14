@@ -632,6 +632,59 @@ def test_floor_receipt_in_odoo_closes_the_request(client, db, live_env, monkeypa
     assert deltas == [-2.0, 1.0]
 
 
+def test_count_validation_survives_a_real_throttle(client, db, live_env, monkeypatch):
+    """The count picking's validation must be seen even though the floor-receipt
+    closer shares its throttle stamp.
+
+    This is the control for a class of bug, not one incident. Both closers read
+    `count_checked_at`, and each used to TAKE it before doing its own Odoo read —
+    so the first one to run stamped the throttle and the second bailed on that
+    fresh stamp forever. On live, III/INT/04691 was validated 2026-08-12 and its
+    request stayed in `counting`. Every other transfer test sets
+    ODOO_COUNT_POLL_SECONDS=0, which is precisely the setting that hides a stolen
+    stamp — so this one keeps a REAL throttle.
+    """
+    copper, *_ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    set_flag(db, "write_create_internal_transfer", True)
+    set_flag(db, "write_prepare_count_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "600")  # as live runs it, not 0
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    wh = login(client, "wh@test.io")
+
+    r = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 10}]},
+        headers=floor,
+    )
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    r = client.post(f"/api/v1/transfer-requests/{rid}/sent", json={}, headers=wh)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "counting"
+    count_id = r.json()["count"]["picking_id"]
+
+    # a human counts 10 and validates the count transfer in the barcode app
+    for m in sim.search_read("stock.move", [["picking_id", "=", count_id]], ["id"]):
+        sim.call_kw("stock.move", "write", [[m["id"]], {"quantity": 10, "state": "done"}])
+    sim.call_kw("stock.picking", "write", [[count_id], {"state": "done"}])
+
+    # the board read is the listener, and it must not spend the throttle on the
+    # floor-receipt check alone — one refresh closes the request
+    r = client.get("/api/v1/transfer-requests", headers=floor)
+    assert r.status_code == 200
+    [row] = [x for x in r.json() if x["id"] == rid]
+    assert row["status"] == "done", row["status"]
+
+    body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+    assert body["lines"][0]["qty_counted"] == 10
+    assert any("validated in Odoo" in e["note"] for e in body["events"])
+
+
 def test_warehouse_built_pallet_advances_waiting_requests(client, db, live_env, monkeypatch):
     """Two requests go out to Staging2, then the warehouse consolidates them
     with a PLAIN Odoo transfer (staging2 → floor staging) instead of the app's

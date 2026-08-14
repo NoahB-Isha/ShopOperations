@@ -223,13 +223,16 @@ services:
     # what Render doesn't send by default. The frontend has no third-party
     # script/style/font hosts (fonts are bundled via @fontsource, not a CDN),
     # so 'self' covers everything except the two APIs it actually calls.
+    # 'wasm-unsafe-eval' is for the barcode scanner's zxing-wasm fallback (the
+    # only decoder iOS Safari has); camera=(self) below is what lets it open a
+    # camera at all — camera=() disabled the feature site-wide.
     # Keep this in lockstep with the equivalent policy in frontend/vercel.json
     # and infra/Caddyfile if either the API host or the Supabase project changes.
     headers:
       - path: /*
         name: Content-Security-Policy
         value: >-
-          default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+          default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline';
           img-src 'self' data: blob:; font-src 'self';
           connect-src 'self' https://shopops-backend.onrender.com https://qevgjcetkzvppmmhylgw.supabase.co;
           worker-src 'self' blob:; manifest-src 'self'; object-src 'none';
@@ -242,7 +245,7 @@ services:
         value: no-referrer
       - path: /*
         name: Permissions-Policy
-        value: "geolocation=(), camera=(), microphone=()"
+        value: "geolocation=(), camera=(self), microphone=()"
     envVars:
       - key: NODE_VERSION
         value: "22"

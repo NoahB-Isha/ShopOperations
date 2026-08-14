@@ -21,7 +21,7 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
-		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		Permissions-Policy "geolocation=(), camera=(self), microphone=()"
 		# Don't advertise the proxy (or the app server behind it).
 		-Server
 	}
@@ -40,9 +40,12 @@
 		# 'unsafe-inline' in style-src is unavoidable: React style={{…}} props
 		# emit inline style attributes. img-src blob:/data: covers html2canvas-pro
 		# snapshots and the PWA icons; worker-src blob: covers the warp WebWorker.
-		# script-src stays plain 'self' because the pre-paint palette script was
-		# moved out of index.html into /palette.js (no hash to maintain).
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://SUPABASE_ORIGIN; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		# script-src is 'self' plus 'wasm-unsafe-eval': the pre-paint palette
+		# script moved out of index.html into /palette.js (no hash to maintain),
+		# and the barcode scanner's zxing-wasm fallback — the only decoder iOS
+		# Safari has — cannot instantiate WebAssembly without that keyword.
+		# camera=(self) in Permissions-Policy is what lets the scanner open one.
+		header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://SUPABASE_ORIGIN; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 
 		root * /srv/www
 		try_files {path} /index.html

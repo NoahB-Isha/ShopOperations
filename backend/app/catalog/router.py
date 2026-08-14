@@ -386,6 +386,59 @@ def blacklist_sweep(
     )
 
 
+def barcode_candidates(code: str) -> list[str]:
+    """The forms one scanned symbol can legitimately take in the catalog.
+
+    A UPC-A label (12 digits) is read as EAN-13 by most scanners, which pads a
+    leading zero — so `012345678905` and `0012345678905` are the same physical
+    barcode, and Odoo may hold either. EAN-8 stays as it is. Also tried as a
+    SKU, because plenty of shelf labels here carry the internal reference in
+    Code 128 rather than a retail symbol.
+    """
+    raw = code.strip().upper()
+    forms = [raw]
+    if raw.isdigit():
+        stripped = raw.lstrip("0") or "0"
+        for candidate in (stripped, stripped.zfill(12), stripped.zfill(13), stripped.zfill(14)):
+            if candidate not in forms:
+                forms.append(candidate)
+    return forms
+
+
+@router.get("/by-barcode/{code}", response_model=ProductOut)
+def get_product_by_barcode(
+    code: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(get_current_user),
+) -> ProductOut:
+    """Exact lookup for the phone scanner: one symbol in, one product out.
+
+    Deliberately NOT the tokenized catalog search — a scan is an identity
+    claim, so a partial or ambiguous match is a miss, not a guess. Blacklisted
+    and inactive products are returned: someone holding the item wants to know
+    what it is, and "hidden from the catalog" is part of that answer.
+    """
+    forms = barcode_candidates(code)
+    if not forms or not forms[0]:
+        raise HTTPException(404, "No product with that barcode.")
+    q = select(Product).options(selectinload(Product.tags))
+    p = db.scalar(q.where(Product.barcode.in_(forms)).order_by(Product.is_active.desc()))
+    if p is None:
+        p = db.scalar(
+            q.where(
+                or_(
+                    Product.global_sku.in_(forms),
+                    Product.us_sku.in_(forms),
+                    Product.odoo_internal_ref.in_(forms),
+                )
+            ).order_by(Product.is_active.desc())
+        )
+    if p is None:
+        raise HTTPException(404, "No product with that barcode.")
+    return _product_out(p, _stock_for(db, p.id), settings)
+
+
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(
     product_id: int,

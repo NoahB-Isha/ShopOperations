@@ -6,6 +6,7 @@ import { useFloorRequests, useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
+import { ScanButton } from "../scan/ScanButton";
 import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
 import { TransferDraftBubble } from "./TransferDraftBubble";
@@ -219,6 +220,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
         <Brand />
         <div className="flex items-center gap-1">
+        <ScanButton />
         <InboxMenu />
         <SettingsButton />
         {bottomBar ? (
@@ -275,6 +277,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           <div className="flex items-center gap-4">
             <HealthChip />
             <div className="flex items-center gap-1">
+              <ScanButton />
               <InboxMenu />
               <SettingsButton />
             </div>

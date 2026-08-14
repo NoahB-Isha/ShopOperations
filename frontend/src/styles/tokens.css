@@ -134,6 +134,7 @@
   --animate-count-pop: count-pop 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) both;
   --animate-bubble-burst: bubble-burst 0.42s cubic-bezier(0.3, 0, 0.2, 1) both;
   --animate-burst-spark: burst-spark 0.5s cubic-bezier(0.2, 0.6, 0.3, 1) both;
+  --animate-scan-line: scan-line 2.2s ease-in-out infinite;
 
   @keyframes snackbar-in {
     from { opacity: 0; transform: translateY(24px) scale(0.9); }
@@ -208,6 +209,13 @@
   @keyframes drift {
     0%, 100% { transform: translate(0, 0) scale(1); }
     50% { transform: translate(2.5rem, -1.75rem) scale(1.1); }
+  }
+  /* the scanner's travelling line — the only wordless instruction the
+     viewfinder needs. Transform-only, so it can't fight the camera for
+     the compositor. */
+  @keyframes scan-line {
+    0%, 100% { transform: translateY(-42%); }
+    50% { transform: translateY(42%); }
   }
 }
 

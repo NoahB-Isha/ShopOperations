@@ -21,7 +21,8 @@
     "html2canvas-pro": "^2.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.0"
+    "react-router-dom": "^7.1.0",
+    "zxing-wasm": "^3.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

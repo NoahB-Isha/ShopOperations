@@ -269,3 +269,43 @@ def test_hide_oos_keeps_only_products_with_stock_somewhere(client, db):
 
     r = client.get("/api/v1/products", params={"search": "OOS-"}, headers=headers)
     assert {"OOS-IN", "OOS-ZERO", "OOS-NOROW"} <= {i["global_sku"] for i in r.json()["items"]}
+
+
+def test_barcode_lookup_is_exact_and_handles_the_upc_leading_zero(client, db):
+    """A scan is an identity claim: exact match or nothing.
+
+    The leading-zero case is the one that bites in the aisle — a 12-digit UPC-A
+    label comes off the camera as a 13-digit EAN-13 with a zero in front, and
+    Odoo may hold either form.
+    """
+    from app.models import Product
+
+    mk_user(db, "scan@t.l", (Role.SHOPPE_FLOOR, None, None))
+    h = login(client, "scan@t.l")
+
+    upc = Product(global_sku="SCAN-UPC", name="Copper Bottle", barcode="012345678905",
+                  is_active=True, source="odoo")
+    hidden = Product(global_sku="SCAN-HIDDEN", name="Blacklisted but real", barcode="7350053850019",
+                     is_active=True, blacklisted=True, source="odoo")
+    db.add_all([upc, hidden])
+    db.commit()
+
+    # the padded EAN-13 form the camera reports finds the 12-digit record
+    r = client.get("/api/v1/products/by-barcode/0012345678905", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["global_sku"] == "SCAN-UPC"
+    # ...and the stored form still works unchanged
+    assert client.get("/api/v1/products/by-barcode/012345678905",
+                      headers=h).json()["global_sku"] == "SCAN-UPC"
+
+    # holding the item beats hiding it — a blacklisted product still answers
+    assert client.get("/api/v1/products/by-barcode/7350053850019",
+                      headers=h).json()["global_sku"] == "SCAN-HIDDEN"
+
+    # a shelf label carrying the internal reference in Code 128
+    assert client.get("/api/v1/products/by-barcode/SCAN-UPC",
+                      headers=h).json()["global_sku"] == "SCAN-UPC"
+
+    # near-misses are misses, never a guess
+    assert client.get("/api/v1/products/by-barcode/1234567890", headers=h).status_code == 404
+    assert client.get("/api/v1/products/by-barcode/SCAN", headers=h).status_code == 404

@@ -40,6 +40,24 @@ const dotColor: Record<ToastKind, string> = {
   info: "bg-inverse-primary",
 };
 
+/** How long a snackbar stays, in ms. Phones get less: there the snackbar sits
+ *  above the bottom navigation, on top of the list someone is working in, and
+ *  the same message is read in a glance on a small screen. An undo offer keeps
+ *  its full window everywhere — the whole point of it is time to notice and
+ *  reach the button. Matches the md: breakpoint the position already uses. */
+const LINGER = {
+  desktop: { plain: 3800, error: 6500, action: 7000 },
+  phone: { plain: 2200, error: 4000, action: 7000 },
+};
+
+function linger(kind: ToastKind, hasAction: boolean): number {
+  const scale = window.matchMedia("(max-width: 767px)").matches
+    ? LINGER.phone
+    : LINGER.desktop;
+  if (hasAction) return scale.action;
+  return kind === "error" ? scale.error : scale.plain;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
@@ -49,8 +67,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t, { id, kind, message, action }]);
     window.setTimeout(
       () => setToasts((t) => t.filter((x) => x.id !== id)),
-      // an offer to undo needs long enough to notice and reach
-      kind === "error" ? 6500 : action ? 7000 : 3800,
+      linger(kind, action !== undefined),
     );
   }, []);
 

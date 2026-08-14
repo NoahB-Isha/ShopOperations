@@ -862,3 +862,51 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   shopping cart). NOTE for browser-pane testing: HMR duplicates
   transferDraft.ts, so an undo can write to a stale store instance and the
   pill won't reappear — hard-reload before believing that failure.
+- Scanner + close-out fix (2026-08-14, same build-on rule): **the transfer
+  close-out poll was starving itself.** `poll_received_in_odoo` and
+  `poll_count_validation` shared the `count_checked_at` throttle stamp AND each
+  took it before its own Odoo read, so whichever ran first stamped it and the
+  second bailed on that fresh stamp — every time, forever. The count closer was
+  therefore dead from the day `write_prepare_count_transfer` went live: on the
+  hosted stack III/INT/04691 was validated 2026-08-12 and request 42 sat in
+  `counting` regardless. Both are now private (`_close_from_count_picking`,
+  `_close_from_floor_receipt`) behind ONE public `poll_close_out` that takes the
+  stamp once and runs both — count picking first (matched by id, the deliberate
+  count), floor receipt second. Never take the stamp inside a closer again. The
+  whole suite ran with `ODOO_COUNT_POLL_SECONDS=0`, which is exactly the setting
+  that hides a stolen stamp, so `test_count_validation_survives_a_real_throttle`
+  keeps a REAL 600s throttle and is the control for the class.
+  `find_received_pickings` now matches origin in (TR ref, CNT ref) and excludes
+  both app pickings — the floor sometimes duplicates the count transfer rather
+  than the placement.
+- **Barcode scanning** (`frontend/src/scan/`, same round): top-bar icon
+  (`Icons.scan`, both app bars) → full-screen camera sheet → exact lookup →
+  the EXISTING ProductDrawer (reuse, not a new result view; closing it returns
+  to the camera, so the aisle loop is scan-look-scan). `decode.ts` picks the
+  engine: native `BarcodeDetector` reads the <video> with zero pixel copy
+  (Chrome/Android), else **zxing-wasm** — the only decoder iOS Safari has, which
+  is why "native only" was never an option. Both are format-limited to retail +
+  shelf-label symbologies (the biggest speed lever), and the wasm module +
+  its ~1MB binary are dynamically imported so the native path never fetches
+  them. `useScanner.ts`: `enabled` owns the camera stream, `paused` only stops
+  the decode loop (a result freeze keeps the camera warm — "scan again" is
+  instant, not a second warm-up); loop runs on `requestVideoFrameCallback` so a
+  frame is never decoded twice; the wasm path decodes a center-band ROI capped
+  at 720px, not the full frame; check-digit formats (EAN/UPC) accept on one
+  read, Code39/128/ITF wait for two identical ones; continuous autofocus +
+  torch toggle where supported. `GET /products/by-barcode/{code}` (declared
+  BEFORE `/{product_id}`) is EXACT-match only — a scan is an identity claim, so
+  ambiguity is a miss, never a guess — with `barcode_candidates()` covering the
+  UPC-A/EAN-13 leading-zero pad (verified live: scanning `0021908129419` finds
+  stored `021908129419`), falling back to SKU/internal-ref for Code 128 shelf
+  labels, and returning blacklisted/inactive items (someone holding the item
+  wants to know what it is). Manual-entry field doubles as the USB/bluetooth
+  wedge-scanner path and the fallback when the camera is refused.
+  **Deploy gotcha, caught before shipping: `Permissions-Policy: camera=()`
+  disabled the camera site-wide** — it's `camera=(self)` now, and `script-src`
+  gained `'wasm-unsafe-eval'` (Chrome refuses to instantiate WebAssembly
+  without it) in all three policy copies: render.yaml, frontend/vercel.json,
+  infra/Caddyfile. Toast durations are now per-viewport (`LINGER` in Toast.tsx):
+  phones 2.2s/4s (the snackbar sits over the list you're working in) vs desktop
+  3.8s/6.5s, but an undo offer keeps its full 7s everywhere — reaching the
+  button is the point of it.
