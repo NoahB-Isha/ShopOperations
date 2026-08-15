@@ -459,7 +459,11 @@ export function useRestock() {
   return useQuery({
     queryKey: ["restock"],
     queryFn: () => api<RestockOut>("/restock"),
-    refetchInterval: 5 * 60_000, // refreshed on each sync; keep the phone view current
+    // The GET is also the refresh trigger (it claims a throttled stock/sales
+    // sync server-side), so polling it keeps the aisle numbers live even with
+    // no background worker running. Same cadence as the transfer board.
+    refetchInterval: BOARD_POLL_MS,
+    refetchOnWindowFocus: true,
   });
 }
 

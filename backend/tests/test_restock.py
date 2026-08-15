@@ -24,7 +24,7 @@ Back list (window 28d, low cover 7d, target 14d):
 """
 from __future__ import annotations
 
-from datetime import UTC, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from app.config import get_settings
 from app.models import (
@@ -520,3 +520,76 @@ def test_swiping_a_suggestion_away_parks_it_for_a_week(client, db):
     db.commit()
     back = client.get("/api/v1/restock", headers=headers).json()["back"]
     assert any(i["product_id"] == a.id for i in back)
+
+
+def test_fold_waits_for_the_sales_sync_to_cover_the_day(db, settings_env):
+    """Folding is a one-way door, so it must never consume a day the sales
+    sync hasn't loaded yet.
+
+    Live shape this comes from (2026-08-15): the hosted stack's worker is off,
+    the sales sync last succeeded on the 13th, and the fold had already
+    swallowed the 14th — so a whole day of shop sales sat in `sales_daily`
+    unable to flag anything, forever.
+    """
+    from app.models import RestockFoldState, SyncState
+    from app.restock.engine import sales_covered_through
+
+    a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, a, b)
+    # the app has been folding for a while (the first fold ever deliberately
+    # starts at yesterday rather than replaying history — not this case)
+    db.add(RestockFoldState(id=1, folded_through=T - timedelta(days=3)))
+    # the sync last succeeded on T-1, so it holds T-2 complete and no further
+    db.add(SyncState(domain="sales", last_success_at=datetime(2026, 7, 11, 20, 58, tzinfo=UTC)))
+    _sale(db, a.id, T - timedelta(days=2), 9)  # covered
+    _sale(db, b.id, T - timedelta(days=1), 9)  # NOT covered yet
+    db.commit()
+
+    assert sales_covered_through(db) == T - timedelta(days=2)
+    fold_floor_restock(db, get_settings(), T)
+    state = db.get(RestockFoldState, 1)
+    assert state.folded_through == T - timedelta(days=2)  # not yesterday
+    assert {ln.product_id for ln in db.scalars(select(RestockLine))} == {a.id}
+
+    # the sync catches up; the day that was waiting now folds, nothing is lost
+    db.get(SyncState, "sales").last_success_at = datetime(2026, 7, 12, 9, 0, tzinfo=UTC)
+    db.commit()
+    fold_floor_restock(db, get_settings(), T)
+    assert db.get(RestockFoldState, 1).folded_through == T - timedelta(days=1)
+    assert {ln.product_id for ln in db.scalars(select(RestockLine))} == {a.id, b.id}
+
+
+def test_unchecked_lines_age_out_instead_of_repeating_forever(db, settings_env):
+    """A line nobody checks off used to sit on the list for weeks — 20 of the
+    51 open lines on the live stack were 15-19 days old, which is what made
+    the list look like it repeated every morning."""
+    from app.restock.engine import expire_stale_lines
+
+    a, b, *_ = _fixture_products(db)
+    _has_floor_stock(db, a, b)
+    settings = get_settings()
+    old = RestockLine(
+        list_type="floor", product_id=a.id, qty=6,
+        flagged_on=T - timedelta(days=settings.restock_line_max_age_days + 1),
+    )
+    fresh = RestockLine(
+        list_type="floor", product_id=b.id, qty=4,
+        flagged_on=T - timedelta(days=settings.restock_line_max_age_days - 1),
+    )
+    db.add_all([old, fresh])
+    db.commit()
+
+    assert expire_stale_lines(db, settings, T) == 1
+    assert [i.product_id for i in floor_list(db, T)] == [b.id]
+    db.refresh(old)
+    assert old.expired_at is not None  # kept as the record, off the list
+    assert expire_stale_lines(db, settings, T) == 0  # idempotent
+
+    # and the item starts a FRESH line rather than reviving the old one
+    _sale(db, a.id, T - timedelta(days=1), 9)
+    db.commit()
+    fold_floor_restock(db, settings, T)
+    lines = db.scalars(
+        select(RestockLine).where(RestockLine.product_id == a.id, RestockLine.expired_at.is_(None))
+    ).all()
+    assert [ln.qty for ln in lines] == [9.0]  # not 6 + 9 grown onto the stale row

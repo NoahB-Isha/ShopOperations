@@ -124,7 +124,10 @@ class Settings(BaseSettings):
     # moves through the day (the aisle reads those numbers); sales only change
     # the list at a day boundary, so it can afford to be lazier.
     restock_refresh_stock_seconds: int = 300
-    restock_refresh_sales_seconds: int = 900
+    # Sales is the HEAVY pull (CLAUDE.md: never poll it). It only changes this
+    # list at a day boundary, so half-hourly while someone has the page open is
+    # already more attentive than the worker's hourly cadence.
+    restock_refresh_sales_seconds: int = 1800
 
     # --- center ordering (phase 3) ---
     # stock at/below this (but above zero) shows the "low — verify" caveat

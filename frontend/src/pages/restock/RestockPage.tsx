@@ -46,6 +46,7 @@ export function RestockPage() {
             : "Checks reset every morning."
         }
       />
+      {data && <Freshness meta={data.meta} />}
 
       {isLoading || !data ? (
         <div className="grid place-items-center py-24">
@@ -57,6 +58,30 @@ export function RestockPage() {
           <FloorResetFooter meta={data.meta} />
         </>
       )}
+    </div>
+  );
+}
+
+/** How current the numbers on these rows actually are.
+ *
+ *  The floor quantities come from the stock sync, which on a deployment with
+ *  no background worker only runs when something asks it to — this page does,
+ *  on a throttle, every time it polls. Saying so plainly beats letting someone
+ *  trust a two-day-old shelf count. */
+function Freshness({ meta }: { meta: RestockOut["meta"] }) {
+  const stamp = meta.stock_synced_at;
+  if (!stamp) return null;
+  const mins = Math.max(0, Math.round((Date.now() - new Date(stamp).getTime()) / 60_000));
+  const stale = mins > 90;
+  const label =
+    mins < 2 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
+  return (
+    <div
+      className={`-mt-2 mb-4 text-[12px] ${stale ? "text-warn" : "text-on-surface-variant"}`}
+      title={new Date(stamp).toLocaleString()}
+    >
+      Shelf counts updated {label}
+      {stale ? " — refreshing" : ""}
     </div>
   );
 }

@@ -431,6 +431,9 @@ export interface RestockOut {
     today: string;
     folded_through: string | null;
     sales_synced_at: string | null;
+    stock_synced_at?: string | null;
+    /** days an unchecked line stays on the list (0 = forever) */
+    line_max_age_days?: number;
     floor_threshold: number;
     low_cover_days: number;
     target_cover_days: number;

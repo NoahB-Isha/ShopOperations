@@ -936,3 +936,46 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   **the India export still writes UNIT COST (COGS) / MARGIN / PROFIT LOST BY
   AIR** — that spreadsheet goes to Coimbatore and is the one place cost is
   still meant to appear. Cut those columns only on an explicit ask.
+- Restock live-sync + line ageing (2026-08-15, same build-on rule): three
+  separate things were making the list wrong.
+  (1) **The fold could burn a day.** `fold_floor_restock` walked to *yesterday*
+  regardless of whether the sales sync had loaded those days, and folding is a
+  one-way door. On the hosted stack (worker off) the sales sync last succeeded
+  08-13 while `folded_through` had already reached 08-14, so a whole day of
+  shop sales sat in `sales_daily` unable to flag anything, permanently. The
+  fold now stops at `min(yesterday, sales_covered_through(db))`, where a
+  successful sales run at time T proves every day BEFORE T's date complete (it
+  re-pulls the whole current month). No sales SyncState at all = fixture/demo
+  data, which folds as before. `folded_through` is never rewound — re-folding
+  a day would double-count it — so days already burnt stay burnt.
+  (2) **Open lines never expired**, which is what read as "the list repeats
+  each day": 20 of 51 open lines on live were 15-19 days old and had been on
+  every morning's list since July. `expire_stale_lines` stamps
+  `restock_lines.expired_at` (migration `d3b7f21a5c40`, additive) after
+  `restock_line_max_age_days` (7; 0 disables). The row is KEPT — it is the
+  record of what the floor was asked for and never did — but leaves the list,
+  and `_flag`'s open-line lookup skips expired rows so the next crossing
+  starts a fresh line with an honest quantity instead of growing a
+  three-week-old one. Rows already showed "Added N days ago"; now nothing on
+  the list is older than a week.
+  (3) **Nothing synced at all** on the hosted stack (no worker on Render's free
+  tier — data only moved when someone clicked "Sync now"). The restock GET is
+  now its own refresher: `claim_stale_refresh` (sync/runner.py) stamps
+  `last_attempt_at` BEFORE any work and commits, so ten phones opening the page
+  fire one sync, not ten — the same claim trick as the transfer pollers — and
+  the work runs in a FastAPI BackgroundTask AFTER the response
+  (`refresh_domains_in_background`), because a stock sync takes seconds and
+  nobody should wait for it to see a list they already have. Budgets:
+  `restock_refresh_stock_seconds` 300 (the aisle reads those numbers) and
+  `restock_refresh_sales_seconds` 1800 (the heavy pull; it only changes the
+  list at a day boundary). **Fixture mode refreshes nothing** — there is no
+  Odoo to be behind and a simulator sync would overwrite seeded demo/test data
+  (that check is why test_restock passes; without it the background task runs
+  synchronously under TestClient and wipes the hand-seeded stock). The page
+  polls at `BOARD_POLL_MS` like the transfer board and shows "Shelf counts
+  updated N min ago" from the new `meta.stock_synced_at`. NOTE: TanStack pauses
+  `refetchInterval` while the tab is unfocused, which is correct for a phone in
+  a pocket — and means the browser pane reports ZERO polls until you spoof
+  `document.hidden`/`hasFocus` (3 GETs in 13s once you do).
+  **Still worker-shaped:** every OTHER page on that deployment is as stale as
+  ever. Restock refreshes itself; transfers/OOS/coming-soon/purchasing do not.
