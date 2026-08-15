@@ -54,6 +54,32 @@ def test_product_sync_reclassifies_when_tags_change(db, settings_env):
     assert p.sourcing == ""
 
 
+def test_product_sync_stores_the_price_the_register_charges(db, settings_env):
+    """Sized goods are priced through an attribute extra, so the variant's
+    `lst_price` is the shelf price and the template's `list_price` can be
+    anything — negative, in this catalog. CM233 (Mens-Mangalgiri-Dhoti) rang up
+    at $26 while the app showed -$9, because the sync read `list_price`.
+
+    The fixture Kurta carries that exact shape: list_price -9, lst_price 28.
+    """
+    sim = _sim(settings_env)
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    kurta = db.scalar(select(Product).where(Product.global_sku == "AP0000000001"))
+    assert float(kurta.retail_price) == 28.0
+
+    # nothing negative ever reaches the app from a well-formed catalog
+    assert not db.scalars(select(Product).where(Product.retail_price < 0)).all()
+
+    # an instance that doesn't expose lst_price at all still gets a price
+    for r in sim.tables["product.product"]:
+        r.pop("lst_price", None)
+        if r["id"] == 208:
+            r["list_price"] = 31.0
+    run_domain(db, settings_env, "products", conn=sim, trigger="manual")
+    db.refresh(kurta)
+    assert float(kurta.retail_price) == 31.0
+
+
 def test_product_sync_deactivates_disappeared(db, settings_env):
     sim = _sim(settings_env)
     run_domain(db, settings_env, "products", conn=sim, trigger="manual")

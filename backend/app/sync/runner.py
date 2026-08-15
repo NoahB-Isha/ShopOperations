@@ -93,6 +93,54 @@ def run_domain(
     return final
 
 
+def claim_stale_refresh(db: Session, domain: str, max_age_seconds: int) -> bool:
+    """True if `domain` is older than `max_age_seconds` AND this caller just
+    claimed the right to refresh it.
+
+    The claim is the point. A page that refreshes its own data on open is the
+    only thing keeping the hosted stack current (its worker is switched off),
+    but ten phones opening /restock must not fire ten syncs at Odoo. Stamping
+    `last_attempt_at` here — before any work starts, committed immediately —
+    means the second caller through sees a fresh stamp and declines, the same
+    way the transfer pollers claim their throttle.
+
+    Age is measured from the ATTEMPT, not the success: a domain that is
+    failing must back off too, not retry on every page open.
+    """
+    state = get_or_create_state(db, domain)
+    now = utcnow()
+    stamp = state.last_attempt_at
+    if stamp is not None:
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=now.tzinfo)
+        if (now - stamp).total_seconds() < max_age_seconds:
+            return False
+    state.last_attempt_at = now
+    db.commit()
+    return True
+
+
+def refresh_domains_in_background(settings: Settings, domains: list[str]) -> None:
+    """Run syncs on their own session, for a FastAPI BackgroundTask.
+
+    Deliberately after the response: a stock sync takes seconds against live
+    Odoo, and making someone wait for it to see a list they already have is
+    worse than showing them the current one and letting the next poll pick up
+    the new numbers.
+    """
+    from ..db import get_sessionmaker
+
+    db = get_sessionmaker()()
+    try:
+        for domain in domains:
+            try:
+                run_domain(db, settings, domain, trigger="on-read")
+            except Exception as e:  # noqa: BLE001 — a background refresh never breaks a page
+                log.warning("on-read refresh of %s failed: %s", domain, e)
+    finally:
+        db.close()
+
+
 def run_all(db: Session, settings: Settings, trigger: str = "manual") -> list[SyncRun]:
     conn = get_connection(settings, read_only=True)
     # products first so stock/sales can resolve product ids

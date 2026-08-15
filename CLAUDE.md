@@ -910,3 +910,29 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   phones 2.2s/4s (the snackbar sits over the list you're working in) vs desktop
   3.8s/6.5s, but an undo offer keeps its full 7s everywhere — reaching the
   button is the point of it.
+- Prices + cost removal (2026-08-14, same build-on rule): **the product sync
+  read the wrong price field.** On a variant, Odoo's `list_price` is the
+  TEMPLATE's sales price; this catalog prices sized goods through attribute
+  extras, so CM233 (Mens-Mangalgiri-Dhoti) carried list_price **-9.00** with a
+  +35.00 `price_extra` per size while the register charged `lst_price` **26.00**.
+  `app/sync/products.py` now reads **`lst_price`** (= list_price + price_extra,
+  what the POS rings up), falling back to `list_price` when an instance or
+  fixture set doesn't expose it. Live scale: **856 of 4,037 active variants had
+  a wrong price**, incl. 100 NEGATIVE and ~690 showing $0.00 (Herbal-Toothpaste
+  read 0 where the shelf says 2/4/8); after the fix, zero negatives. The
+  fixture Kurta (208) now carries the real shape — list_price -9, lst_price 28
+  — so `test_product_sync_stores_the_price_the_register_charges` fails with
+  `-9.0 == 28.0` without the fix. Don't "simplify" the sync back to list_price.
+- **Cost is gone from the app** (Noah 2026-08-14). `ProductOut` no longer
+  carries `cost`, the catalog lost its `cost` sort (an ordering key is a read
+  of it by another name), the product drawer lost its Cost row, and the PO line
+  drawer lost its "Economics" MiniStat — margin is retail minus cost and retail
+  is on screen, so publishing margin published cost. `ordering/router.
+  public_suggestion()` is the single door: it strips `COST_KEYS` (unit_cost,
+  cost, margin, profit_lost_by_air, sea/air_shipping_cost) from every
+  suggestion sent to a browser, because the frozen `suggestion_json` otherwise
+  rides to the client whole — "not rendered" is not "not sent". The stored JSON
+  and `products.cost` are UNTOUCHED: the engine's margin rule needs cost, and
+  **the India export still writes UNIT COST (COGS) / MARGIN / PROFIT LOST BY
+  AIR** — that spreadsheet goes to Coimbatore and is the one place cost is
+  still meant to appear. Cut those columns only on an explicit ask.

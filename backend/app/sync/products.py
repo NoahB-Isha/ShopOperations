@@ -24,6 +24,15 @@ PRODUCT_FIELDS = [
     "name",
     "categ_id",
     "standard_price",
+    # `lst_price`, NOT `list_price`. On a variant, `list_price` is the
+    # TEMPLATE's sales price, and this catalog prices sized goods through
+    # attribute extras — Mens-Mangalgiri-Dhoti (CM233) carries list_price
+    # -9.00 with a +35.00 price_extra per size, so the app showed -9 while the
+    # register charged 26. `lst_price` = list_price + price_extra, which is
+    # what the POS actually rings up (verified live 2026-08-14 on CM233,
+    # CW219, CU514). For a product with no attributes the two are identical,
+    # so this is a strict improvement, never a regression.
+    "lst_price",
     "list_price",
     "barcode",
     "active",
@@ -117,7 +126,12 @@ def sync_products(
         product.name = rec.get("name") or ""
         product.category = category
         product.cost = rec.get("standard_price") or 0
-        product.retail_price = rec.get("list_price") or 0
+        # lst_price first (the variant's real shelf price); list_price is the
+        # fallback for instances or fixture sets that don't carry lst_price.
+        price = rec.get("lst_price")
+        if price in (None, False):
+            price = rec.get("list_price")
+        product.retail_price = price or 0
         product.is_active = bool(rec.get("active", True))
         # Missing field (older Odoo / safe_fields dropped it) reads as True:
         # better to show a SKU that shouldn't be than hide a live one.

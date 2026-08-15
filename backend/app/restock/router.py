@@ -4,13 +4,19 @@ Reads fold the accumulator lazily (a no-op unless a day has rolled over
 since the last fold), so the lists refresh with every sales sync without a
 scheduler hook. Check-off state is per-line for the floor list and per-day
 for the back list — both read fresh each morning.
+
+The GET is also this page's own refresh: it claims a throttled stock/sales
+sync and runs it AFTER the response, so numbers stay current on a deployment
+whose background worker isn't running (the hosted stack's is switched off, and
+nothing had synced for two days when this was written). The phone polls every
+few seconds, so the next tick shows what the refresh brought in.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,10 +36,12 @@ from ..models import (
     User,
     utcnow,
 )
+from ..sync.runner import claim_stale_refresh, refresh_domains_in_background
 from .engine import (
     BACK_LIST,
     FLOOR_LIST,
     back_list,
+    expire_stale_lines,
     floor_list,
     fold_floor_restock,
     reset_floor,
@@ -84,6 +92,10 @@ class RestockMetaOut(BaseModel):
     today: date
     folded_through: date | None
     sales_synced_at: datetime | None
+    # the stock sync behind the floor/warehouse numbers on each row
+    stock_synced_at: datetime | None = None
+    # how long an unchecked line stays on the list (0 = forever)
+    line_max_age_days: int = 7
     floor_threshold: float
     low_cover_days: float
     target_cover_days: float
@@ -118,13 +130,36 @@ def _stock_map(db: Session, ids: set[int]) -> dict[int, dict[str, float]]:
     return out
 
 
+def _claim_refresh(db: Session, settings: Settings) -> list[str]:
+    """Which syncs this read gets to refresh. Stock first — those are the
+    numbers the aisle reads off the row — and sales on a slower clock, since
+    they only change the list when a day rolls over.
+
+    Fixture mode refreshes nothing: there is no Odoo to be behind, and a sync
+    from the simulator would overwrite seeded demo/test data with fixtures.
+    """
+    if not settings.odoo_configured:
+        return []
+    domains = []
+    if claim_stale_refresh(db, "stock", settings.restock_refresh_stock_seconds):
+        domains.append("stock")
+    if claim_stale_refresh(db, "sales", settings.restock_refresh_sales_seconds):
+        domains.append("sales")
+    return domains
+
+
 @router.get("", response_model=RestockOut)
 def get_restock(
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> RestockOut:
     today = utcnow().date()
     fold_floor_restock(db, settings, today)
+    expire_stale_lines(db, settings, today)
+    stale = _claim_refresh(db, settings)
+    if stale:
+        background.add_task(refresh_domains_in_background, settings, stale)
 
     floor_items = floor_list(db, today)
     back_items = back_list(db, settings, today)
@@ -197,10 +232,13 @@ def _meta(
         u = db.get(User, fold_state.last_reset_by_id)
         if u:
             reset_by = u.display_name or u.email or f"user {u.id}"
+    stock_state = db.get(SyncState, "stock")
     return RestockMetaOut(
         today=today,
         folded_through=fold_state.folded_through if fold_state else None,
         sales_synced_at=sales_state.last_success_at if sales_state else None,
+        stock_synced_at=stock_state.last_success_at if stock_state else None,
+        line_max_age_days=int(settings.restock_line_max_age_days),
         floor_threshold=float(settings.restock_floor_threshold),
         low_cover_days=float(settings.restock_low_cover_days),
         target_cover_days=float(settings.restock_target_cover_days),

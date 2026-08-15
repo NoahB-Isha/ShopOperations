@@ -46,7 +46,6 @@ export interface ProductOut {
   barcode: string;
   name: string;
   category: string;
-  cost: number;
   retail_price: number;
   source: "odoo" | "manual";
   /** Odoo-tag-declared procurement origin ("" when untagged) */
@@ -724,10 +723,9 @@ export interface OrderingSuggestion {
   suggested_air_round: number;
   baseline_sea_round: number;
   baseline_air_round: number;
-  unit_cost: number;
   retail_price: number;
-  margin: number;
-  profit_lost_by_air: number;
+  /* unit_cost / margin / profit_lost_by_air are stripped server-side
+     (ordering/router.public_suggestion) — cost is not shown in the app. */
   air_split_reason: string;
   flags: string[];
   notes: string[];

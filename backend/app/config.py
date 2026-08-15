@@ -117,6 +117,14 @@ class Settings(BaseSettings):
     restock_low_cover_days: float = 7  # floor cover below this → on the back-stock list
     restock_target_cover_days: float = 14  # back-stock suggestion refills to this cover
     restock_avg_window_days: int = 28  # trailing window for avg daily POS units
+    # An unchecked floor line ages out after this many days: the list should be
+    # what's actionable now, not a three-week backlog reprinted every morning.
+    restock_line_max_age_days: int = 7
+    # On-read refresh budget for /restock when no worker is running. Stock
+    # moves through the day (the aisle reads those numbers); sales only change
+    # the list at a day boundary, so it can afford to be lazier.
+    restock_refresh_stock_seconds: int = 300
+    restock_refresh_sales_seconds: int = 900
 
     # --- center ordering (phase 3) ---
     # stock at/below this (but above zero) shows the "low — verify" caveat

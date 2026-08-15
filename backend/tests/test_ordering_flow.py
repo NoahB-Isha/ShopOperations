@@ -17,6 +17,7 @@ import openpyxl
 from app.models import (
     OrderEventProposal,
     Product,
+    PurchaseOrderLine,
     Role,
     SalesMonthly,
     StockLevel,
@@ -535,8 +536,19 @@ def test_orders_pin_their_snapshot(db, client):
     r = client.post("/api/v1/ordering/orders", json={"name": "PIN"}, headers=headers)
     order_id = r.json()["order"]["id"]
     lamp.cost = 999  # catalog changes after the draft
+    lamp.retail_price = 777
     db.commit()
     detail = client.get(f"/api/v1/ordering/orders/{order_id}", headers=headers).json()
     lamp_line = next(ln for ln in detail["lines"] if ln["global_sku"] == LAMP_SKU)
-    assert lamp_line["suggestion"]["unit_cost"] == 20.0  # frozen at creation
+    assert lamp_line["suggestion"]["retail_price"] == 40.0  # frozen at creation
     assert detail["rules"]["sea_lead_months"] == 6  # rules frozen too
+
+    # the pin itself still holds for cost — it just isn't served to a browser
+    # any more (see public_suggestion); the India export reads the stored JSON
+    rows = db.scalars(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.order_id == order_id)
+    ).all()
+    lamp_row = next(ln for ln in rows if ln.global_sku == LAMP_SKU)
+    assert lamp_row.suggestion_json["unit_cost"] == 20.0
+    assert "unit_cost" not in lamp_line["suggestion"]
+    assert "margin" not in lamp_line["suggestion"]

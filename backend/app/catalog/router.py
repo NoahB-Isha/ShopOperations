@@ -44,7 +44,6 @@ class ProductOut(BaseModel):
     barcode: str
     name: str
     category: str
-    cost: float
     retail_price: float
     source: str
     sourcing: str
@@ -83,7 +82,6 @@ def _product_out(p: Product, stock: dict[str, float], settings: Settings) -> Pro
         barcode=p.barcode,
         name=p.name,
         category=p.category,
-        cost=float(p.cost or 0),
         retail_price=float(p.retail_price or 0),
         source=p.source,
         sourcing=p.sourcing or "",
@@ -107,7 +105,8 @@ SORTS = {
     "sku": Product.global_sku,
     "category": Product.category,
     "price": Product.retail_price,
-    "cost": Product.cost,
+    # No cost sort: cost is not shown anywhere in the app (Noah 2026-08-14),
+    # and an ordering key is a read of it by another name.
 }
 
 

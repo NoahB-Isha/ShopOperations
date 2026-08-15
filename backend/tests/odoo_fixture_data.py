@@ -41,7 +41,10 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         _p(205, "OC0000000042", "Neem Toothpaste", "Oral Care", 6.0, 2.2, tag_ids=[1]),
         _p(206, "BL0000000021", "Bloom Ghee", "Bloom", 18.0, 9.0, tag_ids=[3]),
         _p(207, "", "Mystery Item (no code)", "Home & Living", 11.0, 5.0),
-        _p(208, "AP0000000001", "Kurta", "Apparel", 28.0, 12.0),
+        # priced through a size attribute like the real garments: the
+        # template's list_price is NEGATIVE and the +37 extra makes the shelf
+        # price. Syncing list_price here would store -9.
+        _p(208, "AP0000000001", "Kurta", "Apparel", -9.0, 12.0, shelf_price=28.0),
         # duplicate default_code (Odoo variant) — sync must keep the first
         _p(209, "CA0023000009", "Copper Water Bottle — 950ml (Engraved)", "Copper", 36.0, 15.0),
     ]
@@ -288,7 +291,12 @@ def _p(
     price: float,
     cost: float,
     tag_ids: list[int] | None = None,
+    shelf_price: float | None = None,
 ) -> dict:
+    """One product.product record. `price` is the TEMPLATE's list_price and
+    `shelf_price` the variant's lst_price (list_price + attribute price_extra)
+    — pass them apart to model a sized garment, which is how this catalog
+    prices clothing and how the -9.00 CM233 bug got in."""
     return {
         "id": pid,
         "default_code": code,
@@ -296,6 +304,7 @@ def _p(
         "display_name": f"[{code}] {name}" if code else name,
         "categ_id": [1, cat],
         "list_price": price,
+        "lst_price": price if shelf_price is None else shelf_price,
         "standard_price": cost,
         "barcode": f"890{pid:010d}",
         "sale_ok": True,

@@ -124,7 +124,6 @@ export function ProductDrawer({
           )}
           <Row label="Category">{product.category || "—"}</Row>
           <Row label="Price">${product.retail_price.toFixed(2)}</Row>
-          <Row label="Cost">${product.cost.toFixed(2)}</Row>
           <Row label="Source">
             {product.source === "odoo" ? (
               <Badge tone="forest">Odoo-synced</Badge>

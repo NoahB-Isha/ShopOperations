@@ -360,8 +360,32 @@ def _line_out(line: PurchaseOrderLine) -> LineOut:
         final_air_qty=line.final_air_qty,
         target_moh_used=line.target_moh_used,
         case_size=line.case_size,
-        suggestion=line.suggestion_json or {},
+        suggestion=public_suggestion(line.suggestion_json or {}),
     )
+
+
+# margin is retail minus cost, and retail is on screen — sending margin hands
+# over the cost as surely as sending cost does.
+COST_KEYS = (
+    "unit_cost",
+    "cost",
+    "margin",
+    "profit_lost_by_air",
+    "sea_shipping_cost",
+    "air_shipping_cost",
+)
+
+
+def public_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]:
+    """The suggestion as the browser may see it — cost stripped.
+
+    Cost is not shown anywhere in the app (Noah 2026-08-14), and "not
+    rendered" is not the same as "not sent": the frozen suggestion_json rides
+    to the client whole, so the strip happens here, at the door. The stored
+    JSON keeps its cost — the India export reads it server-side, and that
+    spreadsheet is the one place cost is still meant to appear.
+    """
+    return {k: v for k, v in suggestion.items() if k not in COST_KEYS}
 
 
 def _leg_out(leg: OrderLeg) -> LegOut:
@@ -852,7 +876,9 @@ def vendor_suggestions(vendor_id: int, db: Session = Depends(get_db)):
             "name": vendor.name,
             "contact_email": vendor.contact_email,
         },
-        "items": [asdict(s) for s in service.domestic_suggestions(db, vendor)],
+        "items": [
+            public_suggestion(asdict(s)) for s in service.domestic_suggestions(db, vendor)
+        ],
     }
 
 

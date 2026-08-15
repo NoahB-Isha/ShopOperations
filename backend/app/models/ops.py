@@ -359,6 +359,10 @@ class RestockLine(Base):
     # the first date the line is visible again, so the row survives (with its
     # accumulated qty) instead of being deleted and re-flagged from zero.
     snoozed_until: Mapped[date | None] = mapped_column(Date)
+    # Aged out: nobody checked it off within restock_line_max_age_days. The row
+    # stays (the history is worth keeping) but it leaves today's list, and the
+    # product starts accumulating toward a fresh line.
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     product: Mapped[Product] = relationship()

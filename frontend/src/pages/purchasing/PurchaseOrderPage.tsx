@@ -589,14 +589,13 @@ function LineDrawer({
             Month 4: {fmtMoh(s.projected_moh_m4)} → floor 3 · Month 6: {fmtMoh(s.projected_moh_m6)} → target {s.target_moh}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* No economics stat here any more: margin is retail minus cost, and
+            the retail price is on screen — showing it hands over the cost.
+            Cost lives only in the India export now (Noah 2026-08-14). */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <MiniStat label="Suggested" value={`${s.suggested_sea_round ?? 0} sea · ${s.suggested_air_round ?? 0} air`} />
           <MiniStat label="Workbook baseline" value={`${s.baseline_sea_round ?? 0} sea · ${s.baseline_air_round ?? 0} air`} />
           <MiniStat label="Case size" value={String(s.case_size ?? 1)} />
-          <MiniStat
-            label="Economics"
-            value={`margin ${Number(s.margin ?? 0).toFixed(2)} · air loss ${Number(s.profit_lost_by_air ?? 0).toFixed(0)}`}
-          />
         </div>
       </div>
     </Dialog>

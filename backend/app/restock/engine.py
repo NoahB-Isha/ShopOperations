@@ -50,6 +50,7 @@ from ..models import (
     SalesDaily,
     StockLevel,
     SuggestionSnooze,
+    SyncState,
     TransferRequest,
     TransferRequestLine,
     not_blacklisted,
@@ -65,18 +66,49 @@ BACK_LIST = "back"
 
 
 # --------------------------------------------------------------------- fold
+def sales_covered_through(db: Session) -> date | None:
+    """The last day the sales sync has certainly seen in full, or None when
+    there is no sync state at all (fixtures, demo, a fresh install).
+
+    Each sales sync re-pulls the whole current month, so a run that succeeded
+    at time T holds every day BEFORE T's date complete; T's own date is still
+    accumulating. Anything after that is a day the app simply hasn't been told
+    about yet.
+    """
+    state = db.get(SyncState, "sales")
+    if state is None:
+        return None
+    if state.last_success_at is None:
+        return date.min  # a sync exists but has never succeeded — fold nothing
+    return state.last_success_at.date() - timedelta(days=1)
+
+
 def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
     """Fold every unfolded complete day (≤ yesterday) into the accumulators,
     flagging lines that cross the threshold. Returns the number of lines
-    created or grown. Idempotent: each day folds exactly once, ever."""
+    created or grown. Idempotent: each day folds exactly once, ever.
+
+    A day is only folded once the SALES SYNC has covered it. Folding is a
+    one-way door — `folded_through` moves forward and that day is never
+    counted again — so folding a day whose sales haven't arrived yet burns it:
+    the units land in `sales_daily` later and never reach an accumulator.
+    That is not hypothetical. On the hosted stack (no worker; syncs only run
+    when someone clicks) the sales sync last succeeded 2026-08-13 while the
+    fold had already consumed 08-14, so a day of shop sales could never flag
+    anything (found 2026-08-15).
+    """
     state = db.get(RestockFoldState, 1)
     yesterday = today - timedelta(days=1)
     if state is None:
         state = RestockFoldState(id=1, folded_through=None)
         db.add(state)
+    covered = sales_covered_through(db)
+    # No sync state at all means fixture/demo data loaded straight into
+    # sales_daily — there is nothing to be behind, so complete days fold.
+    horizon = yesterday if covered is None else min(yesterday, covered)
     start = yesterday if state.folded_through is None else state.folded_through + timedelta(days=1)
-    if start > yesterday:
-        return 0  # nothing new to fold
+    if start > horizon:
+        return 0  # nothing new the sales sync has actually covered
 
     eligible = {
         pid
@@ -95,7 +127,7 @@ def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
     flagged = 0
 
     day = start
-    while day <= yesterday:
+    while day <= horizon:
         rows = db.execute(
             select(SalesDaily.product_id, SalesDaily.units).where(
                 SalesDaily.day == day, SalesDaily.channel.in_(SHOPPE_CHANNELS)
@@ -117,9 +149,42 @@ def fold_floor_restock(db: Session, settings: Settings, today: date) -> int:
                 flagged += 1
         day += timedelta(days=1)
 
-    state.folded_through = yesterday
+    state.folded_through = horizon
     db.commit()
     return flagged
+
+
+def expire_stale_lines(db: Session, settings: Settings, today: date) -> int:
+    """Age out floor lines nobody checked off. Returns how many just expired.
+
+    The old rule was "an open line survives until checked off", which sounded
+    kind and read as a list that repeated every morning: on the live stack 20
+    of 51 open lines were 15-19 days old and had been on every day's list since
+    July. A line that has sat for `restock_line_max_age_days` is not a task
+    anyone is about to do — the item keeps selling, so it will flag again on
+    its own merits, with an honest fresh quantity.
+
+    The row is kept and stamped rather than deleted: it is the record of what
+    the floor was asked for and never did.
+    """
+    max_age = int(settings.restock_line_max_age_days)
+    if max_age <= 0:
+        return 0  # 0 disables ageing — lines live until checked off
+    cutoff = today - timedelta(days=max_age)
+    rows = db.scalars(
+        select(RestockLine).where(
+            RestockLine.list_type == FLOOR_LIST,
+            RestockLine.checked_off_at.is_(None),
+            RestockLine.expired_at.is_(None),
+            RestockLine.flagged_on < cutoff,
+        )
+    ).all()
+    now = utcnow()
+    for line in rows:
+        line.expired_at = now
+    if rows:
+        db.commit()
+    return len(rows)
 
 
 def _flag(db: Session, product_id: int, qty: float, day: date) -> None:
@@ -128,6 +193,9 @@ def _flag(db: Session, product_id: int, qty: float, day: date) -> None:
             RestockLine.product_id == product_id,
             RestockLine.list_type == FLOOR_LIST,
             RestockLine.checked_off_at.is_(None),
+            # an aged-out line is closed: a new crossing starts a fresh one
+            # rather than reviving a row from three weeks ago
+            RestockLine.expired_at.is_(None),
         )
     )
     if open_line is not None:
@@ -176,7 +244,11 @@ def floor_list(db: Session, today: date) -> list[FloorItem]:
         db.scalars(
             select(RestockLine)
             .join(Product, Product.id == RestockLine.product_id)
-            .where(RestockLine.list_type == FLOOR_LIST, Product.restock_exclude.is_(False))
+            .where(
+                RestockLine.list_type == FLOOR_LIST,
+                RestockLine.expired_at.is_(None),
+                Product.restock_exclude.is_(False),
+            )
             .order_by(RestockLine.flagged_on.desc(), RestockLine.id)
         )
     )
