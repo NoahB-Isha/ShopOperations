@@ -1,27 +1,66 @@
 /* Settings — every role lands here from the top-bar gear.
 
-   Appearance (the palette picker that used to be the Themes menu/page) is
-   for everyone; admins additionally manage the app-wide product blacklist
-   and reach the design pages (Styleguide, Palette lab) that left the nav. */
+   Your own account comes FIRST (Noah, 2026-08-16): the page opens on who you
+   are signed in as. Then appearance — theme and palette — for everyone.
+   Admins additionally get the app-wide blacklist and the pages that left the
+   nav to live here: Users, Dev Tools (the old Status page), and the design
+   pages. */
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useBlacklistSweep, usePatchProduct, useProducts } from "../api/hooks";
 import type { BlacklistSweepOut, ProductOut } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Toggle, useToast } from "../design";
-import { PALETTES, currentPalette, setPalette } from "../theme";
+import { Icons } from "../nav";
+import {
+  PALETTES,
+  THEME_MODES,
+  currentPalette,
+  currentThemeMode,
+  setPalette,
+  setThemeMode,
+} from "../theme";
+import type { ThemeMode } from "../theme";
 import { setSillyMode, useSillyLabel, useSillyMode } from "../silly";
 
 function AppearanceCard() {
   const [active, setActive] = useState(currentPalette);
+  const [mode, setMode] = useState<ThemeMode>(currentThemeMode);
   const silly = useSillyMode();
   const s = useSillyLabel();
   return (
     <Card>
       <h2 className="display mb-1 text-[16px]">{s("Appearance")}</h2>
       <p className="mb-3 text-[13px] text-on-surface-variant">
-        Pick a light-mode palette. Dark mode is automatic and follows your system.
+        Light or dark, and which palette light mode wears. This device only.
       </p>
+
+      {/* Dark used to follow the device with no way out: a phone in dark mode
+          meant no palette choice at all. */}
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        {THEME_MODES.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => {
+              setThemeMode(m.id);
+              setMode(m.id);
+            }}
+            aria-pressed={mode === m.id}
+            title={m.hint}
+            className={`state-layer rounded-(--radius-md) border px-3 py-2 text-[13px]
+              transition-all duration-200 ease-(--ease-spring)
+              ${
+                mode === m.id
+                  ? "border-primary bg-secondary-container font-semibold text-on-secondary-container"
+                  : "border-outline-variant font-medium text-on-surface-variant hover:-translate-y-0.5"
+              }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <h3 className="mb-2 text-[14px] font-semibold">Light palette</h3>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {PALETTES.map((p) => (
           <button
@@ -326,25 +365,48 @@ function BlacklistCard() {
   );
 }
 
-function DesignCard() {
+/** The admin pages that left the main nav. They are still full pages at their
+ *  own routes — this is just where you reach them from now. */
+function AdminPagesCard() {
   const s = useSillyLabel();
+  const links: { to: string; label: string; hint: string; icon: React.ReactNode }[] = [
+    {
+      to: "/users",
+      label: s("Users"),
+      hint: "Invite people, set roles, deactivate",
+      icon: Icons.users,
+    },
+    {
+      to: "/status",
+      label: s("Dev Tools"),
+      hint: "Syncs, feature flags, audit log, Odoo health",
+      icon: Icons.pulse,
+    },
+    { to: "/styleguide", label: "Styleguide", hint: "Every component, one page", icon: Icons.palette },
+    { to: "/palette-lab", label: "Palette lab", hint: "The full token set", icon: Icons.palette },
+  ];
   return (
     <Card>
-      <h2 className="display mb-1 text-[16px]">{s("Design pages")}</h2>
+      <h2 className="display mb-1 text-[16px]">Admin pages</h2>
       <p className="mb-3 text-[13px] text-on-surface-variant">
-        The component styleguide and the full palette lab left the menu — they live here now.
+        Everything that doesn't belong in the daily menu.
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Link to="/styleguide">
-          <Button variant="outlined" size="sm">
-            Open styleguide →
-          </Button>
-        </Link>
-        <Link to="/palette-lab">
-          <Button variant="outlined" size="sm">
-            Open palette lab →
-          </Button>
-        </Link>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {links.map((l) => (
+          <Link
+            key={l.to}
+            to={l.to}
+            className="state-layer flex items-center gap-3 rounded-(--radius-md) border
+              border-outline-variant px-3 py-2.5 transition-transform duration-200
+              ease-(--ease-spring) hover:-translate-y-0.5"
+          >
+            <span className="text-on-surface-variant">{l.icon}</span>
+            <span className="min-w-0">
+              <span className="block text-[13.5px] font-semibold text-on-surface">{l.label}</span>
+              <span className="block text-[12px] text-on-surface-variant">{l.hint}</span>
+            </span>
+          </Link>
+        ))}
       </div>
     </Card>
   );
@@ -359,16 +421,16 @@ export function SettingsPage() {
         title="Settings"
         subtitle={
           isAdmin
-            ? "Appearance for you; the blacklist and design pages for the whole app."
-            : "How the app looks on this device."
+            ? "Your account and appearance; users, dev tools and the blacklist for the whole app."
+            : "Your account, and how the app looks on this device."
         }
       />
-      <AppearanceCard />
       <AccountCard />
+      <AppearanceCard />
       {isAdmin && (
         <>
+          <AdminPagesCard />
           <BlacklistCard />
-          <DesignCard />
         </>
       )}
     </div>

@@ -1,5 +1,6 @@
 import { usePersistedState } from "../persist";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { ProductOut, TagOut } from "../api/types";
 import { useCreateManualProduct, useFacets, useProducts } from "../api/hooks";
 import { useAuth } from "../auth/AuthContext";
@@ -131,6 +132,16 @@ export function CatalogPage() {
 
   const [search, setSearch] = usePersistedState("catalog.search", "");
   const s = useSillyLabel();
+  /* ?search=… seeds the box once — the scanner's "Search the catalog" lands
+     here with the code it couldn't match. The param is then dropped so a
+     refresh doesn't keep overwriting whatever you typed next. */
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const seed = params.get("search");
+    if (seed === null) return;
+    setSearch(seed);
+    setParams({}, { replace: true });
+  }, [params, setParams, setSearch]);
   const [category, setCategory] = usePersistedState("catalog.category", "");
   const [tag, setTag] = usePersistedState("catalog.tag", "");
   const [page, setPage] = useState(1);
@@ -405,7 +416,7 @@ export function CatalogPage() {
   return (
     <>
       <PageHeader
-        title="All SKUs"
+        title="Search Inventory"
         subtitle={
           facets
             ? `${facets.total_active.toLocaleString()} active products · search by name, SKU, or barcode`
@@ -413,7 +424,13 @@ export function CatalogPage() {
         }
       />
 
+      {/* The page is called Search Inventory, so the cursor starts in the
+          search box — you land here to type. autoFocus is deliberate and
+          deliberately narrow: this is the one page whose whole job is the
+          query. (Phones get it too; iOS won't raise the keyboard without a
+          real tap, which is the behaviour we want anyway.) */}
       <Input
+        autoFocus
         placeholder={s("Search products…")}
         value={search}
         onChange={(e) => setSearch(e.target.value)}

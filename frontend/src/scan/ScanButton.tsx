@@ -5,6 +5,16 @@ import { Icons } from "../nav";
 // that should ride along in the shell's bundle for every page load
 const ScanSheet = lazy(() => import("./ScanSheet").then((m) => ({ default: m.ScanSheet })));
 
+/** The same lazy sheet, for callers that own the open/closed state — the
+ *  phone's bottom nav has a Scan slot and opens it from there. */
+export function ScanSheetLazy({ onClose }: { onClose: () => void }) {
+  return (
+    <Suspense fallback={null}>
+      <ScanSheet onClose={onClose} />
+    </Suspense>
+  );
+}
+
 /** Top-bar barcode scanner. Shown wherever the app bar is: phones use the
  *  camera, desks tend to have a wedge scanner that types into the same sheet. */
 export function ScanButton() {

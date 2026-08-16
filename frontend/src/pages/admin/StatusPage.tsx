@@ -247,7 +247,7 @@ export function StatusPage() {
   return (
     <>
       <PageHeader
-        title="Status"
+        title="Dev Tools"
         subtitle="Sync freshness, write safety, and the paper trail — the honest view."
         actions={
           <Link to="/audit">

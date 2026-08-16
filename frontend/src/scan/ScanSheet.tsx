@@ -175,7 +175,7 @@ export function ScanSheet({ onClose }: { onClose: () => void }) {
                 variant="outlined"
                 onClick={() => {
                   onClose();
-                  navigate(`/products?search=${encodeURIComponent(phase.code)}`);
+                  navigate(`/catalog?search=${encodeURIComponent(phase.code)}`);
                 }}
               >
                 Search the catalog
@@ -194,13 +194,18 @@ export function ScanSheet({ onClose }: { onClose: () => void }) {
         }}
         className="flex items-center gap-2 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
+        {/* NOT inputMode="numeric": plenty of these codes have letters in
+            them (CM233-L, US-SN0001), and a number pad can't type them. */}
         <input
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
-          placeholder="or type a barcode"
-          inputMode="numeric"
+          placeholder="or type a barcode or SKU"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           autoComplete="off"
-          aria-label="Barcode"
+          aria-label="Barcode or SKU"
           className="m3-control min-w-0 flex-1 rounded-full bg-white/12 px-4 py-3 text-white
             placeholder:text-white/45 focus:outline-2 focus:outline-primary"
         />

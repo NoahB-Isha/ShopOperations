@@ -135,6 +135,47 @@ export interface CenterOut {
   contacts: ContactOut[];
   odoo_location_id: number | null;
   odoo_location_name: string;
+  /** map position from the backend gazetteer; null = nothing honest to place */
+  latitude: number | null;
+  longitude: number | null;
+  /** last COMPLETE month vs the one before; null = never seen by the rollup */
+  sales_units: number | null;
+  sales_amount: number | null;
+  sales_prev_units: number | null;
+  sales_month: string;
+  sales_prev_month: string;
+  /** display names only — contact details live on the detail endpoint */
+  reviewers: string[];
+  requesters: string[];
+}
+
+export interface CenterPerson {
+  name: string;
+  email: string;
+  phone: string;
+  note: string;
+  is_app_user: boolean;
+}
+
+export interface CenterStockLine {
+  sku: string;
+  barcode: string;
+  name: string;
+  qty: number;
+}
+
+export interface CenterDetailOut {
+  id: number;
+  name: string;
+  zone_name: string | null;
+  reviewers: CenterPerson[];
+  requesters: CenterPerson[];
+  contacts: CenterPerson[];
+  stock: CenterStockLine[];
+  stock_total: number;
+  /** ok = a live Odoo read; unmapped / unavailable explain themselves */
+  stock_status: "ok" | "unmapped" | "unavailable";
+  stock_note: string;
 }
 
 export interface DomainSync {

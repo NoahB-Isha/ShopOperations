@@ -1,6 +1,6 @@
 import { usePersistedState } from "../../persist";
-import { useMemo, useState } from "react";
-import { useCenters, useImportCoordinators, useZones } from "../../api/hooks";
+import { useMemo, useRef, useState } from "react";
+import { useCenters, useImportRosterFile, useZones } from "../../api/hooks";
 import type { CenterOut, ImportReportOut } from "../../api/types";
 import {
   Badge,
@@ -14,6 +14,82 @@ import {
 } from "../../design";
 import type { Column } from "../../design";
 import { useSillyLabel } from "../../silly";
+import { Icons } from "../../nav";
+import { CenterEditDialog } from "./CenterEditDialog";
+import { CentersMap } from "./CentersMap";
+import { zoneColors, zoneSwatch } from "./centerSignals";
+
+/** Who to talk to about this center, at a glance: the zone's Order Reviewer
+ *  approves its orders, the Order Requesters place them, and the roster names
+ *  are the people on the ground who may have no app login at all. */
+function People({ center }: { center: CenterOut }) {
+  const roster = center.contacts.map((c) => c.name).filter(Boolean);
+  const rows: [React.ReactNode, string, string[]][] = [
+    [Icons.clipboard, "Reviewer", center.reviewers],
+    [Icons.bag, "Requester", center.requesters],
+    [Icons.users, "Roster", roster],
+  ];
+  const shown = rows.filter(([, , names]) => names.length > 0);
+  if (shown.length === 0) {
+    return <span className="text-[13px] text-ink-faint">nobody assigned</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5 text-[12.5px]">
+      {shown.map(([icon, label, names]) => (
+        <span key={label} className="flex items-center gap-1.5 text-ink-soft" title={names.join(", ")}>
+          <span className="scale-75 opacity-70" aria-hidden>
+            {icon}
+          </span>
+          <span className="sr-only">{label}: </span>
+          <span className="truncate">
+            {names[0]}
+            {names.length > 1 && (
+              <span className="text-ink-faint"> +{names.length - 1}</span>
+            )}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Bulk roster import, deliberately quiet and deliberately last. */
+function RosterImport({
+  importing,
+  onImport,
+}: {
+  importing: boolean;
+  onImport: (file: File) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className="mt-10 flex flex-col items-center gap-1.5 border-t border-line pt-6 pb-2 text-center">
+      <input
+        ref={input}
+        type="file"
+        accept=".xlsx,.xlsm,.csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onImport(file);
+          e.target.value = ""; // let the same file be picked twice
+        }}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        loading={importing}
+        icon={Icons.upload}
+        onClick={() => input.current?.click()}
+      >
+        Import from .xlsx or .csv
+      </Button>
+      <p className="text-[12px] text-ink-faint">
+        Adds and updates centers in bulk. Existing centers keep the edits made here.
+      </p>
+    </div>
+  );
+}
 
 const REASON_LABELS: Record<string, string> = {
   ambiguous_active: "active status unclear",
@@ -33,14 +109,20 @@ export function CentersPage() {
   const { data: centers, isLoading } = useCenters(
     zoneId ? { zone_id: Number(zoneId) } : {},
   );
-  const importer = useImportCoordinators();
+  const importer = useImportRosterFile();
   const toast = useToast();
   const [report, setReport] = useState<ImportReportOut | null>(null);
+  const [editing, setEditing] = useState<CenterOut | null>(null);
+  // Selecting on the map scrolls the list to the same center, so the two views
+  // are one view: pick a dot, read its row.
+  const [mapSelection, setMapSelection] = useState<number | null>(null);
 
   const rows = useMemo(
     () => (centers ?? []).filter((c) => !onlyFollowup || c.needs_followup),
     [centers, onlyFollowup],
   );
+
+  const zoneHues = useMemo(() => zoneColors((centers ?? []).map((c) => c.zone_name)), [centers]);
 
   const columns = useMemo<Column<CenterOut>[]>(
     () => [
@@ -49,40 +131,74 @@ export function CentersPage() {
         header: "Center",
         sortable: true,
         render: (c) => (
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="font-medium">{c.name}</span>
-            {c.shared_product_group && (
-              <Badge tone="copper" title={`Shares a product set (${c.shared_product_group})`}>
-                shared set
-              </Badge>
-            )}
-            {/* phones hide the Follow-up column — keep the signal as a dot */}
-            {c.needs_followup && (
-              <span
-                aria-label="Needs follow-up"
-                title={c.followup_reasons.map((r) => REASON_LABELS[r] ?? r).join(", ")}
-                className="h-2 w-2 shrink-0 rounded-full bg-gold sm:hidden"
-              />
-            )}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-medium">{c.name}</span>
+              {c.shared_product_group && (
+                <Badge tone="copper" title={`Shares a product set (${c.shared_product_group})`}>
+                  shared set
+                </Badge>
+              )}
+              {/* phones hide the Follow-up column — keep the signal as a dot */}
+              {c.needs_followup && (
+                <span
+                  aria-label="Needs follow-up"
+                  title={c.followup_reasons.map((r) => REASON_LABELS[r] ?? r).join(", ")}
+                  className="h-2 w-2 shrink-0 rounded-full bg-gold sm:hidden"
+                />
+              )}
+            </div>
+            <span className="flex items-center gap-1 text-[12px] text-ink-faint">
+              <span className="scale-75 opacity-70">{Icons.mapPin}</span>
+              {[c.city, c.state].filter(Boolean).join(", ") || "no location on file"}
+            </span>
           </div>
         ),
       },
-      { key: "state", header: "State", hideBelow: "md", sortable: true,
-        render: (c) => <span className="text-ink-soft">{c.state}</span> },
-      { key: "zone_name", header: "Review zone", sortable: true,
+      {
+        key: "zone_name",
+        header: "Review zone",
+        sortable: true,
         value: (c) => c.zone_name ?? "",
-        render: (c) => c.zone_name ?? <span className="text-ink-faint">unassigned</span> },
+        render: (c) => {
+          const swatch = zoneSwatch(c.zone_name, zoneHues);
+          return c.zone_name ? (
+            <span className="flex items-center gap-1.5">
+              {/* the same hue the dot wears on the map above */}
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={
+                  swatch.hollow
+                    ? { boxShadow: `inset 0 0 0 1.5px ${swatch.color}` }
+                    : { background: swatch.color }
+                }
+              />
+              {c.zone_name}
+            </span>
+          ) : (
+            <span className="text-ink-faint">unassigned</span>
+          );
+        },
+      },
+      {
+        key: "people",
+        header: "Who's involved",
+        hideBelow: "md",
+        value: (c) => [...c.reviewers, ...c.requesters].join(" "),
+        render: (c) => <People center={c} />,
+      },
       {
         key: "active",
-        header: "Active",
+        header: "Running",
         value: (c) => (c.is_active ? 1 : 0),
         sortable: true,
         render: (c) =>
           c.is_active ? (
-            <Badge tone="forest">yes</Badge>
+            <Badge tone="forest">active</Badge>
           ) : (
-            <Badge tone="neutral" title={c.activity_raw ? `sheet says: ${c.activity_raw}` : undefined}>
-              no
+            <Badge tone="neutral" title={c.activity_raw ? `roster says: ${c.activity_raw}` : undefined}>
+              dormant
             </Badge>
           ),
       },
@@ -91,9 +207,15 @@ export function CentersPage() {
         header: "Stripe terminal",
         hideBelow: "lg",
         value: (c) => c.stripe_terminal_name,
-        render: (c) => (
-          <span className="font-mono text-[12px] text-ink-soft">{c.stripe_terminal_name || "—"}</span>
-        ),
+        render: (c) =>
+          c.stripe_terminal_name ? (
+            <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-soft">
+              <span className="scale-75 opacity-70">{Icons.card}</span>
+              {c.stripe_terminal_name}
+            </span>
+          ) : (
+            <span className="text-ink-faint">—</span>
+          ),
       },
       {
         key: "followup",
@@ -114,37 +236,40 @@ export function CentersPage() {
             <span className="text-ink-faint">—</span>
           ),
       },
+      {
+        key: "edit",
+        header: "",
+        render: (c) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditing(c);
+            }}
+          >
+            Edit
+          </Button>
+        ),
+      },
     ],
-    [],
+    [zoneHues],
   );
-
-  const followupCount = (centers ?? []).filter((c) => c.needs_followup).length;
 
   return (
     <>
-      <PageHeader
-        title="Centers"
-        subtitle={`${centers?.length ?? 0} centers across ${zones?.length ?? 0} zones · ${followupCount} flagged for follow-up`}
-        actions={
-          <Button
-            variant="secondary"
-            loading={importer.isPending}
-            onClick={() =>
-              importer.mutate(true, {
-                onSuccess: (r) => {
-                  setReport(r);
-                  toast.success(
-                    `Roster re-imported: ${r.centers_created} new, ${r.centers_updated} updated.`,
-                  );
-                },
-                onError: (e) => toast.error(e.message),
-              })
-            }
-          >
-            Re-import roster
-          </Button>
-        }
-      />
+      <PageHeader title="Centers" />
+
+      {/* Desktop only, deliberately: this is the stand-back view of a
+          continent. On a phone the list below is the better tool and the only
+          one rendered.
+
+          Selecting a dot used to scroll the list into view, which read as the
+          page lurching away from the map you just clicked. The panel opens on
+          the map; nothing moves. */}
+      <div className="-mt-4 hidden lg:block">
+        <CentersMap centers={rows} selectedId={mapSelection} onSelect={setMapSelection} />
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <Input
@@ -181,6 +306,29 @@ export function CentersPage() {
         loading={isLoading}
         filterText={filter}
         footer={<span>{rows.length} shown</span>}
+      />
+
+      <CenterEditDialog center={editing} onClose={() => setEditing(null)} />
+
+      {/* The roster lives in this app now — editing happens above, row by row.
+          A spreadsheet is something you bring TO it, which is why this sits at
+          the bottom rather than in the header. */}
+      <RosterImport
+        importing={importer.isPending}
+        onImport={(file) =>
+          importer.mutate(
+            { file, apply: true },
+            {
+              onSuccess: (r) => {
+                setReport(r);
+                toast.success(
+                  `Roster imported: ${r.centers_created} new, ${r.centers_updated} updated.`,
+                );
+              },
+              onError: (e) => toast.error(e.message),
+            },
+          )
+        }
       />
 
       <Dialog

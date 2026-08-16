@@ -979,3 +979,158 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `document.hidden`/`hasFocus` (3 GETs in 13s once you do).
   **Still worker-shaped:** every OTHER page on that deployment is as stale as
   ever. Restock refreshes itself; transfers/OOS/coming-soon/purchasing do not.
+- Centers map (2026-08-15, admin + desktop only): `/centers` opens on a real
+  map of North America with the list preserved underneath (phones get the list
+  alone — `hidden lg:block`). **The geography is committed, never fetched**:
+  `backend/scripts/build_map_geo.py` projects Natural Earth boundaries (public
+  domain; the 2.5MB inputs are NOT in the repo, URLs in the script) through an
+  Albers equal-area conic, simplifies them in PIXEL space (the projection's own
+  units are ~1.0 for the whole continent, so a tolerance expressed in them is
+  meaningless), and writes `frontend/src/pages/admin/mapGeo.ts` — 60 shapes,
+  ~70KB, plus a `project()` that is the SAME maths so a center's lat/lon lands
+  exactly where its state does. The deployed CSP allows no external host, so
+  tiles were never an option. **Watch the y sign**: the conic's y grows
+  northward and SVG's grows down, and an upside-down continent looks plausible
+  enough at a glance to ship (it did, for one screenshot).
+  Positions come from `app/centers/geo.py` — a gazetteer keyed on the roster's
+  center NAME with a state-centroid fallback, since the roster has cities, not
+  coordinates. All 62 were checked against their own state polygon by a
+  point-in-polygon pass; New York and St. Louis were nudged a mile inland
+  because both sit ON a simplified border and rendered in the harbour/in
+  Illinois. **Colour**: a dot map is an all-pairs form, and the dataviz
+  validator says exactly two 4-hue sets clear all-pairs in BOTH modes and no
+  5-set does — so hue carries the four FIELD zones and nothing else (`--zone-1
+  ..4` in tokens.css, yellow/magenta/green/violet). Canada needs no hue (it is
+  the only thing above the border), III Departments is ONE campus glyph (five
+  departments at one address are not five places), and unzoned centers are
+  grey — an absence, not an identity. Zone territories are convex hulls
+  stroked round and fat (a 1-2 center zone inflates to a dot or capsule, which
+  is honest), each with a direct title placed ABOVE the hull — at the centroid
+  it sat on the very cities it named, and Boston and New York lost their
+  labels to "ZONE 1 (LILI)". City labels are greedy collision-avoided (active
+  first, then alphabetical so the choice is stable), and MORE appear as you
+  zoom because the boxes shrink in map units. Wheel-zoom needs a NON-passive
+  listener (React's onWheel is passive, so preventDefault is ignored and the
+  page scrolls out from under you); setPointerCapture is try/caught like the
+  bubble's. `GET /centers/{id}/detail` feeds the click panel: Order Reviewer
+  (the zone's coordinators), Order Requesters (center-scoped orderers), roster
+  contacts who aren't app logins, and a **live Odoo quant read** of the
+  center's own III/CityCenter location — deliberately not synced (the stock
+  sync covers four locations; adding 54 for an occasional panel is a bad
+  trade), and honest when there's nothing to read: `stock_status` is
+  ok/unmapped/unavailable, and 10 of 62 centers have no mapped location.
+  Browser-pane note: `document.querySelector("svg")` grabs a NAV ICON, not the
+  map — target `svg[role="img"][aria-label^="Map of"]` or you'll conclude the
+  interactions are broken when they aren't.
+  **Feedback round the same day** — four fixes, one of them a real bug:
+  (1) **Clicks did nothing.** The frame took `setPointerCapture` on
+  pointerdown so it could pan, and capture retargets the following `click` to
+  the capturing element — so the dot's own onClick never fired. Capture is now
+  taken LAZILY, on the first pointermove past `DRAG_SLOP` (4px): a press that
+  doesn't move stays a click. Verified with a real mouse click, not a
+  synthetic `dispatchEvent` — dispatching a click straight at the circle
+  bypasses capture entirely and passes against the broken build.
+  (2) **Zoom is gentler and eased.** A notch multiplied the scale by 1.15 and
+  painted it, so one trackpad flick (a dozen events) crossed half the range.
+  Now each event nudges a TARGET by `exp(-deltaY * 0.0016)` — sensitivity
+  follows the device rather than the event count — `deltaMode` is normalised
+  (a Firefox line-delta would otherwise zoom ~16× harder), and a rAF loop eases
+  the drawn view toward it. The wheel also commits 35% of the move
+  SYNCHRONOUSLY: rAF is throttled in background tabs and some webviews, and an
+  ease-only zoom does nothing at all there. Measured: 1.023 per trackpad notch
+  (was 1.15), 1.70 after a ten-notch flick.
+  (3) **Dot AREA is last month's units** (`radiusFor`, sqrt scaling — doubling
+  the radius would quadruple the ink and read as 4× the sales). The legend
+  carries two reference circles. A center that sold nothing still draws at
+  `R_QUIET`, because "exists and did nothing" is information.
+  (4) **Trend glyph**: ▲/▼ above the dot, month over month — one pop-up's
+  setup against the previous one, which is the only comparison that means
+  anything for a shop that opens once a month. Both months are COMPLETE
+  (`app/centers/sales.py`, `comparison_months`): including the in-progress
+  month would show every center collapsing on the 3rd and recovered on the
+  30th. Under 5% is "flat", a first month with no baseline is "first" (never a
+  percentage — nothing to divide by), and a center the rollup has never seen
+  reads null, not zero. The arrow is the encoding and colour only seconds it,
+  so it survives CVD and greyscale. The panel spells the numbers out.
+  Dormant centers are tinted RINGS: a solid surface fill turned a big dormant
+  center (Richmond and Houston are both marked inactive and still selling)
+  into what looked like a hole punched in the map.
+  Pure signal maths lives in `pages/admin/centerSignals.ts` with unit tests —
+  exporting `trendOf` from the component module broke Fast Refresh, and the
+  map's handlers then silently stopped updating mid-session ("Could not Fast
+  Refresh (export is incompatible)" in the console is the tell; hard-reload
+  before believing a handler is dead).
+  **Centers page rework (2026-08-16, same round):** the map click bug plus the
+  page around it. (1) **Clicking a dot no longer scrolls the page** — selecting
+  used to `scrollIntoView` the list, which read as the page lurching away from
+  the map you just clicked. The panel opens on the map; nothing moves.
+  (2) Map frame is `62vh` (max 46rem) and sits `-mt-4` under a header with NO
+  subtitle — it used to run flush to the bottom of the window and read as cut
+  off. The "62 centers across 6 zones" summary line is gone.
+  (3) **The list says who is involved**: `GET /centers` now carries `reviewers`
+  and `requesters` (display names only — contact details stay on the detail
+  endpoint), built by `_people_index` in ONE query, because asking per row is
+  60 round trips to render a table. The People cell shows Reviewer / Requester
+  / Roster with icons and a `+N`; the zone cell wears the SAME hue as the dot
+  on the map (`zoneColors`/`zoneSwatch` moved to centerSignals.ts so both call
+  one function); city+state sits under the name with a pin.
+  (4) **The roster is now edited in the app.** `PATCH /centers/{id}` (admin)
+  takes the center fields and, when `contacts` is present, REPLACES the whole
+  roster — the editor shows all of it, so a partial send would silently drop
+  people. `clear_zone` exists because a null `zone_id` can't say "unassign" on
+  its own, and blank contact rows aren't people. CenterEditDialog also invites
+  an Order Requester scoped to that center (the existing `POST /admin/users`),
+  which is the "add users right here" ask. NOTE: a Toggle must NOT be wrapped
+  in `Field` — the floating label is drawn for a text input and lands on top of
+  the switch.
+  (5) **Import moved to the bottom and takes a FILE**: "Import from .xlsx or
+  .csv" → `POST /admin/import/coordinators/upload` (multipart; 8MB cap; temp
+  file deleted in a `finally`, because a roster carries every coordinator's
+  phone number). The importer reads either format now — `read_sheets` splits
+  xlsx/csv and the parser works on `(name, headers, rows)`. A CSV is ONE sheet,
+  so the Zone column carries the zone split the workbook did with tabs; note
+  `_col` fuzzy-matches headers, so "Zone Coordinator" resolves to "Zone" and
+  only the zone-CODE path ever runs (pre-existing, harmless for the real file,
+  but it will confuse the next person writing a fixture). The old no-file
+  endpoint stays for the seeded/local path.
+- Settings, mobile nav and DARK AS A SETTING (2026-08-16, Noah's list):
+  **Dark mode is now a choice, not the device's.** It was a bare
+  `@media (prefers-color-scheme: dark)`, so a phone in dark mode forced dark
+  and locked the user out of every light palette. `public/palette.js` now
+  RESOLVES the stored preference (system | light | dark, key `ilops_theme`,
+  default system) before first paint and stamps `data-theme` on `<html>`;
+  tokens.css lost all three media queries for one plain
+  `:root[data-theme="dark"], :root[data-theme="dark"][data-palette]` block per
+  group (scheme, chart, zone). Resolving in JS is what keeps that to ONE block
+  instead of a media query plus an override of it. `theme.ts` owns the mode
+  (`currentThemeMode` / `resolvedTheme` / `setThemeMode` / `watchSystemTheme`,
+  the last wired in main.tsx so a phone that flips at sunset flips the app, and
+  it repaints the `theme-color` metas too). Verified on a dark device: Light →
+  #fbfafd, Dark → #131523, Match my device → follows, and Neem parchment now
+  works on a dark phone.
+  **Settings is the admin surface**: account FIRST, then appearance (theme +
+  palette), then an "Admin pages" card linking Users and **Dev Tools** (the old
+  Status page, renamed in the route title, the page header and silly mode),
+  plus the styleguide and palette lab. Both left the main nav, so
+  `homeForRoles(admin)` is `/reports` now — nav.test.ts asserts it. The gear is
+  a real cog (eight teeth on a ring) rather than the old lumpy blob.
+  **Mobile nav is a bottom bar for EVERY role.** Five slots; a role with more
+  destinations keeps the first three, then **Scan** (pinned — it was asked for
+  as a menu item, so overflow must never eat it), then **More**, which opens
+  the rest in a sheet. The hamburger drawer is gone: it hid the whole menu from
+  exactly the roles with the most to reach. `NavItem.short` is the bar's label
+  (a slot is ~70px; "Search Inventory" truncated to "Search Inv…"). The brand
+  lock-up is gone from the mobile top bar and NOTHING replaced it — the page's
+  own headline is an inch below, and printing it twice was worse than the brand.
+  **Inbox card**: on phones it is `fixed inset-x-3` under the top bar, not a
+  320px popover anchored `right-0` to a bell that sits mid-bar — that hung the
+  left edge off a 375px screen. md+ keeps the anchored popover. (Measure it
+  with offsetWidth: the pane pauses `animate-pop-in` mid-scale and
+  getBoundingClientRect then reports 0.6× the real box.)
+  **All SKUs → "Search Inventory"** with a magnifier, and the search box takes
+  `autoFocus` — the page's whole job is the query. It also seeds from
+  `?search=`, which is what the scanner's "Search the catalog" now passes (it
+  was navigating to `/products`, an API path with no route — dead button).
+  **Scanner manual entry takes letters**: `inputMode="text"` +
+  `autoCapitalize="characters"`, because plenty of these codes are CM233-L, not
+  digits, and a number pad can't type them.

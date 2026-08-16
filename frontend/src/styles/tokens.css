@@ -6,8 +6,9 @@
    Vibrant orange carries every key action and active state; hot
    magenta seconds it, electric cyan sparks the accents. Surfaces
    are never flat grey: crisp lilac paper in light, deep slate-
-   indigo in dark (auto via prefers-color-scheme — pure CSS, no
-   state). Type is oversized and editorial (Fraunces, WONK on);
+   indigo in dark — a SETTING (system / light / dark), resolved
+   before first paint into data-theme on <html>). Type is oversized
+   and editorial (Fraunces, WONK on);
    motion is springy and staggered, and stands down under
    prefers-reduced-motion.
    ============================================================ */
@@ -282,63 +283,61 @@
    glows on it) shared by every palette — the palette choice shapes
    light mode only. The `, :root[data-palette]` keeps this winning
    over the attribute blocks above (same specificity, later source). */
-@media (prefers-color-scheme: dark) {
-  :root,
-  :root[data-palette] {
-    --color-primary: #ffb283;
-    --color-on-primary: #4a1a00;
-    --color-primary-container: #9c4207;
-    --color-on-primary-container: #ffdbc7;
-    --color-inverse-primary: #f36f21;
+:root[data-theme="dark"],
+:root[data-theme="dark"][data-palette] {
+  --color-primary: #ffb283;
+  --color-on-primary: #4a1a00;
+  --color-primary-container: #9c4207;
+  --color-on-primary-container: #ffdbc7;
+  --color-inverse-primary: #f36f21;
 
-    --color-secondary: #bfc4ff;
-    --color-on-secondary: #141f75;
-    --color-secondary-container: #3542a0;
-    --color-on-secondary-container: #dfe0ff;
+  --color-secondary: #bfc4ff;
+  --color-on-secondary: #141f75;
+  --color-secondary-container: #3542a0;
+  --color-on-secondary-container: #dfe0ff;
 
-    --color-tertiary: #55dde0;
-    --color-on-tertiary: #003738;
-    --color-tertiary-container: #00565a;
-    --color-on-tertiary-container: #9df3f2;
+  --color-tertiary: #55dde0;
+  --color-on-tertiary: #003738;
+  --color-tertiary-container: #00565a;
+  --color-on-tertiary-container: #9df3f2;
 
-    --color-error: #ffb4ab;
-    --color-on-error: #690005;
-    --color-error-container: #93000a;
-    --color-on-error-container: #ffdad6;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
 
-    --color-success: #98db88;
-    --color-on-success: #0c3900;
-    --color-success-container: #1e5313;
-    --color-on-success-container: #b0f2a0;
+  --color-success: #98db88;
+  --color-on-success: #0c3900;
+  --color-success-container: #1e5313;
+  --color-on-success-container: #b0f2a0;
 
-    --color-warn: #eec148;
-    --color-on-warn: #3f2e00;
-    --color-warn-container: #5c4300;
-    --color-on-warn-container: #ffdf9b;
+  --color-warn: #eec148;
+  --color-on-warn: #3f2e00;
+  --color-warn-container: #5c4300;
+  --color-on-warn-container: #ffdf9b;
 
-    --color-surface-dim: #0e101a;
-    --color-surface: #131523;
-    --color-surface-container-lowest: #0c0e18;
-    --color-surface-container-low: #191c2c;
-    --color-surface-container: #1f2334;
-    --color-surface-container-high: #292d40;
-    --color-surface-container-highest: #34384d;
-    --color-on-surface: #e6e2f0;
-    --color-on-surface-variant: #b6b1c6;
-    --color-outline: #807a95;
-    --color-outline-variant: #41455c;
-    --color-inverse-surface: #e6e2f0;
-    --color-inverse-on-surface: #2c2738;
+  --color-surface-dim: #0e101a;
+  --color-surface: #131523;
+  --color-surface-container-lowest: #0c0e18;
+  --color-surface-container-low: #191c2c;
+  --color-surface-container: #1f2334;
+  --color-surface-container-high: #292d40;
+  --color-surface-container-highest: #34384d;
+  --color-on-surface: #e6e2f0;
+  --color-on-surface-variant: #b6b1c6;
+  --color-outline: #807a95;
+  --color-outline-variant: #41455c;
+  --color-inverse-surface: #e6e2f0;
+  --color-inverse-on-surface: #2c2738;
 
-    --color-copper-deep: #ffcaa5;
+  --color-copper-deep: #ffcaa5;
 
-    --shadow-e1: 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 3px 1px rgb(0 0 0 / 0.3);
-    --shadow-e2: 0 1px 2px rgb(0 0 0 / 0.5), 0 2px 6px 2px rgb(0 0 0 / 0.3);
-    --shadow-e3: 0 4px 8px 3px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.5);
+  --shadow-e1: 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 3px 1px rgb(0 0 0 / 0.3);
+  --shadow-e2: 0 1px 2px rgb(0 0 0 / 0.5), 0 2px 6px 2px rgb(0 0 0 / 0.3);
+  --shadow-e3: 0 4px 8px 3px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.5);
 
-    /* in dark, fields lift slightly ABOVE the container ladder instead */
-    --color-field: color-mix(in srgb, #ffffff 8%, var(--color-surface-container-highest));
-  }
+  /* in dark, fields lift slightly ABOVE the container ladder instead */
+  --color-field: color-mix(in srgb, #ffffff 8%, var(--color-surface-container-highest));
 }
 
 html {
@@ -629,14 +628,45 @@ body {
   --chart-3: #1baf7a;
   --chart-4: #4a3aa7;
 }
-@media (prefers-color-scheme: dark) {
-  :root,
-  :root[data-palette] {
-    --chart-1: #d95926;
-    --chart-2: #3987e5;
-    --chart-3: #199e70;
-    --chart-4: #9085e9;
-  }
+:root[data-theme="dark"],
+:root[data-theme="dark"][data-palette] {
+  --chart-1: #d95926;
+  --chart-2: #3987e5;
+  --chart-3: #199e70;
+  --chart-4: #9085e9;
+}
+
+/* ---- centers map: the four FIELD review zones ------------------
+   A dot map is an all-pairs form — any two pins can end up side by
+   side — so these are validated with `--pairs all`, which is a
+   strictly harder test than the charts above (those are stacked and
+   line forms, judged on adjacent pairs only). That test caps the set
+   at FOUR: of the eight documented hues, exactly two 4-sets clear
+   all-pairs in BOTH modes, and none of the 5-sets do. So hue carries
+   the four field zones and nothing else — Canada is unmistakable by
+   position (it is the only thing above the border), III Departments
+   is one campus glyph rather than a pin, and centers with no zone
+   are grey, because "no zone" is an absence and not another
+   identity. Every zone also carries a direct label on its territory
+   and a legend row, so identity is never colour alone.
+   Light  surface #fbfafd: worst all-pairs ΔE 16.2 protan / 19.6 normal.
+   Dark   surface #131523: worst all-pairs ΔE 6.9 protan / 19.3 normal
+   — the 6-8 floor band, legal here precisely because of those labels.
+   Yellow and magenta sit under 3:1 on the light surface; the labels
+   and the list underneath are the relief. Don't add a fifth hue: add
+   a facet. */
+:root {
+  --zone-1: #eda100;
+  --zone-2: #e87ba4;
+  --zone-3: #008300;
+  --zone-4: #4a3aa7;
+}
+:root[data-theme="dark"],
+:root[data-theme="dark"][data-palette] {
+  --zone-1: #c98500;
+  --zone-2: #d55181;
+  --zone-3: #008300;
+  --zone-4: #9085e9;
 }
 
 /* ---- time-machine warp: the sanctioned 4th-wall moment --------

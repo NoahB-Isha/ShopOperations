@@ -147,19 +147,55 @@ def _parse_active(active_col: str, jan_col: str) -> tuple[bool, str, bool]:
     return False, raw, True
 
 
-def parse_workbook(path: Path) -> tuple[list[ParsedCenter], ImportReport]:
+Sheet = tuple[str, list[str], list[tuple]]
+"""(name, header row, data rows) — the shape both readers hand the parser."""
+
+
+def _sheets_from_xlsx(path: Path) -> list[Sheet]:
     import openpyxl
 
-    report = ImportReport()
     wb = openpyxl.load_workbook(path, data_only=True)
+    out: list[Sheet] = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        headers = [str(c.value or "") for c in ws[1]]
+        out.append((sheet_name, headers, list(ws.iter_rows(min_row=2, values_only=True))))
+    return out
+
+
+def _sheets_from_csv(path: Path) -> list[Sheet]:
+    """A CSV is one sheet. It therefore can't carry the workbook's per-sheet
+    zone split, so the Zone column has to do that work — which it already does
+    for the US sheets. The sheet is named after the file so the report reads
+    the same either way."""
+    import csv
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        rows = [tuple(r) for r in csv.reader(fh)]
+    if not rows:
+        return []
+    return [(path.stem, [str(h or "") for h in rows[0]], rows[1:])]
+
+
+def read_sheets(path: Path) -> list[Sheet]:
+    """Rows from a .xlsx or a .csv. Anything else is refused by name rather
+    than by a parser exception three frames down."""
+    suffix = path.suffix.lower()
+    if suffix in (".xlsx", ".xlsm"):
+        return _sheets_from_xlsx(path)
+    if suffix == ".csv":
+        return _sheets_from_csv(path)
+    raise ValueError(f"Unsupported roster file type '{suffix or path.name}' — use .xlsx or .csv.")
+
+
+def parse_workbook(path: Path) -> tuple[list[ParsedCenter], ImportReport]:
+    report = ImportReport()
     centers: dict[str, ParsedCenter] = {}
 
-    for sheet_name in wb.sheetnames:
+    for sheet_name, headers, data_rows in read_sheets(path):
         if sheet_name in LEGACY_SHEETS:
             report.sheets_skipped.append(sheet_name)
             continue
-        ws = wb[sheet_name]
-        headers = [str(c.value or "") for c in ws[1]]
         is_canada = "canada" in sheet_name.lower()
         col = {
             "city": _col(headers, "City"),
@@ -181,7 +217,7 @@ def parse_workbook(path: Path) -> tuple[list[ParsedCenter], ImportReport]:
         report.sheets_processed.append(sheet_name)
         current: ParsedCenter | None = None
 
-        for row in ws.iter_rows(min_row=2, values_only=True):
+        for row in data_rows:
             if not any(v not in (None, "") for v in row):
                 continue
             city = _cell(row, col["city"])

@@ -6,7 +6,7 @@ import { useFloorRequests, useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
 import { StatusDot } from "../design";
-import { ScanButton } from "../scan/ScanButton";
+import { ScanButton, ScanSheetLazy } from "../scan/ScanButton";
 import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
 import { TransferDraftBubble } from "./TransferDraftBubble";
@@ -92,22 +92,20 @@ function NavList({
   );
 }
 
-/** M3 bottom navigation bar — phones, roles with few destinations. */
-function BottomNav({ items, dotted }: { items: NavItem[]; dotted?: Set<string> }) {
+/** One destination in the bottom bar. */
+function BottomNavLink({
+  item,
+  dotted,
+}: {
+  item: NavItem;
+  dotted?: Set<string>;
+}) {
   const s = useSillyLabel();
   return (
-    <nav
-      aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 flex justify-around gap-1 bg-surface-container
-        px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-1px_0_var(--color-outline-variant)]
-        md:hidden"
+    <NavLink
+      to={item.path}
+      className="group flex min-w-0 flex-1 flex-col items-center gap-1 text-[11px] font-medium"
     >
-      {items.map((item) => (
-        <NavLink
-          key={item.path}
-          to={item.path}
-          className="group flex min-w-16 flex-col items-center gap-1 text-[11px] font-medium"
-        >
           {({ isActive }) => (
             <>
               <span
@@ -127,14 +125,123 @@ function BottomNav({ items, dotted }: { items: NavItem[]; dotted?: Set<string> }
                   />
                 )}
               </span>
-              <span className={isActive ? "font-semibold text-on-surface" : "text-on-surface-variant"}>
-                {s(item.label)}
+              <span
+                className={`w-full truncate text-center ${
+                  isActive ? "font-semibold text-on-surface" : "text-on-surface-variant"
+                }`}
+              >
+                {s(item.short ?? item.label)}
               </span>
             </>
           )}
-        </NavLink>
-      ))}
-    </nav>
+    </NavLink>
+  );
+}
+
+/** M3 bottom navigation bar — EVERY role gets one on a phone now.
+ *
+ *  Five slots. A role with more destinations keeps the first four and the
+ *  fifth becomes "More", which opens the rest in a sheet — the hamburger
+ *  drawer this replaced put the whole menu behind a corner tap on exactly the
+ *  roles with the most to reach. The scanner rides in the bar as its own
+ *  destination (Noah, 2026-08-16) rather than hiding in the top bar. */
+const BOTTOM_SLOTS = 5;
+
+function BottomNav({
+  items,
+  dotted,
+  onScan,
+}: {
+  items: NavItem[];
+  dotted?: Set<string>;
+  onScan: () => void;
+}) {
+  const s = useSillyLabel();
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Scan is PINNED: it was asked for as a menu item, so it keeps its slot
+  // rather than being the first thing the overflow swallows.
+  const overflowing = items.length + 1 > BOTTOM_SLOTS;
+  const keep = overflowing ? BOTTOM_SLOTS - 2 : items.length; // leave room for Scan (+ More)
+  const primary = items.slice(0, keep);
+  const overflow = items.slice(keep);
+  const overflowDotted = overflow.some((i) => dotted?.has(i.path));
+
+  return (
+    <>
+      {moreOpen && (
+        <div
+          className="animate-fade-in fixed inset-0 z-30 bg-scrim/35 md:hidden"
+          onClick={() => setMoreOpen(false)}
+        >
+          <div
+            className="animate-rise-in absolute inset-x-0 bottom-0 rounded-t-(--radius-xl)
+              bg-surface-container px-3 pt-3 pb-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-outline-variant" aria-hidden />
+            <NavList items={overflow} dotted={dotted} onNavigate={() => setMoreOpen(false)} />
+          </div>
+        </div>
+      )}
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 flex items-stretch gap-1 bg-surface-container
+          px-1 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]
+          shadow-[0_-1px_0_var(--color-outline-variant)] md:hidden"
+      >
+        {primary.map((item) => (
+          <BottomNavLink key={item.path} item={item} dotted={dotted} />
+        ))}
+        <BottomAction label={s("Scan")} icon={Icons.scan} onClick={onScan} />
+        {overflowing && (
+          <BottomAction
+            label="More"
+            icon={Icons.more}
+            dot={overflowDotted}
+            active={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
+          />
+        )}
+      </nav>
+    </>
+  );
+}
+
+/** A bottom-bar slot that runs an action instead of navigating. */
+function BottomAction({
+  label,
+  icon,
+  onClick,
+  active = false,
+  dot = false,
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  active?: boolean;
+  dot?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex min-w-0 flex-1 flex-col items-center gap-1 text-[11px] font-medium"
+    >
+      <span
+        className={`relative grid h-8 w-16 place-items-center rounded-full transition-all
+          duration-300 ease-(--ease-spring)
+          ${
+            active
+              ? "scale-110 bg-secondary-container text-on-secondary-container"
+              : "text-on-surface-variant group-hover:scale-105 group-hover:bg-on-surface/5"
+          }`}
+      >
+        {icon}
+        {dot && (
+          <span aria-label="new" className="absolute top-1 right-4 h-2 w-2 rounded-full bg-error" />
+        )}
+      </span>
+      <span className="w-full truncate text-center text-on-surface-variant">{label}</span>
+    </button>
   );
 }
 
@@ -185,7 +292,6 @@ function HealthChip() {
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const { user, roles, isDepartments, signOut } = useAuth();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const s = useSillyLabel();
 
@@ -198,8 +304,10 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   );
   // the one route whose name depends on the review zone rather than the role
   const shownTitle = isDepartments && title === "My centers" ? "My departments" : title;
-  // M3: bottom bar handles up to 5 destinations; busier roles get the drawer.
-  const bottomBar = items.length <= 5;
+  // Every role gets the bottom bar now; the fifth slot becomes "More" when a
+  // role has more destinations than fit (it used to be a hamburger drawer,
+  // which hid the whole menu from exactly the busiest roles).
+  const [scanOpen, setScanOpen] = useState(false);
 
   const logout = () => {
     signOut();
@@ -214,16 +322,17 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         <NavList items={items} dotted={dotted} />
       </aside>
 
-      {/* mobile top app bar — standalone (home-screen) mode draws under the
-          status bar, so the top edge honors the safe-area inset */}
-      <div className="sticky top-0 z-30 flex items-center justify-between bg-surface-container-low
+      {/* Mobile top app bar. The brand lock-up is gone from here (Noah,
+          2026-08-16) — on a 375px screen it spent a third of the bar telling
+          you which app you already opened. The page title takes its place.
+          Standalone (home-screen) mode draws under the status bar, so the top
+          edge honors the safe-area inset. */}
+      <div className="sticky top-0 z-30 flex items-center justify-between gap-2 bg-surface-container-low
         px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
-        <Brand />
-        <div className="flex items-center gap-1">
-        <ScanButton />
-        <InboxMenu />
-        <SettingsButton />
-        {bottomBar ? (
+        <div className="min-w-0" />
+        <div className="flex shrink-0 items-center gap-1">
+          <InboxMenu />
+          <SettingsButton />
           <button
             aria-label="Sign out"
             onClick={logout}
@@ -239,35 +348,8 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
               />
             </svg>
           </button>
-        ) : (
-          <button
-            aria-label="Menu"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="state-layer grid h-10 w-10 place-items-center rounded-full text-on-surface-variant"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              {menuOpen ? (
-                <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              ) : (
-                <path d="M2.5 5h13M2.5 9h13M2.5 13h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              )}
-            </svg>
-          </button>
-        )}
         </div>
       </div>
-      {menuOpen && !bottomBar && (
-        <div className="bg-surface-container-low px-4 pb-4 shadow-(--shadow-e1) md:hidden">
-          <NavList items={items} dotted={dotted} onNavigate={() => setMenuOpen(false)} />
-          <button
-            onClick={logout}
-            className="state-layer mt-3 w-full rounded-full border border-outline-variant px-4
-              py-2.5 text-left text-sm text-on-surface-variant"
-          >
-            {s("Sign out")} {user?.display_name ? `(${user.display_name})` : ""}
-          </button>
-        </div>
-      )}
 
       <div className="min-w-0">
         {/* desktop top app bar */}
@@ -298,15 +380,15 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
             </div>
           </div>
         </header>
-        <main
-          className={`stagger-children mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8
-            ${bottomBar ? "pb-28 md:pb-8" : ""}`}
-        >
+        {/* pb-28: the bottom bar is fixed, so the last row of every page
+            would otherwise sit under it */}
+        <main className="stagger-children mx-auto w-full max-w-6xl px-4 py-6 pb-28 md:px-8 md:py-8 md:pb-8">
           {children}
         </main>
       </div>
 
-      {bottomBar && <BottomNav items={items} dotted={dotted} />}
+      <BottomNav items={items} dotted={dotted} onScan={() => setScanOpen(true)} />
+      {scanOpen && <ScanSheetLazy onClose={() => setScanOpen(false)} />}
 
       {/* a half-built transfer request follows you between pages */}
       <TransferDraftBubble />

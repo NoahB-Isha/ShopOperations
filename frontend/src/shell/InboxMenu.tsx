@@ -96,9 +96,16 @@ export function InboxMenu() {
             className="fixed inset-0 z-30 cursor-default"
             onClick={() => setOpen(false)}
           />
+          {/* Phones pin it to the VIEWPORT, not to the bell. Anchored
+              `right-0` on a 320px card, from a button that sits mid-bar on a
+              375px screen, hung the left edge off the display and the bottom
+              under the nav. From md up it goes back to a popover under the
+              button, where there is room for one. */}
           <div
-            className="animate-pop-in absolute right-0 z-40 mt-1 flex max-h-[70vh] w-80 flex-col
-              rounded-(--radius-lg) bg-surface-container-high pt-2 pb-2 shadow-(--shadow-e2)"
+            className="animate-pop-in fixed inset-x-3 top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))]
+              z-40 flex max-h-[min(70vh,32rem)] flex-col rounded-(--radius-lg)
+              bg-surface-container-high pt-2 pb-2 shadow-(--shadow-e2)
+              md:absolute md:inset-x-auto md:top-auto md:right-0 md:mt-1 md:w-80"
           >
             <div className="px-4 pt-1 pb-2">
               <span className="title-m text-on-surface">{s("Inbox")}</span>

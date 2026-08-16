@@ -57,8 +57,21 @@ export const Icons = {
   radar: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 8 12.2 4.2M8 1.5A6.5 6.5 0 1 1 1.5 8" /><path {...stroke} d="M8 4.5A3.5 3.5 0 1 0 11.5 8" /><circle cx="8" cy="8" r="1" fill="currentColor" /></svg>
   ),
+  // a real cog: eight square teeth on a ring, not a lumpy blob
   gear: (
-    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8" cy="8" r="2.2" /><path {...stroke} d="M8 1.6l.9 1.8 2-.3 .4 2 1.9.7-.7 1.9 1.3 1.5-1.5 1.3.3 2-2 .3-1 1.8-1.8-.9-1.8.9-1-1.8-2-.3.3-2L1.8 9.2l1.3-1.5-.7-1.9 1.9-.7.4-2 2 .3L8 1.6Z" /></svg>
+    <svg width="16" height="16" viewBox="0 0 16 16">
+      <circle {...stroke} cx="8" cy="8" r="2.4" />
+      <path
+        {...stroke}
+        d="M12.9 9.7a1.1 1.1 0 0 0 .22 1.21l.04.04a1.33 1.33 0 1 1-1.88 1.88l-.04-.04a1.1 1.1 0 0 0-1.21-.22 1.1 1.1 0 0 0-.67 1v.11a1.33 1.33 0 0 1-2.66 0v-.06a1.1 1.1 0 0 0-.72-1 1.1 1.1 0 0 0-1.21.22l-.04.04a1.33 1.33 0 1 1-1.88-1.88l.04-.04a1.1 1.1 0 0 0 .22-1.21 1.1 1.1 0 0 0-1-.67h-.11a1.33 1.33 0 0 1 0-2.66h.06a1.1 1.1 0 0 0 1-.72 1.1 1.1 0 0 0-.22-1.21l-.04-.04a1.33 1.33 0 1 1 1.88-1.88l.04.04a1.1 1.1 0 0 0 1.21.22h.05a1.1 1.1 0 0 0 .67-1v-.11a1.33 1.33 0 0 1 2.66 0v.06a1.1 1.1 0 0 0 .67 1 1.1 1.1 0 0 0 1.21-.22l.04-.04a1.33 1.33 0 1 1 1.88 1.88l-.04.04a1.1 1.1 0 0 0-.22 1.21v.05a1.1 1.1 0 0 0 1 .67h.11a1.33 1.33 0 0 1 0 2.66h-.06a1.1 1.1 0 0 0-1 .67Z"
+      />
+    </svg>
+  ),
+  card: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><rect {...stroke} x="1.5" y="3.5" width="13" height="9" rx="1.5" /><path {...stroke} d="M1.5 6.5h13M4 10h2.5" /></svg>
+  ),
+  search: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="7" cy="7" r="4.5" /><path {...stroke} d="M10.4 10.4 14 14" /></svg>
   ),
   scan: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M2 5.5v-2A1.5 1.5 0 0 1 3.5 2h2M10.5 2h2A1.5 1.5 0 0 1 14 3.5v2M14 10.5v2a1.5 1.5 0 0 1-1.5 1.5h-2M5.5 14h-2A1.5 1.5 0 0 1 2 12.5v-2M5 5.5v5M7.5 5.5v5M10 5.5v5" /></svg>
@@ -69,22 +82,29 @@ export const Icons = {
   download: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 2.5V10M5 7.5 8 10.5 11 7.5M2.5 13.5h11" /></svg>
   ),
+  more: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="3.2" cy="8" r="1.35" fill="currentColor" /><circle cx="8" cy="8" r="1.35" fill="currentColor" /><circle cx="12.8" cy="8" r="1.35" fill="currentColor" /></svg>
+  ),
+  upload: (
+    <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 10.5V3M5 6 8 3l3 3M2.5 13.5h11" /></svg>
+  ),
 };
 
 export interface NavItem {
   path: string;
   label: string;
   icon: ReactNode;
+  /** Bottom-bar label. A phone slot is ~70px; anything longer than about ten
+   *  characters truncates to "Search Inv…". Only long labels need one. */
+  short?: string;
 }
 
 const byRole: Record<string, NavItem[]> = {
   admin: [
-    { path: "/status", label: "Status", icon: Icons.pulse },
     { path: "/reports", label: "Reports", icon: Icons.chart },
-    { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
-    { path: "/catalog", label: "All SKUs", icon: Icons.box },
+    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.radar },
+    { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
-    { path: "/users", label: "Users", icon: Icons.users },
     { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
     { path: "/purchasing", label: "Purchasing", icon: Icons.ship },
   ],
@@ -92,44 +112,44 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/incoming", label: "Incoming", icon: Icons.truck },
     { path: "/transfers", label: "Transfers", icon: Icons.swap },
     { path: "/staging2", label: "Staging 2", icon: Icons.box },
-    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", icon: Icons.radar },
-    { path: "/adjustments", label: "Adjustments", icon: Icons.scale },
-    { path: "/catalog", label: "All SKUs", icon: Icons.box },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
+    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.radar },
+    { path: "/adjustments", label: "Adjustments", short: "Adjust", icon: Icons.scale },
+    { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
-    { path: "/suggested-items", label: "Suggested items", icon: Icons.sparkle },
+    { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
-    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
-    { path: "/catalog", label: "All SKUs", icon: Icons.box },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
+    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
+    { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Floor Team: the floor toolkit minus creating transfers (the pages hide
   // the "new request" entry points; the API refuses too). What they CAN do is
   // ask — /request-items feeds the manager's Suggested items page.
   floor_rotating: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
-    { path: "/request-items", label: "Request items", icon: Icons.bag },
+    { path: "/request-items", label: "Request items", short: "Request", icon: Icons.bag },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
-    { path: "/coming-soon", label: "Coming soon", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", icon: Icons.scale },
-    { path: "/catalog", label: "All SKUs", icon: Icons.box },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
+    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
+    { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Order Reviewer — one nav whether the review zone is a field zone or III
   // Departments; the pages themselves say "center" or "department" based on
   // the zone's kind (the dept-specific roles merged 2026-08-13).
   zone_coordinator: [
     // pending orders first: it's the job — and the landing page (homeForRoles)
-    { path: "/pending-orders", label: "Pending orders", icon: Icons.clipboard },
-    { path: "/my-centers", label: "My centers", icon: Icons.mapPin },
+    { path: "/pending-orders", label: "Pending orders", short: "Pending", icon: Icons.clipboard },
+    { path: "/my-centers", label: "My centers", short: "Centers", icon: Icons.mapPin },
     { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
   // Order Requester
   center_orderer: [
-    { path: "/place-order", label: "Place an order", icon: Icons.bag },
-    { path: "/order-history", label: "Order history", icon: Icons.history },
+    { path: "/place-order", label: "Place an order", short: "Order", icon: Icons.bag },
+    { path: "/order-history", label: "Order history", short: "History", icon: Icons.history },
   ],
 };
 

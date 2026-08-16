@@ -1,7 +1,14 @@
-/* Palette switching: pure presentation. The choice lives in localStorage and
-   as `data-palette` on <html> (applied pre-paint by index.html); tokens.css
-   maps each id to a full light scheme. Dark mode is one global scheme and
-   follows the system — the palette shapes light mode only. */
+/* Appearance: pure presentation, two independent choices.
+
+   PALETTE (`data-palette`) shapes LIGHT mode — tokens.css maps each id to a
+   full scheme. THEME (`data-theme`) is light or dark, and dark is one global
+   scheme shared by every palette.
+
+   Both live in localStorage and are applied to <html> before first paint by
+   public/palette.js. Dark used to be a bare prefers-color-scheme media query,
+   so a device set to dark forced dark on the user with no way to choose a
+   light palette (Noah, 2026-08-16). It is a setting now, with "system" as the
+   default so the old behaviour is still what you get out of the box. */
 
 export interface PaletteOption {
   id: string;
@@ -30,4 +37,69 @@ export function setPalette(id: string): void {
   } catch {
     /* private browsing — the choice just won't persist */
   }
+}
+
+
+/* ------------------------------------------------------------------ theme */
+
+export type ThemeMode = "system" | "light" | "dark";
+
+export const THEME_MODES: { id: ThemeMode; label: string; hint: string }[] = [
+  { id: "system", label: "Match my device", hint: "Follows your phone or computer" },
+  { id: "light", label: "Light", hint: "Always light, whatever the device says" },
+  { id: "dark", label: "Dark", hint: "Always dark" },
+];
+
+const THEME_KEY = "ilops_theme";
+const media = () =>
+  typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+
+export function currentThemeMode(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    /* private browsing — fall through to system */
+  }
+  return "system";
+}
+
+/** What is actually on screen right now, which for "system" depends on the OS. */
+export function resolvedTheme(mode: ThemeMode = currentThemeMode()): "light" | "dark" {
+  if (mode === "dark") return "dark";
+  if (mode === "light") return "light";
+  return media()?.matches ? "dark" : "light";
+}
+
+function paint(mode: ThemeMode): void {
+  document.documentElement.dataset.theme = resolvedTheme(mode);
+  // keep the browser chrome (status bar, address bar) in step
+  const dark = document.documentElement.dataset.theme === "dark";
+  document
+    .querySelectorAll('meta[name="theme-color"]')
+    .forEach((el) => el.setAttribute("content", dark ? "#131523" : "#fbfafd"));
+}
+
+export function setThemeMode(mode: ThemeMode): void {
+  try {
+    if (mode === "system") localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, mode);
+  } catch {
+    /* private browsing — the choice just won't persist */
+  }
+  paint(mode);
+}
+
+/** Follow the OS while the user is on "system" — someone whose phone flips at
+ *  sunset should see the app flip with it, without a reload. */
+export function watchSystemTheme(): () => void {
+  const mq = media();
+  if (!mq) return () => {};
+  const onChange = () => {
+    if (currentThemeMode() === "system") paint("system");
+  };
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
 }

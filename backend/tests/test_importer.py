@@ -150,3 +150,45 @@ def test_preview_mode_writes_nothing(db, workbook):
     assert report.centers_parsed == 7
     assert not report.applied
     assert db.scalars(select(Center)).all() == []
+
+
+def test_csv_roster_imports_like_a_one_sheet_workbook(db, tmp_path):
+    """An admin uploads whatever their machine has. A CSV is one sheet, so the
+    Zone column carries the zone split the workbook did with tabs — which is
+    what the US sheets already do."""
+    csv_path = tmp_path / "roster.csv"
+    csv_path.write_text(
+        ",".join(US_HEADERS)
+        + "\n"
+        + ",".join(
+            [
+                "Testville", "Ohio", "Midwest", "Shoppe", "Pat Example",
+                "pat@example.org", "555-0100", "", "", "", "WPC-TEST-1", "SN-1",
+                # the Zone column carries the CODE, exactly as the workbook's
+                # US sheets do — `_col` fuzzy-matches headers, so "Zone
+                # Coordinator" resolves to "Zone" and only the code path runs
+                "3", "", "", "", "csv probe", "Ravi", "", "", "", "Yes",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = run_import(db, csv_path, apply=True, create_users=True)
+    assert report.sheets_processed == ["roster"]  # the file name becomes the sheet
+
+    center = db.scalar(select(Center).where(Center.name == "Testville"))
+    assert center is not None
+    assert center.state == "Ohio" and center.is_active is True
+    assert center.stripe_terminal_name == "WPC-TEST-1"
+    db.refresh(center)  # zone_id was just written; load the relationship fresh
+    assert center.zone is not None and center.zone.name == "Zone 3 (Ravi)"
+    assert [c.email for c in center.contacts] == ["pat@example.org"]
+
+
+def test_unsupported_roster_file_is_refused_by_name(db, tmp_path):
+    """Say which formats work, rather than dying inside a parser."""
+    bad = tmp_path / "roster.numbers"
+    bad.write_text("nope", encoding="utf-8")
+    with pytest.raises(ValueError, match="xlsx or .csv"):
+        run_import(db, bad, apply=False)

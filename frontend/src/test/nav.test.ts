@@ -12,7 +12,7 @@ test("each role sees its own nav", () => {
     "Coming soon",
     "Out of stock",
     "Adjustments",
-    "All SKUs",
+    "Search Inventory",
   ]);
   const adminPaths = navForRoles(new Set(["admin"])).map((i) => i.path);
   expect(adminPaths).toContain("/reports");
@@ -62,7 +62,9 @@ test("multi-role users get a deduped union", () => {
 });
 
 test("home route follows the first nav item", () => {
-  expect(homeForRoles(new Set(["admin"]))).toBe("/status");
+  // Status moved into Settings as "Dev Tools" (2026-08-16), so an admin now
+  // lands on Reports — the first thing left in their nav.
+  expect(homeForRoles(new Set(["admin"]))).toBe("/reports");
   expect(homeForRoles(new Set(["center_orderer"]))).toBe("/place-order");
   expect(homeForRoles(new Set())).toBe("/login");
 });

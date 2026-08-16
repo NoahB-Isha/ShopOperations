@@ -5,6 +5,7 @@ import type {
   AuditRow,
   BlacklistSweepOut,
   CanaryResult,
+  CenterDetailOut,
   CenterOut,
   FacetsOut,
   HealthOut,
@@ -133,6 +134,49 @@ export function useBlacklistSweep() {
 // ------------------------------------------------------------------ centers
 export function useZones() {
   return useQuery({ queryKey: ["zones"], queryFn: () => api<ZoneOut[]>("/zones") });
+}
+
+/** The map panel: who reviews, who orders, and a LIVE read of the center's
+ *  shelf in Odoo. Not polled — one query per click is the whole budget. */
+export function useCenterDetail(centerId: number | null) {
+  return useQuery({
+    queryKey: ["center-detail", centerId],
+    queryFn: () => api<CenterDetailOut>(`/centers/${centerId}/detail`),
+    enabled: centerId !== null,
+    staleTime: 60_000,
+  });
+}
+
+/** Edit a center and, when `contacts` is present, replace its whole roster. */
+export function useUpdateCenter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: number } & Record<string, unknown>) =>
+      api<CenterOut>(`/centers/${id}`, { method: "PATCH", body }),
+    onSuccess: (_c, vars) => {
+      void qc.invalidateQueries({ queryKey: ["centers"] });
+      void qc.invalidateQueries({ queryKey: ["center-detail", vars.id] });
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+/** Roster import from a file the admin picked (.xlsx or .csv). */
+export function useImportRosterFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, apply }: { file: File; apply: boolean }) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("apply", String(apply));
+      return apiUpload<ImportReportOut>("/admin/import/coordinators/upload", form);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["centers"] });
+      void qc.invalidateQueries({ queryKey: ["zones"] });
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
 }
 
 export function useCenters(params: { zone_id?: number; q?: string } = {}) {

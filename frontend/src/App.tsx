@@ -89,7 +89,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
 
               <Route path="/catalog" element={
-                <Protected title="All SKUs"><CatalogPage /></Protected>
+                <Protected title="Search Inventory"><CatalogPage /></Protected>
               } />
               <Route path="/settings" element={
                 <Protected title="Settings"><SettingsPage /></Protected>
@@ -104,7 +104,7 @@ export default function App() {
 
               {/* admin */}
               <Route path="/status" element={
-                <Protected title="Status" roles={["admin"]}><StatusPage /></Protected>
+                <Protected title="Dev Tools" roles={["admin"]}><StatusPage /></Protected>
               } />
               <Route path="/users" element={
                 <Protected title="Users" roles={["admin"]}><UsersPage /></Protected>

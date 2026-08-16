@@ -48,10 +48,11 @@ export function useSillyMode(): boolean {
 export const SILLY_LABELS: Record<string, string> = {
   // admin
   Status: "Vibe check",
+  "Dev Tools": "The engine room",
   Reports: "🤑🤑🤑",
   Sales: "🤑🤑🤑", // the /reports route title
   "Out of stock": "Ghost town",
-  "All SKUs": "The stash",
+  "Search Inventory": "Find the stash",
   Centers: "The crews",
   Users: "Peeps",
   Catalogs: "Mixtapes",

@@ -1,7 +1,10 @@
 """Admin: sync status & triggers, feature flags, audit log, canary, imports."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -221,9 +224,45 @@ def import_coordinators(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    """Re-read the roster file that ships with the deployment.
+
+    Kept for the seeded/local path; the admin UI uploads a file instead (see
+    below), because the roster now lives in this app and a spreadsheet is
+    something you bring TO it, not something it reads over your shoulder."""
     path = settings.coordinator_xlsx_path
     try:
         report = run_import(db, path, apply=body.apply, create_users=body.create_users)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
+    return report.to_dict()
+
+
+@router.post("/import/coordinators/upload")
+async def import_coordinators_upload(
+    file: UploadFile = File(...),
+    apply: bool = Form(False),
+    create_users: bool = Form(True),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Import a roster the admin picked off their own machine (.xlsx or .csv).
+
+    Written to a temp file because the parsers want a path, and deleted in a
+    finally — a roster carries every coordinator's phone number and has no
+    business lingering in the container's filesystem.
+    """
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in (".xlsx", ".xlsm", ".csv"):
+        raise HTTPException(422, "Upload a .xlsx or .csv roster.")
+    payload = await file.read()
+    if len(payload) > 8 * 1024 * 1024:
+        raise HTTPException(413, "That file is larger than 8MB — is it the right one?")
+    tmp = Path(tempfile.mkdtemp()) / f"roster{suffix}"
+    try:
+        tmp.write_bytes(payload)
+        report = run_import(db, tmp, apply=apply, create_users=create_users)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+        tmp.parent.rmdir()
     return report.to_dict()
