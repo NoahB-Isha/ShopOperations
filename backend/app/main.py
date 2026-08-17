@@ -16,6 +16,7 @@ from .catalog.router import router as catalog_router
 from .center_orders.router import router as center_orders_router
 from .centers.router import router as centers_router
 from .config import get_settings
+from .floor_requests.router import router as floor_requests_router
 from .health import router as health_router
 from .notices.router import router as notices_router
 from .odoo.errors import OdooWriteError
@@ -24,7 +25,6 @@ from .oos.router import router as oos_router
 from .ordering.router import router as ordering_router
 from .orders.router import router as orders_router
 from .reporting.router import router as reports_router
-from .floor_requests.router import router as floor_requests_router
 from .restock.router import router as restock_router
 from .security_headers import SecurityHeadersMiddleware
 from .timemachine.router import router as timemachine_router

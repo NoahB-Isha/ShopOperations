@@ -16,20 +16,40 @@ async function login(page: Page, email: string) {
 }
 
 test("admin, warehouse, and orderer see different navs", async ({ page }) => {
+  // The nav is the role boundary made visible, so it is asserted on what each
+  // role SHOULD reach. Admin-only pages that left the menu for Settings (Users,
+  // Dev Tools) and the design pages (Styleguide, Palette lab) are deliberately
+  // not here — see the settings test below for those.
   await login(page, "admin@demo.ishalife.test");
-  await expect(page.getByRole("navigation")).toContainText("Users");
-  await expect(page.getByRole("navigation")).toContainText("Styleguide");
+  await expect(page.getByRole("navigation").first()).toContainText("Purchasing");
+  await expect(page.getByRole("navigation").first()).toContainText("Centers");
   await page.getByRole("button", { name: /sign out/i }).click();
 
   await login(page, "warehouse@demo.ishalife.test");
-  await expect(page.getByRole("navigation")).toContainText("Incoming");
-  await expect(page.getByRole("navigation")).not.toContainText("Users");
+  await expect(page.getByRole("navigation").first()).toContainText("Incoming");
+  await expect(page.getByRole("navigation").first()).not.toContainText("Purchasing");
   await page.getByRole("button", { name: /sign out/i }).click();
 
   await login(page, "orderer@demo.ishalife.test");
-  await expect(page.getByRole("navigation")).toContainText("Place an order");
-  await expect(page.getByRole("navigation")).not.toContainText("All SKUs");
-  await expect(page.getByRole("navigation")).not.toContainText("Catalogs");
+  await expect(page.getByRole("navigation").first()).toContainText("Place an order");
+  await expect(page.getByRole("navigation").first()).not.toContainText("Search Inventory");
+  await expect(page.getByRole("navigation").first()).not.toContainText("Catalogs");
+});
+
+test("settings holds the admin pages that left the menu", async ({ page }) => {
+  await login(page, "admin@demo.ishalife.test");
+  await page.goto("/settings");
+  // account first, then the pages that moved here
+  await expect(page.getByText("Signed in as")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Users/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Dev Tools/ })).toBeVisible();
+
+  // a non-admin gets settings too, without the admin pages
+  await page.getByRole("button", { name: /sign out/i }).click();
+  await login(page, "orderer@demo.ishalife.test");
+  await page.goto("/settings");
+  await expect(page.getByText("Signed in as")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Dev Tools/ })).toHaveCount(0);
 });
 
 test("catalog live search stays smooth at 1,200 products", async ({ page }) => {

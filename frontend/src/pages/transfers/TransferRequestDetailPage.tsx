@@ -267,9 +267,14 @@ function Detail({ req }: { req: TransferRequestOut }) {
               </table>
             </div>
             {a.can_edit_lines && (
+              // Honest wording: PUT /transfer-requests/{id}/lines exists and is
+              // tested, but nothing in the UI calls it — this used to say the
+              // lines were "still editable from the request form", pointing at a
+              // button that has never existed. Cancel and re-raise is the real
+              // path until someone wires the editor.
               <div className="border-t border-outline-variant/60 px-4 py-2.5 text-[13px] text-on-surface-variant">
-                No live Odoo draft exists for this request — lines are still editable from the
-                request form if needed.
+                No live Odoo draft exists yet, so this request can still be cancelled and raised
+                again if the lines are wrong.
               </div>
             )}
           </Card>

@@ -22,6 +22,7 @@ from app.models import (
     Role,
     StockLevel,
     ZoneKind,
+    utcnow,
 )
 from app.odoo.simulator import OdooSimulator
 from sqlalchemy import select
@@ -56,8 +57,12 @@ def _setup(db):
         StockLevel(product_id=incense.id, location_key="bwhse", qty=3),
         StockLevel(product_id=rudraksha.id, location_key="bwhse", qty=0),
         StockLevel(product_id=toothpaste.id, location_key="floor", qty=12),
+        # Relative to the REAL today, not the frozen fixture date: the catalog
+        # endpoint labels an ETA against utcnow(), so a date pinned near TODAY
+        # quietly slides into the past and the "expected back" label vanishes.
+        # (It did — this test started failing on its own in August 2026.)
         IncomingMove(odoo_move_id=1, product_id=rudraksha.id, qty=24,
-                     expected_date=TODAY + timedelta(days=32), state="assigned"),
+                     expected_date=utcnow().date() + timedelta(days=32), state="assigned"),
     ])
 
     starter = OrderList(name="Starter kit")

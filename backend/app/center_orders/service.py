@@ -26,6 +26,7 @@ from ..models import (
     OdooWriteOutcome,
     Zone,
     ZoneKind,
+    is_due,
     utcnow,
 )
 from ..notify import service as notify
@@ -159,12 +160,8 @@ def poll_shipped(db: Session, settings: Settings, order: CenterOrder) -> bool:
     ):
         return False
     now = utcnow()
-    if order.picking_checked_at is not None:
-        checked = order.picking_checked_at
-        if checked.tzinfo is None:
-            checked = checked.replace(tzinfo=now.tzinfo)
-        if (now - checked).total_seconds() < settings.order_shipped_poll_seconds:
-            return False
+    if not is_due(order.picking_checked_at, settings.order_shipped_poll_seconds, now):
+        return False
     order.picking_checked_at = now
     db.commit()  # persist the throttle stamp even if the read below fails
 

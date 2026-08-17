@@ -283,11 +283,6 @@ function HealthChip() {
   );
 }
 
-/* The warp shockwave (shell/warpFx.tsx + warpWorker/warpWave, and the
-   .tm-* CSS in tokens.css) existed for ONE destination: the time-machine
-   page. That page was removed 2026-08-11, so nothing mounts WarpFX or calls
-   fireWarp/settleWarp any more — the machinery is left intact, unreferenced,
-   for whatever wants a 4th-wall moment next. */
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const { user, roles, isDepartments, signOut } = useAuth();

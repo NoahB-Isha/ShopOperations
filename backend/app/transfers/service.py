@@ -22,6 +22,7 @@ from ..models import (
     TransferEventKind,
     TransferRequest,
     TransferRequestStatus,
+    is_due,
     utcnow,
 )
 from ..odoo.connection import get_connection
@@ -277,12 +278,8 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
     ):
         return False
     now = utcnow()
-    if req.picking_checked_at is not None:
-        checked = req.picking_checked_at
-        if checked.tzinfo is None:
-            checked = checked.replace(tzinfo=now.tzinfo)
-        if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
-            return False
+    if not is_due(req.picking_checked_at, settings.odoo_count_poll_seconds, now):
+        return False
     req.picking_checked_at = now
     db.commit()  # persist the throttle stamp even if the read below fails
 
@@ -388,12 +385,8 @@ def poll_close_out(db: Session, settings: Settings, req: TransferRequest) -> boo
     if req.status not in (TransferRequestStatus.SENT.value, TransferRequestStatus.COUNTING.value):
         return False
     now = utcnow()
-    if req.count_checked_at is not None:
-        checked = req.count_checked_at
-        if checked.tzinfo is None:
-            checked = checked.replace(tzinfo=now.tzinfo)
-        if (now - checked).total_seconds() < settings.odoo_count_poll_seconds:
-            return False
+    if not is_due(req.count_checked_at, settings.odoo_count_poll_seconds, now):
+        return False
     req.count_checked_at = now
     db.commit()  # persist the throttle stamp even if the reads below fail
 

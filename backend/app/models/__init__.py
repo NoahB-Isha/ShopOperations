@@ -1,5 +1,5 @@
 from .audit import FeatureFlag, OdooWriteAudit
-from .base import Base, utcnow
+from .base import Base, elapsed_since, is_due, utcnow
 from .catalog import (
     SOURCING_DOMESTIC,
     SOURCING_INDIA,
@@ -30,6 +30,8 @@ from .ops import (
     Adjustment,
     AdjustmentStatus,
     FloorOosMark,
+    FloorRequest,
+    FloorRequestStatus,
     OdooWriteOutcome,
     OrderList,
     OrderListCenter,
@@ -37,13 +39,11 @@ from .ops import (
     OrderListZone,
     PalletTransfer,
     RestockAccum,
-    FloorRequest,
-    FloorRequestStatus,
     RestockCheckoff,
     RestockFoldState,
     RestockLine,
-    SuggestionSnooze,
     SalesDaily,
+    SuggestionSnooze,
     TransferEvent,
     TransferEventKind,
     TransferRequest,
@@ -114,6 +114,8 @@ from .users import (
 
 __all__ = [
     "Base",
+    "elapsed_since",
+    "is_due",
     "utcnow",
     "FeatureFlag",
     "OdooWriteAudit",

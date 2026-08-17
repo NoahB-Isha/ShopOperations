@@ -23,6 +23,31 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def elapsed_since(stamp: datetime | None, now: datetime | None = None) -> float:
+    """Seconds since `stamp`, or `inf` when there is no stamp yet.
+
+    Every poller in the app throttles on a "when did we last look" column, and
+    every one of them had to remember that SQLite hands those back NAIVE while
+    Postgres hands them back aware — comparing the two raises TypeError, which
+    is a runtime error in a background poll rather than a test failure. Four
+    copies of that dance is four chances to forget; this is the one copy.
+
+    `inf` for a missing stamp is the useful default: "never looked" always
+    means "due".
+    """
+    if stamp is None:
+        return float("inf")
+    now = now or utcnow()
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=now.tzinfo)
+    return (now - stamp).total_seconds()
+
+
+def is_due(stamp: datetime | None, every_seconds: float, now: datetime | None = None) -> bool:
+    """True when `every_seconds` have passed since `stamp` (or it is unset)."""
+    return elapsed_since(stamp, now) >= every_seconds
+
+
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 

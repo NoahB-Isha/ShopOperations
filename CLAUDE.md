@@ -1134,3 +1134,34 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   **Scanner manual entry takes letters**: `inputMode="text"` +
   `autoCapitalize="characters"`, because plenty of these codes are CM233-L, not
   digits, and a number pad can't type them.
+- Cleanup pass (2026-08-17, Noah asked for redundancy removal; logic and
+  layouts unchanged): **the warp shockwave is deleted** — warpFx.tsx (572),
+  warpWorker.ts (183), warpWave.ts (66), warpWave.test.ts (46) and its 66-line
+  `.tm-*` CSS block, plus the `@fontsource/special-elite` + `@fontsource/
+  orbitron` packages that only it used. Nothing had imported it since the
+  time-machine page went on 08-11; its last reference was a comment explaining
+  why it was still there. It is in git history if a 4th-wall moment ever comes
+  back — the earlier notes above describe what it did and which two approaches
+  (SVG displacement, main-thread rAF WebGL) failed on the way to it.
+  **One throttle helper**: `models/base.is_due(stamp, seconds, now)` +
+  `elapsed_since` replace four hand-rolled copies (transfers ×2, center_orders,
+  sync/runner) of the same naive-vs-aware datetime dance. SQLite hands those
+  columns back NAIVE and Postgres aware, so comparing them raises TypeError in
+  a background poll rather than in a test — four copies were four chances to
+  forget. A missing stamp reads as `inf`, i.e. "never looked" is always due.
+  **Three dead hooks removed** (`useImportCoordinators`, superseded by the file
+  upload; `useReplaceTransferLines`; `useAdjustCenterOrderLines`). The last two
+  matter: `PUT /transfer-requests/{id}/lines` and `PUT /center-orders/{id}/lines`
+  are LIVE, TESTED endpoints that no UI calls — editing a transfer's lines and
+  a reviewer adjusting an order before approving are both unbuilt front ends,
+  not dead code. The endpoints stay. The transfer detail page no longer claims
+  lines are "editable from the request form" (they never were — there is no
+  such button); it now points at cancel-and-re-raise, which is the real path.
+  **Two stale tests fixed**: `test_center_orders` pinned an incoming ETA to a
+  frozen fixture date while the endpoint labels against the real today, so it
+  started failing on its own in August — the fixture is relative now. And
+  `e2e/smoke.spec.ts` asserted nav items that had left the menu (Styleguide on
+  07-25, Users on 08-16); it asserts the current shape and a new test covers
+  Settings holding the moved pages. `ruff check backend worker` — the CI
+  command — passes clean for the first time in a while (three import-order
+  findings that predated this work).

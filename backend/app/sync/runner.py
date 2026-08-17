@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..models import SYNC_DOMAINS, SyncRun, SyncState, utcnow
+from ..models import SYNC_DOMAINS, SyncRun, SyncState, is_due, utcnow
 from ..odoo.connection import get_connection
 from ..odoo.errors import OdooAuthError
 from ..odoo.protocol import OdooConnection
@@ -109,12 +109,8 @@ def claim_stale_refresh(db: Session, domain: str, max_age_seconds: int) -> bool:
     """
     state = get_or_create_state(db, domain)
     now = utcnow()
-    stamp = state.last_attempt_at
-    if stamp is not None:
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=now.tzinfo)
-        if (now - stamp).total_seconds() < max_age_seconds:
-            return False
+    if not is_due(state.last_attempt_at, max_age_seconds, now):
+        return False
     state.last_attempt_at = now
     db.commit()
     return True

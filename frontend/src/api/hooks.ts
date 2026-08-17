@@ -267,19 +267,6 @@ export function useCanary() {
   });
 }
 
-export function useImportCoordinators() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (apply: boolean) =>
-      api<ImportReportOut>("/admin/import/coordinators", { method: "POST", body: { apply } }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["centers"] });
-      qc.invalidateQueries({ queryKey: ["zones"] });
-      qc.invalidateQueries({ queryKey: ["users"] });
-    },
-  });
-}
-
 // -------------------------------------------------------------- order lists
 
 export function useOrderLists(includeArchived = false) {
@@ -403,16 +390,6 @@ export function useCreateTransferRequest() {
   return useTransferMutation(
     (body: { notes?: string; lines: { product_id: number; qty: number }[] }) =>
       api<TransferRequestOut>("/transfer-requests", { method: "POST", body }),
-  );
-}
-
-export function useReplaceTransferLines() {
-  return useTransferMutation(
-    ({ id, lines, note }: { id: number; lines: { product_id: number; qty: number }[]; note?: string }) =>
-      api<TransferRequestOut>(`/transfer-requests/${id}/lines`, {
-        method: "PUT",
-        body: { lines, note },
-      }),
   );
 }
 
@@ -666,13 +643,6 @@ export function useRejectCenterOrder() {
 export function useCancelCenterOrder() {
   return useCenterOrderMutation(({ id, note }: { id: number; note?: string }) =>
     api<CenterOrderOut>(`/center-orders/${id}/cancel`, { method: "POST", body: { note: note ?? "" } }),
-  );
-}
-
-export function useAdjustCenterOrderLines() {
-  return useCenterOrderMutation(
-    ({ id, lines }: { id: number; lines: { product_id: number; qty: number }[] }) =>
-      api<CenterOrderOut>(`/center-orders/${id}/lines`, { method: "PUT", body: lines }),
   );
 }
 
