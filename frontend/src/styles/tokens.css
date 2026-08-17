@@ -668,3 +668,19 @@ body {
   --zone-3: #008300;
   --zone-4: #9085e9;
 }
+
+/* ---- brand emblem: one variant per THEME, not per OS -----------
+   The mark used to be a <picture> with a prefers-color-scheme
+   source. Dark is a setting now (see the data-theme block above),
+   and <source media> can only read a media query — so a light
+   laptop switched to dark mode drew the dark page with the light
+   emblem. CSS can read the attribute; <picture> cannot. */
+.mark-dark {
+  display: none;
+}
+:root[data-theme="dark"] .mark-light {
+  display: none;
+}
+:root[data-theme="dark"] .mark-dark {
+  display: block;
+}

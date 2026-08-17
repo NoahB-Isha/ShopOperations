@@ -15,18 +15,17 @@ import { TransferDraftBubble } from "./TransferDraftBubble";
  *  (all-white variant in dark mode). Bounces when you say hello. */
 export function ILMark({ size = 36 }: { size?: number }) {
   const width = Math.round(size * (353 / 400));
+  // Both variants ship and CSS picks one from `data-theme` (see .mark-light /
+  // .mark-dark in tokens.css). This was a <picture> with a
+  // prefers-color-scheme source, which stopped being right the moment dark
+  // became a SETTING: a light laptop set to dark mode got the dark page and
+  // the light emblem. <source media> can only read a media query.
+  const common = { alt: "", width, height: size, style: { width, height: size }, draggable: false };
   return (
-    <picture className="bounce-on-hover grid shrink-0 place-items-center" aria-hidden>
-      <source srcSet="/il-mark-dark.png" media="(prefers-color-scheme: dark)" />
-      <img
-        src="/il-mark.png"
-        alt=""
-        width={width}
-        height={size}
-        style={{ width, height: size }}
-        draggable={false}
-      />
-    </picture>
+    <span className="bounce-on-hover grid shrink-0 place-items-center" aria-hidden>
+      <img className="mark-light" src="/il-mark.png" {...common} />
+      <img className="mark-dark" src="/il-mark-dark.png" {...common} />
+    </span>
   );
 }
 
@@ -174,12 +173,39 @@ function BottomNav({
   // Scan is PINNED: it was asked for as a menu item, so it keeps its slot
   // rather than being the first thing the overflow swallows. The FAB's spacer
   // counts as a slot because it takes the same width.
-  const cells = BOTTOM_SLOTS - (search ? 1 : 0);
-  const overflowing = rest.length + 1 > cells;
-  const keep = overflowing ? cells - 2 : rest.length; // leave room for Scan (+ More)
+  const rowCells = BOTTOM_SLOTS - (search ? 1 : 0);
+  const overflowing = rest.length + 1 > rowCells;
+  const keep = overflowing ? rowCells - 2 : rest.length; // leave room for Scan (+ More)
   const primary = rest.slice(0, keep);
   const overflow = rest.slice(keep);
   const overflowDotted = overflow.some((i) => dotted?.has(i.path));
+
+  /* Build every cell, then splice the FAB's spacer into the middle so the
+     destinations sit evenly either side of it. */
+  const cells: React.ReactNode[] = primary.map((item) => (
+    <BottomNavLink key={item.path} item={item} dotted={dotted} />
+  ));
+  cells.push(<BottomAction key="scan" label={s("Scan")} icon={Icons.scan} onClick={onScan} />);
+  if (overflowing) {
+    cells.push(
+      <BottomAction
+        key="more"
+        label="More"
+        icon={Icons.more}
+        dot={overflowDotted}
+        active={moreOpen}
+        onClick={() => setMoreOpen((v) => !v)}
+      />,
+    );
+  }
+  if (search) {
+    cells.splice(
+      Math.ceil(cells.length / 2),
+      0,
+      // reserves the circle's footprint so no label sits under it
+      <div key="fab-gap" className="w-[4.5rem] shrink-0" aria-hidden />,
+    );
+  }
 
   return (
     <>
@@ -204,26 +230,8 @@ function BottomNav({
           px-1 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]
           shadow-[0_-1px_0_var(--color-outline-variant)] md:hidden"
       >
-        {search && (
-          <>
-            {/* reserves the circle's footprint so no label sits under it */}
-            <div className="w-[4.5rem] shrink-0" aria-hidden />
-            <SearchFab item={search} />
-          </>
-        )}
-        {primary.map((item) => (
-          <BottomNavLink key={item.path} item={item} dotted={dotted} />
-        ))}
-        <BottomAction label={s("Scan")} icon={Icons.scan} onClick={onScan} />
-        {overflowing && (
-          <BottomAction
-            label="More"
-            icon={Icons.more}
-            dot={overflowDotted}
-            active={moreOpen}
-            onClick={() => setMoreOpen((v) => !v)}
-          />
-        )}
+        {cells.map((cell) => cell)}
+        {search && <SearchFab item={search} />}
       </nav>
     </>
   );
@@ -241,7 +249,7 @@ function SearchFab({ item }: { item: NavItem }) {
       to={item.path}
       aria-label={s(item.label)}
       title={s(item.label)}
-      className="absolute -top-5 left-3 grid h-14 w-14 place-items-center rounded-full
+      className="absolute -top-5 left-1/2 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full
         bg-primary text-on-primary shadow-(--shadow-e3)
         transition-transform duration-300 ease-(--ease-spring)
         hover:-translate-y-0.5 hover:scale-105 active:translate-y-0 active:scale-95"
@@ -381,7 +389,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           edge honors the safe-area inset. */}
       <div className="sticky top-0 z-30 flex items-center justify-between gap-2 bg-surface-container-low
         px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
-        <div className="min-w-0" />
+        <ILMark size={30} />
         <div className="flex shrink-0 items-center gap-1">
           <InboxMenu />
           <SettingsButton />
