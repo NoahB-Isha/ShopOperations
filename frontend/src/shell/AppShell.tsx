@@ -144,8 +144,17 @@ function BottomNavLink({
  *  fifth becomes "More", which opens the rest in a sheet — the hamburger
  *  drawer this replaced put the whole menu behind a corner tap on exactly the
  *  roles with the most to reach. The scanner rides in the bar as its own
- *  destination (Noah, 2026-08-16) rather than hiding in the top bar. */
+ *  destination (Noah, 2026-08-16) rather than hiding in the top bar.
+ *
+ *  Search is the exception: it leaves the row for a round FAB docked into the
+ *  bar and breaking out above it (Noah, 2026-08-17). Finding a product is the
+ *  thing people do most on a phone, and the bar's own slots are all the same
+ *  size, so it could never look like the primary action while it sat in one.
+ *  It reserves a slot's worth of width rather than floating over an icon —
+ *  a 56px circle on top of a tappable label is a mis-tap waiting to happen. */
 const BOTTOM_SLOTS = 5;
+/** The one destination that becomes the FAB. */
+const SEARCH_PATH = "/catalog";
 
 function BottomNav({
   items,
@@ -158,12 +167,18 @@ function BottomNav({
 }) {
   const s = useSillyLabel();
   const [moreOpen, setMoreOpen] = useState(false);
+  // Roles without an inventory search (Order Reviewer, Order Requester) get no
+  // FAB — there is nothing for it to open.
+  const search = items.find((i) => i.path === SEARCH_PATH);
+  const rest = items.filter((i) => i.path !== SEARCH_PATH);
   // Scan is PINNED: it was asked for as a menu item, so it keeps its slot
-  // rather than being the first thing the overflow swallows.
-  const overflowing = items.length + 1 > BOTTOM_SLOTS;
-  const keep = overflowing ? BOTTOM_SLOTS - 2 : items.length; // leave room for Scan (+ More)
-  const primary = items.slice(0, keep);
-  const overflow = items.slice(keep);
+  // rather than being the first thing the overflow swallows. The FAB's spacer
+  // counts as a slot because it takes the same width.
+  const cells = BOTTOM_SLOTS - (search ? 1 : 0);
+  const overflowing = rest.length + 1 > cells;
+  const keep = overflowing ? cells - 2 : rest.length; // leave room for Scan (+ More)
+  const primary = rest.slice(0, keep);
+  const overflow = rest.slice(keep);
   const overflowDotted = overflow.some((i) => dotted?.has(i.path));
 
   return (
@@ -189,6 +204,13 @@ function BottomNav({
           px-1 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]
           shadow-[0_-1px_0_var(--color-outline-variant)] md:hidden"
       >
+        {search && (
+          <>
+            {/* reserves the circle's footprint so no label sits under it */}
+            <div className="w-[4.5rem] shrink-0" aria-hidden />
+            <SearchFab item={search} />
+          </>
+        )}
         {primary.map((item) => (
           <BottomNavLink key={item.path} item={item} dotted={dotted} />
         ))}
@@ -204,6 +226,41 @@ function BottomNav({
         )}
       </nav>
     </>
+  );
+}
+
+/** The docked search FAB: brand orange, breaking out of the top of the bar.
+ *
+ *  Wears `on-primary` (deep umber) rather than white — that is the token that
+ *  actually has contrast on this orange, and it keeps the button reading as the
+ *  same brand action as every other primary control. */
+function SearchFab({ item }: { item: NavItem }) {
+  const s = useSillyLabel();
+  return (
+    <NavLink
+      to={item.path}
+      aria-label={s(item.label)}
+      title={s(item.label)}
+      className="absolute -top-5 left-3 grid h-14 w-14 place-items-center rounded-full
+        bg-primary text-on-primary shadow-(--shadow-e3)
+        transition-transform duration-300 ease-(--ease-spring)
+        hover:-translate-y-0.5 hover:scale-105 active:translate-y-0 active:scale-95"
+    >
+      {({ isActive }) => (
+        <>
+          {/* a ring instead of a fill change: the FAB must stay brand orange */}
+          {isActive && (
+            <span
+              aria-hidden
+              className="absolute inset-0 rounded-full ring-3 ring-on-surface/25"
+            />
+          )}
+          <span className="scale-150" aria-hidden>
+            {Icons.search}
+          </span>
+        </>
+      )}
+    </NavLink>
   );
 }
 

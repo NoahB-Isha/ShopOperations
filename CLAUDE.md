@@ -1165,3 +1165,17 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   Settings holding the moved pages. `ruff check backend worker` — the CI
   command — passes clean for the first time in a while (three import-order
   findings that predated this work).
+- Search FAB in the phone bar (2026-08-17): search LEFT the bottom bar's row
+  for a round `bg-primary` FAB docked at the left and breaking out above the
+  bar (`SearchFab` in AppShell; Noah's sketch). Finding a product is the most
+  common phone task and the bar's slots are all one size, so it could never
+  read as the primary action from inside one. It RESERVES a slot's width with
+  a spacer rather than floating over a neighbour — a 56px circle sitting on a
+  tappable label is a mis-tap waiting to happen — so the row keeps four cells
+  (`BOTTOM_SLOTS - 1` when a FAB is present). Roles with no inventory search
+  (Order Reviewer, Order Requester) get NO FAB and no spacer: nothing for it
+  to open. It wears `on-primary` (deep umber / dark on the peach dark-mode
+  primary), not the white of the sketch — that is the token with real contrast
+  on this orange, and it keeps the button reading as the same brand action as
+  every other primary control. Active state is a ring, not a fill change: the
+  FAB stays brand orange wherever you are.
