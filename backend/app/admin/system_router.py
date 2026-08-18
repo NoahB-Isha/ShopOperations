@@ -29,6 +29,7 @@ from ..ratelimit import rate_limit
 from ..sync.runner import run_all, run_domain
 from ..sync.status import domain_statuses, health_payload, recent_runs
 from ..timemachine.backfill import backfill_state, request_backfill
+from ..transfers.delivery import DeliveryError, release_stale_counts
 
 router = APIRouter(
     prefix="/admin",
@@ -108,6 +109,49 @@ def start_history_backfill(
         "queued": len(state["pending"]),
         "requested_weeks": state["requested_weeks"],
         "note": "the worker reconstructs one date per pass — watch progress on this page",
+    }
+
+
+class ReleaseStaleCountsIn(BaseModel):
+    apply: bool = False  # preview by default — the preview changes nothing
+
+
+@router.post("/transfers/release-stale-counts")
+def release_stale_counts_endpoint(
+    body: ReleaseStaleCountsIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> dict:
+    """One-time: hand the requests stranded mid-old-flow back to the delivery
+    form (see delivery.release_stale_counts for what that means and what it
+    deliberately won't do). Preview first — `apply: true` is the second call.
+
+    An endpoint rather than a script because the affected requests live on the
+    hosted stack, which has no shell; a preview rather than a migration
+    because deciding it needs a LIVE Odoo read of each count picking, and a
+    migration must never depend on Odoo answering."""
+    try:
+        report = release_stale_counts(
+            db, settings, apply=body.apply, actor_user_id=authed.id
+        )
+    except DeliveryError as e:
+        raise HTTPException(422, str(e)) from e
+    return {
+        "applied": report.applied,
+        "released": report.released,
+        "skipped": report.skipped,
+        "note": report.note,
+        "rows": [vars(r) for r in report.rows],
+        "cancel_in_odoo": [
+            {
+                "picking_name": r.count_picking_name,
+                "url": r.count_picking_url,
+                "state": r.count_state,
+                "request": r.display_name,
+            }
+            for r in report.cancel_in_odoo
+        ],
     }
 
 

@@ -1203,3 +1203,208 @@ def test_sent_quantities_sum_across_a_split(client, db, live_env, monkeypatch):
     db.commit()
     assert req.lines[0].qty_sent == 10
     assert "III/INT/BACKORDER" in note
+
+
+def test_one_time_release_hands_stranded_requests_back_to_the_form(
+    client, db, live_env, monkeypatch
+):
+    """The pre-delivery-form leftovers (Noah 2026-08-18: III/INT/04709 carries
+    items from requests sitting in `counting` from the old flow).
+
+    Two requests are stranded in `counting`, each with its own count picking.
+    One was really validated by the floor; the other never was. The one-time
+    release rewinds ONLY the uncounted one, tells a human to cancel its
+    leftover count transfer, and leaves the genuinely-counted one alone."""
+    copper, incense, _ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    for module in ("pallet", "delivery"):
+        monkeypatch.setattr(
+            f"app.transfers.{module}.get_connection", lambda settings, read_only=True: sim
+        )
+    set_flag(db, "write_create_internal_transfer", True)
+    set_flag(db, "write_prepare_count_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    mk_user(db, "admin@test.io", (Role.ADMIN, None, None))
+    admin = login(client, "admin@test.io")
+
+    # ---- two requests, driven to the OLD end state: validated straight into
+    # floor staging, so the old flow prepared a per-request count and parked
+    # them in `counting`
+    rids = {}
+    for product, qty in ((copper, 12), (incense, 5)):
+        rid = client.post(
+            "/api/v1/transfer-requests",
+            json={"lines": [{"product_id": product.id, "qty": qty}]},
+            headers=floor,
+        ).json()["id"]
+        rids[product.global_sku] = rid
+        body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+        pid = body["placement"]["picking_id"]
+        # the old flow's placement went to floor staging, not staging2
+        from app.models import OdooLocation
+        from sqlalchemy import select as sa_select
+
+        staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+        sim.call_kw(
+            "stock.picking", "write", [[pid], {"state": "done", "location_dest_id": staging.odoo_id}]
+        )
+        client.get(f"/api/v1/transfer-requests/{rid}", headers=floor)
+        body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+        assert body["status"] == "counting", body["status"]
+        assert body["count"]["status"] == "created"
+
+    # the floor really scanned the copper one; the incense count sits untouched
+    copper_body = client.get(
+        f"/api/v1/transfer-requests/{rids['CA0023000009']}", headers=floor
+    ).json()
+    incense_body = client.get(
+        f"/api/v1/transfer-requests/{rids['IN0000000777']}", headers=floor
+    ).json()
+    copper_count = copper_body["count"]["picking_id"]
+    incense_count = incense_body["count"]["picking_id"]
+    sim.call_kw("stock.picking", "write", [[copper_count], {"state": "done"}])
+
+    # ---- preview changes NOTHING
+    preview = client.post(
+        "/api/v1/admin/transfers/release-stale-counts", json={"apply": False}, headers=admin
+    )
+    assert preview.status_code == 200, preview.text
+    p = preview.json()
+    assert p["applied"] is False
+    assert p["released"] == 1 and p["skipped"] == 1
+    by_id = {row["request_id"]: row for row in p["rows"]}
+    assert by_id[rids["CA0023000009"]]["action"] == "already_counted"
+    assert by_id[rids["IN0000000777"]]["action"] == "would_release"
+    # nothing moved
+    assert (
+        client.get(f"/api/v1/transfer-requests/{rids['IN0000000777']}", headers=floor).json()[
+            "status"
+        ]
+        == "counting"
+    )
+
+    # ---- apply
+    applied = client.post(
+        "/api/v1/admin/transfers/release-stale-counts", json={"apply": True}, headers=admin
+    ).json()
+    assert applied["applied"] is True and applied["released"] == 1
+    # the leftover count picking is named for a human to cancel — the app
+    # deliberately doesn't touch it
+    assert [c["picking_name"] for c in applied["cancel_in_odoo"]] == [
+        incense_body["count"]["picking_name"]
+    ]
+    assert sim.search_read("stock.picking", [["id", "=", incense_count]], ["state"])[0][
+        "state"
+    ] != "cancel"
+
+    released = client.get(
+        f"/api/v1/transfer-requests/{rids['IN0000000777']}", headers=floor
+    ).json()
+    assert released["status"] == "sent"  # staged — the form's linkable state
+    assert released["count"]["status"] == "none" and released["count"]["picking_id"] is None
+    assert any("released for the delivery form" in e["note"] for e in released["events"])
+    # the genuinely-counted one was left for its own listener to close
+    assert client.get(
+        f"/api/v1/transfer-requests/{rids['CA0023000009']}", headers=floor
+    ).json()["status"] in ("counting", "done")
+
+    # ---- and now the delivery form can actually see it
+    wh = login(client, "wh@test.io")
+    from app.models import OdooLocation
+    from sqlalchemy import select as sa_select
+
+    staging2 = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging2"))
+    staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+    pallet_pid = sim.call_kw(
+        "stock.picking",
+        "create",
+        [{
+            "name": "III/INT/04709",
+            "location_id": staging2.odoo_id,
+            "location_dest_id": staging.odoo_id,
+            "state": "assigned",
+        }],
+    )
+    sim.call_kw(
+        "stock.move",
+        "create",
+        [{
+            "picking_id": pallet_pid,
+            "product_id": incense.odoo_product_id,
+            "product_uom_qty": 5,
+            "quantity": 5,
+        }],
+    )
+    preview = client.post(
+        "/api/v1/transfer-requests/deliveries/preview",
+        json={"odoo_picking_id": pallet_pid, "request_ids": []},
+        headers=wh,
+    )
+    assert preview.status_code == 200, preview.text
+    suggestions = {s["request_id"]: s for s in preview.json()["suggestions"]}
+    mine = suggestions[rids["IN0000000777"]]
+    assert mine["suggested"] is True and mine["auto_select"] is True
+
+
+def test_release_refuses_to_guess_when_odoo_is_unreachable(client, db, live_env, monkeypatch):
+    """The release decides per request by READING Odoo (was this count really
+    validated?). With Odoo down it can't tell a counted request from an
+    uncounted one, and rewinding a real count is the worse mistake — so it
+    fails closed and changes nothing."""
+    copper, _, _ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    monkeypatch.setattr(
+        "app.transfers.delivery.get_connection", lambda settings, read_only=True: sim
+    )
+    set_flag(db, "write_create_internal_transfer", True)
+    set_flag(db, "write_prepare_count_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    mk_user(db, "admin2@test.io", (Role.ADMIN, None, None))
+    admin = login(client, "admin2@test.io")
+
+    from app.models import OdooLocation
+    from sqlalchemy import select as sa_select
+
+    staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+    rid = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 4}]},
+        headers=floor,
+    ).json()["id"]
+    pid = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()["placement"][
+        "picking_id"
+    ]
+    sim.call_kw(
+        "stock.picking", "write", [[pid], {"state": "done", "location_dest_id": staging.odoo_id}]
+    )
+    client.get(f"/api/v1/transfer-requests/{rid}", headers=floor)
+    assert (
+        client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()["status"]
+        == "counting"
+    )
+
+    from app.odoo.errors import OdooError
+
+    def dead(settings, read_only=True):
+        raise OdooError("connection refused")
+
+    monkeypatch.setattr("app.transfers.delivery.get_connection", dead)
+    r = client.post(
+        "/api/v1/admin/transfers/release-stale-counts", json={"apply": True}, headers=admin
+    )
+    assert r.status_code == 422
+    assert "Nothing was changed" in r.json()["detail"]
+    assert (
+        client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()["status"]
+        == "counting"
+    )

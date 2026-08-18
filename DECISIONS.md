@@ -63,6 +63,19 @@ it painful.
 
 ## Build decisions
 
+**2026-08-18 — The pre-form leftovers are released, not migrated** *(Phase 2.z)*
+Requests already waiting on their own count transfer when the delivery form shipped were
+invisible to it (`counting` isn't linkable) while their stock sat in Staging2 waiting for the
+next pallet — Noah spotted it on III/INT/04709. Fixed as an admin action with a preview rather
+than an Alembic data migration, because deciding each case needs a LIVE Odoo read (a count the
+floor really validated must be left to close itself, and rewinding a real count is worse than
+leaving a request stuck) and a migration must never depend on Odoo answering; and as an
+endpoint rather than a script because the affected rows are on the hosted stack, which has no
+shell. The app deliberately cancels nothing in Odoo — that would be a new write operation
+needing its own flag and canary for a one-off — so it names each leftover count picking with a
+deep link and says why it matters: scanned alongside the pallet's count, the same units move
+twice.
+
 **2026-08-17 — The warehouse works in Odoo; a form is how the app learns what they sent**
 *(Phase 2.z)*
 The transfer flow assumed one app request = one Odoo picking, and closed a request off a

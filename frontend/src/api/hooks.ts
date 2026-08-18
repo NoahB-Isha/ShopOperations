@@ -562,6 +562,7 @@ import type {
   OrderCatalogOut,
   OrderContextCenter,
   ReasonPreviewOut,
+  ReleaseStaleOut,
 } from "./types";
 
 export function useOrderContext() {
@@ -1250,6 +1251,24 @@ export function useDeleteNotice() {
   return useMutation({
     mutationFn: (id: number) => api<void>(`/notices/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notices"] }),
+  });
+}
+
+/** One-time maintenance: hand the pre-delivery-form requests back to the
+ *  form. Preview (apply:false) changes nothing — see the backend note. */
+export function useReleaseStaleCounts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (apply: boolean) =>
+      api<ReleaseStaleOut>("/admin/transfers/release-stale-counts", {
+        method: "POST",
+        body: { apply },
+      }),
+    onSuccess: (_out, apply) => {
+      if (!apply) return;
+      qc.invalidateQueries({ queryKey: ["transfer-requests"] });
+      qc.invalidateQueries({ queryKey: ["deliveries"] });
+    },
   });
 }
 

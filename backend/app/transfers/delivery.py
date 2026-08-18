@@ -993,3 +993,230 @@ def _file_delivery_adjustments(
                 note=f"Count of {pallet.display_name} ({pallet.count_picking_name})",
             )
         )
+
+
+# ---------------------------------------- one-time: the pre-form leftovers
+# When the delivery form landed (2026-08-17), requests were already mid-flight
+# under the old rules: each one had its OWN floor-staging → floor count
+# picking prepared and sat in `counting` waiting for the floor to scan it.
+# Their stock is really sitting in Staging2, riding whichever pallet the
+# warehouse builds next (III/INT/04709 carries several, Noah 2026-08-18) — but
+# `counting` isn't a linkable status, so the form couldn't see them and they
+# would sit there forever.
+#
+# Releasing one means: hand it back to `sent` (staged) so the form offers it,
+# and drop the app's memory of that per-request count — the pallet gets ONE
+# count for everything on it, which is the whole point of the rework.
+#
+# Two deliberate limits:
+#   * a count picking Odoo says is DONE is left alone. The floor really
+#     counted it; `poll_close_out` closes it on the next poll, and rewinding
+#     would throw away a count that actually happened. Which means the Odoo
+#     read has to SUCCEED — no read, no release (fail closed), or a genuinely
+#     counted request could be reopened on a guess.
+#   * the app cancels nothing in Odoo. Retiring a stale count picking is a
+#     new write operation, and this is a one-off; the report names each one
+#     with a deep link so a human cancels it where they already work. That
+#     matters physically: if the floor later scans a leftover count AND the
+#     pallet's count, the same units move twice.
+RELEASABLE_STATUSES = (
+    TransferRequestStatus.COUNTING.value,
+    # a `sent` request with a count already prepared is the same trap
+    TransferRequestStatus.SENT.value,
+)
+
+# Odoo states that mean the count never happened, so it's safe to retire
+_UNCOUNTED_STATES = ("draft", "waiting", "confirmed", "assigned", "cancel")
+
+
+@dataclass
+class ReleasedRequest:
+    request_id: int
+    display_name: str
+    was_status: str
+    line_count: int
+    total_requested: float
+    count_picking_name: str
+    count_picking_url: str
+    count_state: str  # Odoo's word for it, "" when there was nothing live
+    action: str  # released | already_counted | no_count_to_retire
+    detail: str  # one sentence, for a human
+
+
+@dataclass
+class ReleaseReport:
+    applied: bool
+    released: int
+    skipped: int
+    rows: list[ReleasedRequest] = field(default_factory=list)
+    cancel_in_odoo: list[ReleasedRequest] = field(default_factory=list)
+    note: str = ""
+
+
+def _releasable(db: Session) -> list[TransferRequest]:
+    """Requests stuck in the old count flow and not already on a delivery."""
+    linked = {rid for (rid,) in db.execute(select(PalletRequestLink.request_id))}
+    out = []
+    for req in db.scalars(
+        select(TransferRequest)
+        .options(selectinload(TransferRequest.lines))
+        .where(TransferRequest.status.in_(RELEASABLE_STATUSES))
+        .order_by(TransferRequest.id)
+        .execution_options(populate_existing=True)
+    ):
+        if req.id in linked:
+            continue
+        if req.status == TransferRequestStatus.COUNTING.value or req.count_status in (
+            OdooWriteOutcome.CREATED.value,
+            OdooWriteOutcome.SIMULATED.value,
+        ):
+            out.append(req)
+    return out
+
+
+def release_stale_counts(
+    db: Session,
+    settings: Settings,
+    apply: bool = False,
+    actor_user_id: int | None = None,
+) -> ReleaseReport:
+    """Hand the pre-form requests back to the delivery form. Preview by
+    default (`apply=False` changes nothing) — the preview is also how anyone
+    finds out what state the hosted stack is actually in."""
+    candidates = _releasable(db)
+    if not candidates:
+        return ReleaseReport(
+            applied=apply,
+            released=0,
+            skipped=0,
+            note="Nothing is stuck — every open request is already visible to the form.",
+        )
+
+    live_ids = [r.count_picking_id for r in candidates if r.count_picking_id]
+    states: dict[int, str] = {}
+    if live_ids:
+        try:
+            conn = get_connection(settings, read_only=True)
+            states = {
+                int(row["id"]): str(row.get("state") or "")
+                for row in conn.search_read(
+                    "stock.picking", [["id", "in", live_ids]], ["state", "name"]
+                )
+            }
+        except OdooError as e:
+            # fail closed: without Odoo we can't tell a counted request from
+            # an uncounted one, and reopening a real count is the worse error
+            raise DeliveryError(
+                f"Can't reach Odoo to check whether these counts were validated ({e}). "
+                "Nothing was changed — try again when Odoo answers."
+            ) from e
+
+    rows: list[ReleasedRequest] = []
+    to_cancel: list[ReleasedRequest] = []
+    released = skipped = 0
+    for req in candidates:
+        state = states.get(req.count_picking_id or -1, "")
+        has_live_picking = bool(req.count_picking_id) and state != ""
+        row = ReleasedRequest(
+            request_id=req.id,
+            display_name=req.display_name,
+            was_status=req.status,
+            line_count=len(req.lines),
+            total_requested=round(sum(line.qty_requested for line in req.lines), 3),
+            count_picking_name=req.count_picking_name,
+            count_picking_url=req.count_picking_url,
+            count_state=state,
+            action="",
+            detail="",
+        )
+
+        if state == "done":
+            row.action = "already_counted"
+            row.detail = (
+                f"{req.count_picking_name} was validated in Odoo — the floor really counted "
+                "it, so it closes itself on the next refresh. Left alone."
+            )
+            skipped += 1
+            rows.append(row)
+            continue
+
+        if has_live_picking and state not in _UNCOUNTED_STATES:
+            # an Odoo state we don't recognise: say so instead of acting on it
+            row.action = "already_counted"
+            row.detail = (
+                f"{req.count_picking_name} is '{state}' in Odoo — not a state this fix knows "
+                "how to retire. Left alone; look at it in Odoo."
+            )
+            skipped += 1
+            rows.append(row)
+            continue
+
+        row.action = "released" if apply else "would_release"
+        if has_live_picking and state != "cancel":
+            row.detail = (
+                f"back to staged — the pallet form can carry it now. "
+                f"{req.count_picking_name} ({state}) is still open in Odoo: cancel it there, "
+                "or the same units move twice."
+            )
+            to_cancel.append(row)
+        elif has_live_picking:
+            row.detail = (
+                f"back to staged — {req.count_picking_name} was already cancelled in Odoo."
+            )
+        else:
+            row.detail = (
+                "back to staged — its count was never rendered in Odoo, so there's nothing "
+                "to retire."
+            )
+        rows.append(row)
+        released += 1
+
+        if not apply:
+            continue
+
+        if req.count_picking_name:
+            note = (
+                "released for the delivery form — this request was waiting on its own count "
+                f"transfer ({req.count_picking_name}"
+                + (f", {state} in Odoo" if state else "")
+                + "), which the pallet's single count replaces."
+            )
+            if state and state != "cancel":
+                note += " Cancel that transfer in Odoo."
+        else:
+            note = (
+                "released for the delivery form — its own count transfer was never rendered "
+                "in Odoo, so nothing was retired."
+            )
+        req.status = TransferRequestStatus.SENT.value
+        req.count_status = OdooWriteOutcome.NONE.value
+        req.count_reference = ""
+        req.count_error = ""
+        req.count_picking_id = None
+        req.count_picking_name = ""
+        req.count_picking_url = ""
+        req.count_barcode_url = ""
+        req.count_checked_at = None
+        _event(
+            db, req, TransferEventKind.STATUS, note, actor_user_id,
+            status=TransferRequestStatus.SENT.value,
+        )
+
+    if apply:
+        db.commit()
+
+    verb = "Released" if apply else "Would release"
+    note = f"{verb} {released} request(s); {skipped} left alone."
+    if to_cancel:
+        note += (
+            f" {len(to_cancel)} count transfer(s) are still open in Odoo — cancel them there "
+            "so the floor doesn't scan the same units twice."
+        )
+    return ReleaseReport(
+        applied=apply,
+        released=released,
+        skipped=skipped,
+        rows=rows,
+        cancel_in_odoo=to_cancel,
+        note=note,
+    )

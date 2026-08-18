@@ -4,6 +4,7 @@ import {
   useAdminStatus,
   useCanary,
   useRebuildSalesHistory,
+  useReleaseStaleCounts,
   useSetFlag,
   useTriggerSync,
 } from "../../api/hooks";
@@ -12,6 +13,7 @@ import type {
   DomainSync,
   NotificationsStatusOut,
   NotifyChannelOut,
+  ReleaseStaleOut,
 } from "../../api/types";
 import {
   Badge,
@@ -181,6 +183,101 @@ function CanaryCard() {
   );
 }
 
+function ReleaseStaleCountsCard() {
+  /* One-time (2026-08-18): requests that were mid-flight when the delivery
+     form landed sit in `counting` with their own count transfer, which isn't
+     a status the form can link — so they'd wait forever while their stock
+     rides the warehouse's next pallet. Preview, then apply. */
+  const release = useReleaseStaleCounts();
+  const toast = useToast();
+  const [result, setResult] = useState<ReleaseStaleOut | null>(null);
+
+  const run = (apply: boolean) =>
+    release.mutate(apply, {
+      onSuccess: (r) => {
+        setResult(r);
+        if (!apply) return;
+        toast.success(
+          r.released > 0
+            ? `${r.released} request(s) handed back to the delivery form.`
+            : "Nothing needed releasing.",
+        );
+      },
+      onError: (e) => toast.error(e.message),
+    });
+
+  return (
+    <Card>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="display text-[16px]">Stranded transfer requests</h3>
+        <Badge tone="outline">one-time</Badge>
+      </div>
+      <p className="mb-3 text-[13px] leading-5 text-ink-faint">
+        Requests that were already waiting on their own count transfer when the delivery form
+        landed can't be picked up by it — their stock is really sitting in Staging 2, riding the
+        next pallet. This hands them back to <b>Staged</b> so the form offers them, and forgets
+        the per-request count (a pallet gets one count for everything on it). A count Odoo says
+        was validated is left alone.
+      </p>
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={release.isPending}
+          onClick={() => run(false)}
+        >
+          Preview
+        </Button>
+        <Button
+          size="sm"
+          disabled={!result || result.applied || result.released === 0}
+          loading={release.isPending}
+          onClick={() => run(true)}
+        >
+          {result && result.released > 0
+            ? `Release ${result.released} request${result.released === 1 ? "" : "s"}`
+            : "Release"}
+        </Button>
+      </div>
+
+      {result && (
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-3">
+          <p className="text-[13px] font-medium">{result.note}</p>
+          {result.rows.map((r) => (
+            <div key={r.request_id} className="text-[13px]">
+              <span className="font-mono font-semibold">{r.display_name}</span>{" "}
+              <span className="text-ink-faint">
+                · {r.line_count} item(s) · {r.action === "already_counted" ? "left alone" : "release"}
+              </span>
+              <div className="text-[12.5px] leading-4 text-ink-faint">{r.detail}</div>
+            </div>
+          ))}
+          {result.cancel_in_odoo.length > 0 && (
+            <div className="mt-1 rounded-(--radius-md) bg-warn-container px-3 py-2">
+              <div className="text-[13px] font-semibold">Cancel these in Odoo</div>
+              <p className="mb-1 text-[12.5px] leading-4">
+                The app doesn't touch them. Left open, the floor could scan one of these AND the
+                pallet's count — the same units twice.
+              </p>
+              {result.cancel_in_odoo.map((c) => (
+                <a
+                  key={c.picking_name}
+                  href={c.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block font-mono text-[12.5px] font-medium text-copper-deep hover:underline"
+                >
+                  {c.picking_name} ({c.state}) ↗
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ChannelRow({ name, c }: { name: string; c: NotifyChannelOut }) {
   const chip = !c.configured ? (
     // WhatsApp is deliberately paused for now — don't dress "off" as a fault
@@ -293,6 +390,7 @@ export function StatusPage() {
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CanaryCard />
+        <ReleaseStaleCountsCard />
         {data.notifications && <NotificationsCard n={data.notifications} />}
         <Card>
           <h3 className="display mb-1 text-[16px]">Feature flags</h3>

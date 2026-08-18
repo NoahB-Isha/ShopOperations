@@ -1249,3 +1249,26 @@ export interface OrdersSummaryOut {
   };
   caveat: string;
 }
+
+/** One-time: the pre-delivery-form requests stranded in the old count flow. */
+export interface ReleaseStaleRow {
+  request_id: number;
+  display_name: string;
+  was_status: string;
+  line_count: number;
+  total_requested: number;
+  count_picking_name: string;
+  count_picking_url: string;
+  count_state: string;
+  action: string; // would_release | released | already_counted
+  detail: string;
+}
+
+export interface ReleaseStaleOut {
+  applied: boolean;
+  released: number;
+  skipped: number;
+  note: string;
+  rows: ReleaseStaleRow[];
+  cancel_in_odoo: { picking_name: string; url: string; state: string; request: string }[];
+}

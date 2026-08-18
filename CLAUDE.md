@@ -1243,3 +1243,23 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   two-item list and the home). Consequence to watch: the adjustments queue
   has no entry point for the role that owns it — a count difference on a
   delivery is still filed, just not surfaced in their nav.
+- One-time release of the pre-form leftovers (2026-08-18): requests that were
+  mid-flight when the delivery form landed sit in `counting` with their OWN
+  floor-staging→floor count picking — a status the form can't link, while
+  their stock really rides the warehouse's next pallet (III/INT/04709 carries
+  several). `delivery.release_stale_counts` (+ `POST /admin/transfers/
+  release-stale-counts`, `apply:false` PREVIEW default, "Stranded transfer
+  requests" card on Dev Tools) rewinds each to `sent` (staged → the form
+  offers it, auto-ticked once its items are on the pallet) and clears the
+  count_* fields so the pallet's single count is the only one. Three
+  deliberate limits: a count Odoo reports `done` is LEFT ALONE (the floor
+  really counted it; `poll_close_out` closes it) — so the Odoo read must
+  SUCCEED or the whole thing 422s and changes nothing (`test_release_refuses_
+  to_guess_when_odoo_is_unreachable` is the control: rewinding a real count is
+  the worse error); an unrecognised Odoo state is reported, never acted on;
+  and **the app cancels nothing in Odoo** — retiring a leftover count picking
+  would be a new write op needing its own flag+canary, so the report names
+  each one with a deep link for a human, which matters physically (a leftover
+  count AND the pallet count both scanned = the same units moved twice). An
+  endpoint rather than a script because the hosted stack has no shell; not a
+  data migration because the decision needs a live Odoo read.
