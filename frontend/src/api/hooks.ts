@@ -563,6 +563,7 @@ import type {
   OrderContextCenter,
   ReasonPreviewOut,
   ReleaseStaleOut,
+  ResetFlowOut,
 } from "./types";
 
 export function useOrderContext() {
@@ -1268,6 +1269,23 @@ export function useReleaseStaleCounts() {
       if (!apply) return;
       qc.invalidateQueries({ queryKey: ["transfer-requests"] });
       qc.invalidateQueries({ queryKey: ["deliveries"] });
+    },
+  });
+}
+
+/** One-time maintenance: DELETES the pre-testing transfer/pallet rows.
+ *  Preview (apply:false) changes nothing. */
+export function useResetTransferFlow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { apply: boolean; keep_hours: number }) =>
+      api<ResetFlowOut>("/admin/transfers/reset-flow", { method: "POST", body: v }),
+    onSuccess: (_out, v) => {
+      if (!v.apply) return;
+      qc.invalidateQueries({ queryKey: ["transfer-requests"] });
+      qc.invalidateQueries({ queryKey: ["deliveries"] });
+      qc.invalidateQueries({ queryKey: ["staging2"] });
+      qc.invalidateQueries({ queryKey: ["adjustments"] });
     },
   });
 }

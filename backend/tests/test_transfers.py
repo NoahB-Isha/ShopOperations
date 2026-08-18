@@ -1408,3 +1408,186 @@ def test_release_refuses_to_guess_when_odoo_is_unreachable(client, db, live_env,
         client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()["status"]
         == "counting"
     )
+
+
+def test_flow_reset_clears_the_rubble_and_discovery_starts_after_it(
+    client, db, live_env, monkeypatch
+):
+    """Noah 2026-08-18: two weeks of testing left a full board and fifteen
+    undeclared pallets. The reset keeps the last 24h of asks, deletes the rest,
+    removes the app's OWN still-draft pickings from Odoo, leaves everything
+    else for a human — and the pallets it deleted STAY deleted.
+
+    That last part is the whole point: discovery de-dupes against the pallet
+    rows it already has, so without a watermark the next poll would find the
+    same pickings again and the 'needs details' pile would rebuild itself."""
+    copper, incense, _ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    for module in ("pallet", "delivery", "reset"):
+        monkeypatch.setattr(
+            f"app.transfers.{module}.get_connection", lambda settings, read_only=True: sim
+        )
+    set_flag(db, "write_create_internal_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    mk_user(db, "admin3@test.io", (Role.ADMIN, None, None))
+    admin = login(client, "admin3@test.io")
+
+    from datetime import timedelta
+
+    from app.models import OdooLocation, PalletTransfer, TransferRequest, utcnow
+    from sqlalchemy import select as sa_select
+
+    staging2 = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging2"))
+    staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+
+    # ---- an old request (last week's test) and a fresh one (this morning)
+    old_id = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 6}]},
+        headers=floor,
+    ).json()["id"]
+    fresh_id = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": incense.id, "qty": 4}]},
+        headers=floor,
+    ).json()["id"]
+    old = db.get(TransferRequest, old_id)
+    old.created_at = utcnow() - timedelta(days=8)
+    db.commit()
+    old_draft = old.odoo_picking_id
+    assert old_draft, "the placement draft should exist in the simulator"
+
+    # ---- a pallet the warehouse sent in Odoo during testing, never declared
+    manual = sim.call_kw(
+        "stock.picking",
+        "create",
+        [{
+            "name": "III/INT/OLDPALLET",
+            "location_id": staging2.odoo_id,
+            "location_dest_id": staging.odoo_id,
+            "state": "done",
+            "date_done": "2026-08-10 12:00:00",
+        }],
+    )
+    sim.call_kw(
+        "stock.move",
+        "create",
+        [{
+            "picking_id": manual,
+            "product_id": copper.odoo_product_id,
+            "product_uom_qty": 6,
+            "quantity": 6,
+        }],
+    )
+    # a request must be waiting for discovery to bother looking
+    db.get(TransferRequest, old_id).status = "sent"
+    db.commit()
+    client.get("/api/v1/transfer-requests", headers=floor)
+    pallets = db.scalars(sa_select(PalletTransfer)).all()
+    assert len(pallets) == 1 and pallets[0].odoo_picking_id == manual
+    assert not pallets[0].is_declared
+
+    # ---- preview changes nothing
+    prev = client.post(
+        "/api/v1/admin/transfers/reset-flow",
+        json={"apply": False, "keep_hours": 24},
+        headers=admin,
+    ).json()
+    assert prev["requests_cleared"] == 1 and prev["requests_kept"] == 1
+    assert prev["pallets_cleared"] == 1
+    assert db.get(TransferRequest, old_id) is not None
+
+    # ---- apply
+    out = client.post(
+        "/api/v1/admin/transfers/reset-flow",
+        json={"apply": True, "keep_hours": 24},
+        headers=admin,
+    ).json()
+    assert out["applied"] is True
+    assert out["requests_cleared"] == 1 and out["pallets_cleared"] == 1
+    db.expire_all()
+    assert db.get(TransferRequest, old_id) is None
+    assert db.get(TransferRequest, fresh_id) is not None  # this morning's ask survived
+    assert db.scalars(sa_select(PalletTransfer)).all() == []
+    # the app's own draft is gone from Odoo; the warehouse's picking is not
+    assert sim.search_read("stock.picking", [["id", "=", old_draft]], ["id"]) == []
+    assert sim.search_read("stock.picking", [["id", "=", manual]], ["state"])[0]["state"] == "done"
+
+    # ---- and the cleared pallet does NOT come back
+    db.get(TransferRequest, fresh_id).status = "sent"  # keep discovery interested
+    db.commit()
+    client.get("/api/v1/transfer-requests", headers=floor)
+    client.get("/api/v1/transfer-requests/staging2", headers=login(client, "wh@test.io"))
+    assert db.scalars(sa_select(PalletTransfer)).all() == [], "the reset watermark should hold"
+
+
+def test_reset_refuses_when_odoo_is_silent_and_says_what_is_already_gone(
+    client, db, live_env, monkeypatch
+):
+    """Two honest answers the reset has to keep apart.
+
+    Odoo NOT ANSWERING is a refusal: with no states every picking reads as
+    unknown, so the app would delete its own rows while telling a human to go
+    cancel drafts it could have removed itself — and with the row gone it never
+    can. A picking the read simply doesn't return is the opposite case: it's
+    already deleted in Odoo, and sending someone to cancel it is a wild goose
+    chase."""
+    copper, _, _ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    monkeypatch.setattr(
+        "app.transfers.reset.get_connection", lambda settings, read_only=True: sim
+    )
+    set_flag(db, "write_create_internal_transfer", True)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    mk_user(db, "admin4@test.io", (Role.ADMIN, None, None))
+    admin = login(client, "admin4@test.io")
+
+    from datetime import timedelta
+
+    from app.models import TransferRequest, utcnow
+
+    rid = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 3}]},
+        headers=floor,
+    ).json()["id"]
+    req = db.get(TransferRequest, rid)
+    req.created_at = utcnow() - timedelta(days=5)
+    picking_id = req.odoo_picking_id
+    db.commit()
+
+    # ---- Odoo silent: refuse, change nothing
+    from app.odoo.errors import OdooError
+
+    def dead(settings, read_only=True):
+        raise OdooError("connection refused")
+
+    monkeypatch.setattr("app.transfers.reset.get_connection", dead)
+    r = client.post(
+        "/api/v1/admin/transfers/reset-flow", json={"apply": True}, headers=admin
+    )
+    assert r.status_code == 422 and "Nothing was changed" in r.json()["detail"]
+    assert db.get(TransferRequest, rid) is not None
+
+    # ---- Odoo answering, but that picking was deleted during testing: the
+    # report says so instead of sending anyone after it
+    monkeypatch.setattr(
+        "app.transfers.reset.get_connection", lambda settings, read_only=True: sim
+    )
+    sim.call_kw("stock.picking", "unlink", [[picking_id]])
+    out = client.post(
+        "/api/v1/admin/transfers/reset-flow", json={"apply": True}, headers=admin
+    ).json()
+    assert out["already_gone"] and out["leftovers"] == []
+    assert out["drafts_removed"] == []
+    db.expire_all()
+    assert db.get(TransferRequest, rid) is None

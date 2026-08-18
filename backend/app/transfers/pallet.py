@@ -293,6 +293,12 @@ def poll_manual_pallets(db: Session, settings: Settings) -> int:
     for its details. Recording it also means it can't be processed twice;
     picking_status stays NONE because the app wrote nothing.
 
+    A `discover_from` stamp in the poll state (set by the flow reset) is the
+    floor of what counts as "new": pickings validated at or before it are
+    somebody else's history — two weeks of testing, or the years of real
+    staging2 → staging traffic that predate this feature. Without it, deleting
+    a pallet row just means rediscovering the same picking on the next poll.
+
     Returns how many undeclared pallets it newly found.
     """
     waiting_exists = db.scalar(
@@ -326,17 +332,18 @@ def poll_manual_pallets(db: Session, settings: Settings) -> int:
     if staging2 is None or staging is None:
         return 0
 
+    domain = [
+        ["location_id", "child_of", staging2.odoo_id],
+        ["location_dest_id", "child_of", staging.odoo_id],
+        ["state", "=", "done"],
+    ]
+    discover_from = str(state.get("discover_from") or "")
+    if discover_from:
+        # Odoo filters it, so the app never even reads the old ones
+        domain.append(["date_done", ">", discover_from])
     try:
         conn = get_connection(settings, read_only=True)
-        rows = conn.search_read(
-            "stock.picking",
-            [
-                ["location_id", "child_of", staging2.odoo_id],
-                ["location_dest_id", "child_of", staging.odoo_id],
-                ["state", "=", "done"],
-            ],
-            ["name", "origin"],
-        )
+        rows = conn.search_read("stock.picking", domain, ["name", "origin", "date_done"])
     except OdooError as e:
         log.warning("manual pallet poll failed: %s", e)
         return 0

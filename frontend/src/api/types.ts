@@ -1272,3 +1272,27 @@ export interface ReleaseStaleOut {
   rows: ReleaseStaleRow[];
   cancel_in_odoo: { picking_name: string; url: string; state: string; request: string }[];
 }
+
+/** One-time: clear the testing rubble and restart the delivery flow. */
+export interface ResetFlowOut {
+  applied: boolean;
+  keep_hours: number;
+  cutoff: string;
+  requests_cleared: number;
+  requests_kept: number;
+  pallets_cleared: number;
+  events_cleared: number;
+  adjustments_cleared: number;
+  drafts_removed: string[];
+  already_gone: string[];
+  leftovers: {
+    picking_name: string;
+    url: string;
+    state: string;
+    belonged_to: string;
+    reason: string;
+  }[];
+  kept: string[];
+  discover_from: string;
+  note: string;
+}

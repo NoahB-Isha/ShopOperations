@@ -63,6 +63,21 @@ it painful.
 
 ## Build decisions
 
+**2026-08-18 — Reset to a known point, with a discovery watermark** *(Phase 2.z)*
+Noah wanted the two weeks of testing gone — the full board and the 15 undeclared pallets — with
+anything asked for in the last 24h kept, and the real process starting from the next pallet. The
+non-obvious half is that deleting the pallet rows is NOT enough: `poll_manual_pallets` de-dupes
+against the rows it already has, so the same 15 Odoo pickings would be rediscovered on the next
+poll and the "needs details" pile would rebuild itself. So the reset also stamps a
+`discover_from` watermark that the discovery domain filters on, which is the literal
+implementation of "start from the next pallet" — and incidentally stops the app ever adopting
+years-old staging2→staging traffic as a pallet needing details. Odoo is treated as not ours to
+rewrite: only app-created pickings still in `draft` are unlinked (a draft moved no stock, same
+rule as `cancel_placement_draft`, so no new write operation and no canary), while validated
+pickings and anything a human made are reported with deep links and left alone. Deleting rather
+than cancelling because Noah asked for a clean starting point, not a wall of cancelled rows; the
+preview plus a typed CLEAR is the confirmation, since the action is irreversible.
+
 **2026-08-18 — The pre-form leftovers are released, not migrated** *(Phase 2.z)*
 Requests already waiting on their own count transfer when the delivery form shipped were
 invisible to it (`counting` isn't linkable) while their stock sat in Staging2 waiting for the

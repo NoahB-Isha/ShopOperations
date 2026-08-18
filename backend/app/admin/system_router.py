@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ from ..sync.runner import run_all, run_domain
 from ..sync.status import domain_statuses, health_payload, recent_runs
 from ..timemachine.backfill import backfill_state, request_backfill
 from ..transfers.delivery import DeliveryError, release_stale_counts
+from ..transfers.reset import ResetError, reset_delivery_flow
 
 router = APIRouter(
     prefix="/admin",
@@ -152,6 +153,52 @@ def release_stale_counts_endpoint(
             }
             for r in report.cancel_in_odoo
         ],
+    }
+
+
+class ResetFlowIn(BaseModel):
+    apply: bool = False  # preview by default
+    keep_hours: int = Field(24, ge=0, le=720)  # what counts as "recent"
+
+
+@router.post(
+    "/transfers/reset-flow",
+    dependencies=[Depends(rate_limit("admin:reset-flow", limit=6, per_seconds=3600))],
+)
+def reset_transfer_flow(
+    body: ResetFlowIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> dict:
+    """One-time: clear the testing rubble and start the delivery process from
+    the next pallet. Preview first — `apply: true` DELETES rows (see
+    transfers/reset.py for exactly what it will and won't touch)."""
+    try:
+        report = reset_delivery_flow(
+            db,
+            settings,
+            keep_hours=body.keep_hours,
+            apply=body.apply,
+            actor_user_id=authed.id,
+        )
+    except ResetError as e:
+        raise HTTPException(422, str(e)) from e
+    return {
+        "applied": report.applied,
+        "keep_hours": report.keep_hours,
+        "cutoff": report.cutoff,
+        "requests_cleared": report.requests_cleared,
+        "requests_kept": report.requests_kept,
+        "pallets_cleared": report.pallets_cleared,
+        "events_cleared": report.events_cleared,
+        "adjustments_cleared": report.adjustments_cleared,
+        "drafts_removed": report.drafts_removed,
+        "already_gone": report.already_gone,
+        "leftovers": [vars(x) for x in report.leftovers],
+        "kept": report.kept,
+        "discover_from": report.discover_from,
+        "note": report.note,
     }
 
 

@@ -5,6 +5,7 @@ import {
   useCanary,
   useRebuildSalesHistory,
   useReleaseStaleCounts,
+  useResetTransferFlow,
   useSetFlag,
   useTriggerSync,
 } from "../../api/hooks";
@@ -14,6 +15,7 @@ import type {
   NotificationsStatusOut,
   NotifyChannelOut,
   ReleaseStaleOut,
+  ResetFlowOut,
 } from "../../api/types";
 import {
   Badge,
@@ -278,6 +280,127 @@ function ReleaseStaleCountsCard() {
   );
 }
 
+function ResetFlowCard() {
+  /* One-time (2026-08-18): two weeks of testing left a full board and fifteen
+     undeclared pallets. Preview, then apply. Deliberately NOT a one-click
+     button — it deletes rows, so the preview is the confirmation step, and
+     the second click needs a typed word. */
+  const reset = useResetTransferFlow();
+  const toast = useToast();
+  const [result, setResult] = useState<ResetFlowOut | null>(null);
+  const [confirm, setConfirm] = useState("");
+  const KEEP_HOURS = 24;
+
+  const run = (apply: boolean) =>
+    reset.mutate(
+      { apply, keep_hours: KEEP_HOURS },
+      {
+        onSuccess: (r) => {
+          setResult(r);
+          if (apply) {
+            setConfirm("");
+            toast.success(
+              `Cleared ${r.requests_cleared} request(s) and ${r.pallets_cleared} pallet(s).`,
+            );
+          }
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+
+  const previewed = result && !result.applied;
+  const nothingToDo =
+    result !== null && result.requests_cleared === 0 && result.pallets_cleared === 0;
+
+  return (
+    <Card>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="display text-[16px]">Reset the transfer flow</h3>
+        <Badge tone="outline">one-time · deletes</Badge>
+      </div>
+      <p className="mb-3 text-[13px] leading-5 text-ink-faint">
+        Clears the testing rubble so the real process starts from a known point: every transfer
+        request older than {KEEP_HOURS}h and <b>all</b> pallet records go, along with their
+        events and adjustments. Anything requested in the last {KEEP_HOURS}h is kept. The app
+        removes only its <b>own still-draft</b> pickings from Odoo — validated ones, and anything
+        a human made, are listed for you instead. The next pallet validated in Odoo is the first
+        one the app will see.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" size="sm" loading={reset.isPending} onClick={() => run(false)}>
+          Preview
+        </Button>
+        {previewed && !nothingToDo && (
+          <>
+            <input
+              className="m3-control w-32 rounded-(--radius-sm) border border-outline-variant bg-field px-2 py-1 text-[13px]"
+              placeholder="type CLEAR"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              aria-label="Type CLEAR to confirm"
+            />
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={confirm.trim().toUpperCase() !== "CLEAR"}
+              loading={reset.isPending}
+              onClick={() => run(true)}
+            >
+              Clear {result.requests_cleared} request(s) · {result.pallets_cleared} pallet(s)
+            </Button>
+          </>
+        )}
+      </div>
+
+      {result && (
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-3 text-[13px]">
+          <p className="font-medium">{result.note}</p>
+          {result.kept.length > 0 && (
+            <p className="text-ink-faint">
+              Keeping: <span className="font-mono">{result.kept.join(", ")}</span>
+            </p>
+          )}
+          {result.drafts_removed.length > 0 && (
+            <p className="text-ink-faint">
+              App drafts {result.applied ? "removed from" : "to remove from"} Odoo:{" "}
+              <span className="font-mono">{result.drafts_removed.join(", ")}</span>
+            </p>
+          )}
+          {result.already_gone.length > 0 && (
+            <p className="text-ink-faint">
+              Already gone from Odoo (nothing to do):{" "}
+              <span className="font-mono">{result.already_gone.join(", ")}</span>
+            </p>
+          )}
+          {result.leftovers.length > 0 && (
+            <div className="rounded-(--radius-md) bg-warn-container px-3 py-2">
+              <div className="text-[13px] font-semibold">Left in Odoo for you</div>
+              <p className="mb-1 text-[12.5px] leading-4">
+                The app never touches a picking it didn't create, or one that already moved stock.
+              </p>
+              {result.leftovers.map((l) => (
+                <div key={l.picking_name} className="mb-1">
+                  <a
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-[12.5px] font-medium text-copper-deep hover:underline"
+                  >
+                    {l.picking_name} ({l.state}) ↗
+                  </a>
+                  <div className="text-[12px] leading-4 text-ink-faint">
+                    {l.belonged_to} — {l.reason}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ChannelRow({ name, c }: { name: string; c: NotifyChannelOut }) {
   const chip = !c.configured ? (
     // WhatsApp is deliberately paused for now — don't dress "off" as a fault
@@ -391,6 +514,7 @@ export function StatusPage() {
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CanaryCard />
         <ReleaseStaleCountsCard />
+        <ResetFlowCard />
         {data.notifications && <NotificationsCard n={data.notifications} />}
         <Card>
           <h3 className="display mb-1 text-[16px]">Feature flags</h3>

@@ -1263,3 +1263,34 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   count AND the pallet count both scanned = the same units moved twice). An
   endpoint rather than a script because the hosted stack has no shell; not a
   data migration because the decision needs a live Odoo read.
+- Flow reset back to a known point (2026-08-18, Noah): two weeks of testing
+  left a full transfer board and **15 pallets "landed with no details"**.
+  `app/transfers/reset.py` (`POST /admin/transfers/reset-flow`, `apply:false`
+  PREVIEW default + a typed-CLEAR confirm on the Dev Tools card "Reset the
+  transfer flow") deletes every TransferRequest older than `keep_hours` (24)
+  with its lines/events/adjustments/pallet links, ALL PalletTransfer rows, and
+  stamps the discovery watermark. **The watermark is the load-bearing part**:
+  `poll_manual_pallets` de-dupes undeclared pallets against the pallet rows it
+  already HAS, so deleting the 15 rows alone would rediscover the same 15
+  pickings on the next poll — the reset writes `discover_from` (Odoo datetime
+  format) into the `manual_pallet_poll_state` AppSetting and the discovery
+  domain gained `["date_done", ">", …]`, which is also what "start from the
+  next pallet" means. `test_flow_reset_clears_the_rubble_and_discovery_starts_
+  after_it` is the control (fails with "the reset watermark should hold" when
+  the honoring is removed — verified by removing it). Odoo side: the reset
+  unlinks ONLY app-created pickings that are still `draft` (the
+  `cancel_placement_draft` rule — a draft moved no stock), and everything else
+  (validated, or a human's own picking) is REPORTED with a deep link and left
+  alone; no new write op, so no flag/canary needed. Requests inside the keep
+  window survive whole, Odoo draft included. Cutoff uses `elapsed_since` — a
+  bare `created_at < cutoff` raises TypeError on SQLite (naive) vs Postgres
+  (aware), which is why that one copy of the dance exists. Three honest
+  outcomes per picking, and keeping them apart is the point: Odoo NOT ANSWERING
+  is a REFUSAL (`ResetError` → 422, nothing deleted — otherwise every picking
+  reads as unknown and the app would delete its own rows while telling a human
+  to cancel drafts it could have removed itself, which it then never can); an
+  id the successful read doesn't return is `already_gone` — deleted in Odoo
+  during testing, "nothing to do", never a goose chase; anything present and
+  not a draft is a `leftover` with its real Odoo state. Caught by running the
+  preview on live: III/INT/04636 came back "unknown", and Odoo was up — the
+  picking was simply gone.
