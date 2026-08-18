@@ -9,7 +9,8 @@
    to its qty), type the qty, Enter (back to search). Rows multi-select with
    shift/cmd-click; right-click for set-qty / remove. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { SuggestedStrip } from "./SuggestedStrip";
 import { usePersistedState } from "../../persist";
 import { burstedRecently, clearDraft, setDraftLines, useDraftLines } from "../../transferDraft";
 import { useCreateTransferRequest } from "../../api/hooks";
@@ -28,11 +29,13 @@ import {
 } from "../../design";
 import {
   LowCountHint,
+  OnTheWayChip,
   ProductPicker,
   QtyInput,
   SetQtyDialog,
   fmtQty,
   productCode,
+  useOnTheWay,
   type PickedLine,
 } from "../shared/OpsBits";
 
@@ -62,6 +65,13 @@ export function NewTransferPanel() {
   // it was carrying should land rather than blink into place
   const burst = useRef(burstedRecently()).current;
   const create = useCreateTransferRequest();
+  // Already-requested warning: the same aggregation /coming-soon shows, so it
+  // covers app requests AND transfers made straight in Odoo. Advisory only —
+  // the floor may well need more, and the API allows a second request.
+  const onTheWay = useOnTheWay();
+  const alreadyComing = lines.filter(
+    (l) => (onTheWay.get(l.product_id)?.qty_on_the_way ?? 0) > 0,
+  );
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -132,7 +142,12 @@ export function NewTransferPanel() {
   return (
     <div className={burst ? "animate-rise-in" : undefined}>
       <Card className="mb-4">
-        <ProductPicker pickedIds={pickedIds} onPick={addLine} inputRef={searchRef} />
+        <ProductPicker
+          pickedIds={pickedIds}
+          onPick={addLine}
+          inputRef={searchRef}
+          annotate={(id) => <OnTheWayChip item={onTheWay.get(id)} />}
+        />
       </Card>
 
       {lines.length === 0 ? (
@@ -169,6 +184,7 @@ export function NewTransferPanel() {
                         floor {fmtQty(line.floor_qty)} · whse {fmtQty(line.bwhse_qty)}{" "}
                         <LowCountHint qty={line.bwhse_qty} />
                       </span>
+                      <OnTheWayChip item={onTheWay.get(line.product_id)} />
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -212,7 +228,26 @@ export function NewTransferPanel() {
         </Card>
       )}
 
+      <SuggestedStrip />
+
       <Card className="mb-24 md:mb-6">
+        {alreadyComing.length > 0 && (
+          <p className="mb-3 rounded-(--radius-md) bg-warn-container px-3 py-2 text-[13px] leading-5">
+            <b>
+              {alreadyComing.length === lines.length
+                ? lines.length === 1
+                  ? "This item"
+                  : `All ${lines.length} items`
+                : `${alreadyComing.length} of these ${lines.length} items`}
+            </b>{" "}
+            {alreadyComing.length === 1 ? "is" : "are"} already on the way —{" "}
+            {alreadyComing.map((l) => l.name).join(", ")}. Send it anyway if the floor needs more;{" "}
+            <Link to="/coming-soon" className="font-semibold underline">
+              see what's inbound
+            </Link>
+            .
+          </p>
+        )}
         <Field label="Note for the warehouse (optional)">
           <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>

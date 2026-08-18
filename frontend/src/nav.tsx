@@ -119,10 +119,15 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/staging2", label: "Send to floor", short: "To floor", icon: Icons.box },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
+  // Order matters twice over: the first item is the landing page
+  // (homeForRoles), and the phone bar keeps only the first TWO destinations
+  // before Scan and More. Transfers sits second (Noah, 2026-08-18) so raising
+  // one is a tap on any screen; Suggested items moved behind More, since the
+  // transfer form now carries its own suggestions strip.
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
-    { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
+    { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
     { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },

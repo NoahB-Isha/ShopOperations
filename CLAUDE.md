@@ -1294,3 +1294,44 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   not a draft is a `leftover` with its real Odoo state. Caught by running the
   preview on live: III/INT/04636 came back "unknown", and Odoo was up — the
   picking was simply gone.
+- "Already on the way" warning on the transfer form (2026-08-18): the app
+  hid this where nobody building a request would look — /coming-soon was a
+  separate PAGE, and `back_list` silently dropped items on an open request,
+  so the only surface that never mentioned pending stock was the one where
+  you commit to asking for it (the API only rejects a duplicate product
+  WITHIN one request, never across two open ones). `useOnTheWay()` +
+  `OnTheWayChip` (OpsBits) reuse the EXISTING /coming-soon aggregation — no
+  new endpoint, and it therefore covers app requests AND transfers the
+  warehouse made straight in Odoo. Three surfaces on NewTransferPanel: a
+  chip on each search result, a chip on each draft line, and a summary
+  above Send ("All 3 items / 2 of these 7 items are already on the way …
+  Send it anyway if the floor needs more" + a link to /coming-soon). The
+  shared `ProductPicker` gained a generic `annotate?: (productId) =>
+  ReactNode` slot rather than learning about transfers — catalogs and
+  vendor rosters pass nothing. ADVISORY BY DESIGN: it never blocks Send and
+  the API still allows the second request, because a shelf that cleared at
+  lunchtime is real and the floor knows it before the numbers do.
+- Suggested items ON the transfer form + phone-nav reshuffle (2026-08-18,
+  Noah): `pages/transfers/SuggestedStrip.tsx` sits between the draft and the
+  Send card — the same two voices as /suggested-items, in the same order
+  (**people first**: open FloorRequests, then `restock.back` which the engine
+  already sorts by urgency — never re-rank it), reusing that page's add
+  semantics exactly (suggested qty, `addToDraft` merge, and taking an ask
+  `resolve`s it to picked-up so the asker sees it landed). Items already in
+  the draft drop out, and a zero total renders NOTHING — no empty box above
+  Send. Expanded when the draft is empty (then it's the most useful thing on
+  screen), a `Suggested items (N) ▾` disclosure once you've added something,
+  so a long strip can't push Send off a phone. Five slots then "See all N →";
+  the slot maths is `suggestedRows.ts` (pure + tested) in its OWN module —
+  exporting a non-component from the component file breaks Fast Refresh (the
+  centerSignals lesson). **No flyToBubble here**: the bubble is hidden on this
+  route, so the item appearing in the list above IS the acknowledgement.
+  Tap-only, deliberately — swipe-left would mean snooze, too big a commitment
+  mid-request. Consequence: this panel now calls GET /restock, which is its
+  own claimed sync refresher, so opening New transfer freshens shelf counts.
+  Nav: `shoppe_floor` order is now Restock · **Transfers** · Suggested items ·
+  … — the phone bar keeps only the first TWO destinations before Scan/More, so
+  Transfers is one tap from anywhere and Suggested items moved into the More
+  sheet (its red ask-dot follows it there via `overflowDotted`). Restock stays
+  first, so `homeForRoles(shoppe_floor)` is unchanged; the desktop sidebar
+  reorders to match. floor_rotating is untouched (Request items is their job).

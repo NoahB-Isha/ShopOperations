@@ -2,9 +2,9 @@
    transfer status colors and stepper, a searchable product picker with
    stock context, and small formatting helpers. Page-level, not design
    system — these know API shapes. */
-import { useState } from "react";
-import { useProducts } from "../../api/hooks";
-import type { ProductOut, TransferStatus } from "../../api/types";
+import { useMemo, useState } from "react";
+import { useComingSoon, useProducts } from "../../api/hooks";
+import type { ComingSoonItem, ProductOut, TransferStatus } from "../../api/types";
 import { Badge, Button, Dialog, Field, Input, Spinner, toneForLabel } from "../../design";
 import type { BadgeTone } from "../../design";
 
@@ -260,6 +260,7 @@ export function ProductPicker({
   placeholder = "Search products by name, SKU, barcode…",
   excludeClothing = false,
   inputRef,
+  annotate,
 }: {
   /** viaEnter is true when the keyboard flow added the first result */
   onPick: (line: PickedLine, viaEnter?: boolean) => void;
@@ -271,6 +272,10 @@ export function ProductPicker({
   excludeClothing?: boolean;
   /** quick flows refocus the search after a qty is typed */
   inputRef?: React.Ref<HTMLInputElement>;
+  /** Optional per-result badge slot. The picker is shared by catalogs, vendor
+   *  rosters and transfers, so it knows nothing about what the caller wants to
+   *  say — the transfer flow uses this to warn that stock is already coming. */
+  annotate?: (productId: number) => React.ReactNode;
 }) {
   const [search, setSearch] = useState("");
   const { data, isLoading } = useProducts({
@@ -339,6 +344,7 @@ export function ProductPicker({
                           <span className="whitespace-nowrap">case of {p.case_size}</span>
                         )}
                         <Badge tone={toneForLabel(p.category)}>{p.category}</Badge>
+                        {annotate?.(p.id)}
                       </span>
                     </span>
                     <span className="shrink-0 text-right text-[12px] leading-5 tabular-nums text-on-surface-variant">
@@ -416,6 +422,38 @@ export function SetQtyDialog({
         />
       </Field>
     </Dialog>
+  );
+}
+
+/** "Someone already asked for this" — a warning, never a refusal.
+ *
+ *  Built from the coming-soon aggregation, so it covers BOTH app requests and
+ *  transfers the warehouse made straight in Odoo. The floor sometimes knows
+ *  something the numbers don't (a shelf cleared at lunchtime), so this informs
+ *  and gets out of the way; the API doesn't block a second request either. */
+export function useOnTheWay() {
+  const { data } = useComingSoon();
+  return useMemo(() => {
+    const map = new Map<number, ComingSoonItem>();
+    for (const item of data ?? []) map.set(item.product_id, item);
+    return map;
+  }, [data]);
+}
+
+export function OnTheWayChip({ item }: { item: ComingSoonItem | undefined }) {
+  if (!item || item.qty_on_the_way <= 0) return null;
+  const sources = [
+    ...item.requests.map((r) => `${r.display_name} (${TRANSFER_LABELS[r.status] ?? r.status})`),
+    ...item.odoo_pickings.map((p) => `${p.picking_name} (Odoo · ${p.state})`),
+  ];
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-warn-container px-2 py-0.5
+        text-[11px] font-semibold text-on-surface"
+      title={`Already on the way: ${sources.join(", ")}`}
+    >
+      {fmtQty(item.qty_on_the_way)} on the way
+    </span>
   );
 }
 
