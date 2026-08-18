@@ -1179,3 +1179,67 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   on this orange, and it keeps the button reading as the same brand action as
   every other primary control. Active state is a ring, not a fill change: the
   FAB stays brand orange wherever you are.
+- **Delivery form: the warehouse declares what they sent (2026-08-17, Noah's
+  rework — full rationale in DECISIONS.md). The warehouse works in Odoo and
+  always will, so the app follows them.** Flow now: floor requests → app
+  drafts BWHSE→**Staging2** (`service.placement_dest_key`, falls back to
+  floor staging where staging2 isn't mapped — one less manual retarget) →
+  ANY write to that picking reads as "seen by warehouse"
+  (`service.warehouse_has_acted`: state != draft OR write_date > create_date
+  by >3s; the simulator returns False for absent date fields and "no
+  information" must never read as "somebody edited it") → they pull it,
+  splitting it however they like → validated into Staging2 = **staged**
+  (`sent`), NO count prepared → they make ONE staging2 → floor-staging
+  transfer IN ODOO → they fill the **delivery form** → validation closes
+  every request on it as **received** (`done`) and prepares ONE count
+  transfer for the whole pallet. `app/transfers/delivery.py` is the module
+  (build on it, never around it): `candidate_pickings` (Q1: recent
+  staging2→staging pickings, `?search=` = the "Don't see it?" path matching
+  a name ANYWHERE in Odoo), `suggest_requests` (Q2: EVERY linkable request
+  comes back — `suggested=False` ones hide behind "Add another transfer…",
+  which is the "button to add more" without a second endpoint; auto_select
+  = staged AND its items are on the pallet), `discrepancy_review` (Q3: per
+  PRODUCT summed across the selected requests, |sent − asked| >
+  `transfer_discrepancy_threshold` (3); products nobody asked for come back
+  as `extras` — information, never a question), `allocate_sent` (pure,
+  unit-tested FIFO: oldest request filled first, surplus to the last asker
+  — the floor WILL ask why their request shows 6), `declare` (links,
+  freezes contents, writes qty_sent back, saves reasons, lands it if the
+  picking is already done) and `land`/`prepare_delivery_count`/
+  `poll_delivery_counts`. Reason codes = `DiscrepancyReason` (no_stock,
+  full_case, another_transfer, other; ≥1 required per flagged row and
+  `other` needs a note — enforced server-side in `validate_reasons`, and
+  the server RE-COMPUTES the review on submit so a stale dialog can't sneak
+  a gap through). **An UNDECLARED pallet closes nobody's request** —
+  `poll_manual_pallets` records it (with its contents) and the page shows
+  "needs details"; guessing would close requests still waiting. Sent
+  quantities sum across the whole validated picking family sharing the
+  request's ILAPP-TR- reference (`service.outbound_family` — done pickings
+  only, floor-bound receipts excluded, or a split double-counts). The
+  DELIVERY's count is `prepare_count_transfer(allow_foreign_source=True)`
+  (the pallet is usually a picking the app didn't create; `copy` writes
+  nothing to the source and the copy keeps our ILAPP-CNT- reference), and
+  its differences file as adjustments with `pallet_id` set and request_id
+  NULL. `mark_sent` only prepares a per-request count on the DIRECT path
+  (`service.landed_at_floor_staging`) — two staging→floor mechanisms would
+  move the same units twice. Status KEYS unchanged; labels are "Seen by
+  warehouse" / "Staged" / "Received" and the stepper drops `counting`
+  unless that's where you are. Migration `e4a7c2b91d63` (additive:
+  pallet_transfers gains declared_*/count_*/note, + `pallet_requests`,
+  `pallet_discrepancies`, `adjustments.pallet_id`). `useDeliveryPreview` is
+  a MUTATION, not a query — it reads Odoo live and the answer changes as
+  boxes are ticked. **`api()` JSON-stringifies the body itself** — passing
+  `body: JSON.stringify(x)` double-encodes and FastAPI answers "Input
+  should be a valid dictionary" (caught in the browser pane, not by
+  typecheck). Candidate contents come from `picking_contents_bulk` — ONE
+  stock.move read for the whole list; per-picking reads were ~3s of
+  nothing every time the form opened.
+- **Warehouse menu is two items (2026-08-17, Noah): Send to floor + Search
+  Inventory.** They live in Odoo; the scanner, inbox and settings are
+  top-bar furniture (Scan is pinned in the phone bottom bar). Incoming,
+  Transfers, Coming soon, Out of stock and Adjustments left the MENU only —
+  routes and role access are untouched, so a link still opens them and
+  `homeForRoles(warehouse)` is `/staging2` now (nav.test asserts both the
+  two-item list and the home). Consequence to watch: the adjustments queue
+  has no entry point for the role that owns it — a count difference on a
+  delivery is still filed, just not surfaced in their nav.

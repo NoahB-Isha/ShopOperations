@@ -63,6 +63,34 @@ it painful.
 
 ## Build decisions
 
+**2026-08-17 — The warehouse works in Odoo; a form is how the app learns what they sent**
+*(Phase 2.z)*
+The transfer flow assumed one app request = one Odoo picking, and closed a request off a
+per-request STAGING→FLOOR count. The warehouse doesn't work that way and won't: they pull a
+request however suits them (split it, part-ship it, build their own pickings), pile it into
+III/Staging2, and send ONE pallet to floor staging in Odoo. Nothing the app can poll knows
+which requests that pallet carries, so a human answers three questions instead — which
+transfer, which requests, and why any quantity is off by more than 3 units (four reason
+chips: not enough stock / sending a full case / it'll go on another transfer / other, with a
+note required for "other"). Noah's three calls in the same conversation: the count is now
+**one per delivery**, not one per request (the floor counts a pallet once); the app's
+placement draft targets **Staging2** so the warehouse stops retargeting it by hand; and a
+request on a delivery **always closes**, with a clear per-item note when it wasn't filled —
+tracking the remainder is the Inventory Flow Manager's job, not the app's. Consequences worth
+knowing: sent quantities now sum across every validated picking sharing the request's
+reference (backorders and copies included, receiving pickings excluded, or a split would
+double-count); "seen by warehouse" fires on ANY write to the picking, not just a state change
+(editing a quantity leaves it in draft and only moves `write_date`); an **undeclared** pallet
+lands as a pallet and closes nobody's request, because guessing would close requests still
+waiting for their stock; and `prepare_count_transfer` gained `allow_foreign_source` since the
+pallet is usually a picking the app didn't create — safe because Odoo's `copy` writes nothing
+to the source and the copy still carries our own ILAPP-CNT- reference. Status KEYS were left
+alone (same reasoning as the roles rename); only the labels moved — "Seen by warehouse",
+"Staged", "Received". Same day, Noah cut the **warehouse menu to two items** (Send to floor,
+Search Inventory — the scanner, inbox and settings are top-bar furniture): Incoming,
+Transfers, Coming soon, Out of stock and Adjustments left the menu, keeping their routes and
+role access so nothing has to be rebuilt to bring one back.
+
 **2026-07-11 — Four switchable light palettes; one global dark** *(Phase 1.5)*
 Noah liked all four palette-lab candidates, so instead of picking one they became themes:
 Sunset Studio (default), Indigo Violet, Forest & Clay, Charcoal Pop — all sharing the locked

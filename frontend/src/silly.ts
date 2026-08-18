@@ -66,7 +66,7 @@ export const SILLY_LABELS: Record<string, string> = {
   // warehouse
   Incoming: "Inbound loot",
   Transfers: "Big moves",
-  "Staging 2": "Pallet party",
+  "Send to floor": "Pallet party",
   "Coming soon": "OTW 👀",
   Adjustments: "Damage control",
   // floor

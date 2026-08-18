@@ -108,13 +108,15 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
     { path: "/purchasing", label: "Purchasing", icon: Icons.ship },
   ],
+  // Warehouse Team: deliberately down to two destinations (Noah, 2026-08-17).
+  // They live in Odoo — the app's job for them is the delivery form and
+  // looking a product up; the scanner, inbox and settings are in the top bar
+  // (and Scan is pinned in the phone bottom bar). Incoming, Transfers, Coming
+  // soon, Out of stock and Adjustments left the MENU, not the app: their
+  // routes and role access are untouched, so a link still opens them and
+  // nothing has to be rebuilt to bring one back.
   warehouse: [
-    { path: "/incoming", label: "Incoming", icon: Icons.truck },
-    { path: "/transfers", label: "Transfers", icon: Icons.swap },
-    { path: "/staging2", label: "Staging 2", icon: Icons.box },
-    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.radar },
-    { path: "/adjustments", label: "Adjustments", short: "Adjust", icon: Icons.scale },
+    { path: "/staging2", label: "Send to floor", short: "To floor", icon: Icons.box },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   shoppe_floor: [

@@ -83,12 +83,27 @@ export const TRANSFER_STEPS: TransferStatus[] = [
   "done",
 ];
 
+/** The everyday route has four stops: the warehouse consolidates in Staging 2
+ *  and the PALLET gets counted, not each request. A request only sees its own
+ *  "counting" stop on the direct path (straight to floor staging), so that
+ *  step appears in the stepper when — and only when — it's where you are. */
+export const DELIVERY_FLOW_STEPS: TransferStatus[] = [
+  "requested",
+  "working_on_it",
+  "sent",
+  "done",
+];
+
+/** Status KEYS are storage and never change (see TransferRequestStatus); these
+ *  labels are what people read. Renamed 2026-08-17 with the delivery form:
+ *  the warehouse works in Odoo, so "seen by warehouse" is a real event, and
+ *  "sent" means staged in Staging 2, not on the floor. */
 export const TRANSFER_LABELS: Record<TransferStatus, string> = {
   requested: "Requested",
-  working_on_it: "Working on it",
-  sent: "Sent",
+  working_on_it: "Seen by warehouse",
+  sent: "Staged",
   counting: "Counting",
-  done: "Done",
+  done: "Received",
   cancelled: "Cancelled",
 };
 
@@ -118,10 +133,11 @@ export function TransferStepper({ status }: { status: TransferStatus }) {
   if (status === "cancelled") {
     return <Badge tone="neutral">Cancelled</Badge>;
   }
-  const idx = TRANSFER_STEPS.indexOf(status);
+  const steps = status === "counting" ? TRANSFER_STEPS : DELIVERY_FLOW_STEPS;
+  const idx = steps.indexOf(status);
   return (
     <ol className="flex flex-wrap items-center gap-0" aria-label={`Status: ${TRANSFER_LABELS[status]}`}>
-      {TRANSFER_STEPS.map((step, i) => (
+      {steps.map((step, i) => (
         <li key={step} className="flex items-center">
           {i > 0 && (
             <span

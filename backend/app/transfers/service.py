@@ -2,6 +2,15 @@
 sent quantities back, prepare the count transfer, and LISTEN for its
 validation (polled politely — the UI's live refresh calls these on read).
 
+The warehouse lives in Odoo and always will, so the app follows THEM: the
+placement draft lands in III/Staging2 (their consolidation point, no manual
+retarget), any write they make to it reads as "seen by warehouse", and they
+may split it into as many pickings as they like — sent quantities are summed
+across the whole family of validated pickings carrying the request's
+reference, not read off one picking. What rides the pallet to the floor is
+declared on the delivery form (see delivery.py), because only a human knows
+which requests a consolidated pallet is carrying.
+
 All writes go through the OdooWriter; every outcome is recorded honestly on
 the request (created / simulated / failed) so the flow keeps working — and
 keeps telling the truth — when writes are gated or Odoo is unreachable.
@@ -9,6 +18,7 @@ keeps telling the truth — when writes are gated or Odoo is unreachable.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -60,10 +70,55 @@ def barcode_url(settings: Settings, picking_id: int) -> str:
 
 
 # ------------------------------------------------------------ placement draft
+def placement_dest_key(db: Session) -> str:
+    """Where the app drafts a request TO.
+
+    III/Staging2 — the warehouse's own consolidation point. They used to
+    retarget every app draft there by hand, which is a step the app can just
+    not create. Falls back to floor staging where staging2 isn't mapped
+    (it's in OPTIONAL_LOCATION_KEYS, so older fixture sets lack it)."""
+    if db.scalar(select(OdooLocation).where(OdooLocation.key == "staging2")):
+        return "staging2"
+    return "staging"
+
+
+def landed_at_floor_staging(
+    db: Session, settings: Settings, req: TransferRequest
+) -> bool:
+    """Is this request's stock countable onto the floor RIGHT NOW?
+
+    True only for the direct path — BWHSE straight to floor staging. Stock
+    that went to Staging2 waits for a pallet, and the pallet's own count
+    covers it; preparing a per-request count as well would draft a second
+    staging→floor move over the same units.
+
+    Reads the picking's real destination where there is one (requests placed
+    before the Staging2 change still point at floor staging), and otherwise
+    answers from where the app drafts today."""
+    default = placement_dest_key(db) == "staging"
+    if req.picking_status != OdooWriteOutcome.CREATED.value or not req.odoo_picking_id:
+        return default
+    staging = db.scalar(select(OdooLocation).where(OdooLocation.key == "staging"))
+    if staging is None:
+        return default
+    try:
+        conn = get_connection(settings, read_only=True)
+        rows = conn.search_read(
+            "stock.picking", [["id", "=", req.odoo_picking_id]], ["location_dest_id"]
+        )
+    except OdooError:
+        return default
+    if not rows:
+        return default
+    dest = rows[0].get("location_dest_id")
+    dest_id = dest[0] if isinstance(dest, list) else dest
+    return dest_id == staging.odoo_id
+
+
 def render_placement_draft(
     db: Session, settings: Settings, req: TransferRequest, actor_user_id: int | None
 ) -> None:
-    """Create the BWHSE→STAGING draft the moment the floor places the
+    """Create the BWHSE→Staging2 draft the moment the floor places the
     request. The request adopts the picking's Odoo name."""
     writer = OdooWriter(db, settings, actor_user_id=actor_user_id)
     reference = req.picking_reference or new_reference("TR")
@@ -71,7 +126,7 @@ def render_placement_draft(
     try:
         result = writer.create_internal_transfer(
             source_key="bwhse",
-            dest_key="staging",
+            dest_key=placement_dest_key(db),
             lines=[
                 {"product_id": line.product_id, "qty": line.qty_requested}
                 for line in req.lines
@@ -105,12 +160,45 @@ def render_placement_draft(
 
 
 # --------------------------------------------------------- sent-qty readback
+def outbound_family(conn: OdooConnection, db: Session, req: TransferRequest) -> list[dict]:
+    """Every picking that carries this request's stock out of the warehouse.
+
+    The warehouse splits an order however suits them — validate half and let
+    Odoo raise a backorder, or copy the draft twice and send it over two
+    days. Odoo carries `origin` onto backorders and copies, so the request's
+    own ILAPP-TR- reference identifies the whole family.
+
+    Only VALIDATED (done) pickings count: "sent" means stock physically
+    moved, and summing a done picking together with the backorder that still
+    owes the rest would double the quantity. Receiving pickings are excluded
+    — the floor receives by duplicating the placement picking, so a
+    staging→FLOOR copy carries this same origin (see find_received_pickings)
+    and would otherwise be counted as a second shipment."""
+    if not req.picking_reference:
+        return []
+    floor = db.scalar(select(OdooLocation).where(OdooLocation.key == "floor"))
+    rows = conn.search_read(
+        "stock.picking",
+        [["origin", "=", req.picking_reference], ["state", "=", "done"]],
+        ["name", "location_dest_id", "date_done"],
+    )
+    out = []
+    for row in rows:
+        dest = row.get("location_dest_id")
+        dest_id = dest[0] if isinstance(dest, list) else dest
+        if floor is not None and dest_id == floor.odoo_id:
+            continue
+        out.append(row)
+    return out
+
+
 def refresh_sent_quantities(
     db: Session, settings: Settings, req: TransferRequest
 ) -> str:
-    """At 'sent', the warehouse's numbers live in the Odoo picking (they may
-    have validated it, edited quantities, or both). Read them back; fall back
-    to the requested quantities when there's no live picking."""
+    """At 'sent', the warehouse's numbers live in Odoo (they may have
+    validated the picking, edited quantities, split it, or all three). Read
+    them back; fall back to the requested quantities when there's nothing
+    live to read."""
     if req.picking_status != OdooWriteOutcome.CREATED.value or not req.odoo_picking_id:
         for line in req.lines:
             if line.qty_sent is None:
@@ -118,7 +206,17 @@ def refresh_sent_quantities(
         return "sent quantities assumed from the request (no live Odoo picking)"
     try:
         conn = get_connection(settings, read_only=True)
-        by_product = _move_quantities(conn, req.odoo_picking_id)
+        family = outbound_family(conn, db, req)
+        if family:
+            by_product: dict[int, float] = {}
+            for picking in family:
+                _move_quantities(conn, picking["id"], into=by_product)
+            source = ", ".join(str(p.get("name") or p["id"]) for p in family)
+        else:
+            # nothing validated yet — the warehouse tapped "sent" in the app
+            # before validating in Odoo, so read the picking as it stands
+            by_product = _move_quantities(conn, req.odoo_picking_id)
+            source = f"{req.odoo_picking_name} (not validated yet)"
     except OdooError as e:
         for line in req.lines:
             if line.qty_sent is None:
@@ -132,7 +230,8 @@ def refresh_sent_quantities(
             matched += 1
         elif line.qty_sent is None:
             line.qty_sent = 0.0  # line dropped in Odoo -> nothing sent
-    return f"sent quantities read back from {req.odoo_picking_name} ({matched} line(s))"
+    plural = "" if matched == 1 else "s"
+    return f"sent quantities read back from {source} ({matched} line{plural} matched)"
 
 
 def _move_quantities(
@@ -258,15 +357,52 @@ def prepare_count_transfer(
 # Odoo picking states that mean the warehouse has started on it
 _STARTED_STATES = ("waiting", "confirmed", "assigned")
 
+# a write within this many seconds of creation is the app's own create
+# (Odoo stamps write_date == create_date on a fresh record)
+_OWN_WRITE_SECONDS = 3.0
+
+
+def _seconds_between(later: object, earlier: object) -> float | None:
+    """Odoo datetimes as 'YYYY-MM-DD HH:MM:SS' strings → the gap in seconds,
+    or None when either is missing/unparseable (the simulator returns False
+    for fields it doesn't keep, and 'no information' must never read as
+    'somebody edited it')."""
+    fmt = "%Y-%m-%d %H:%M:%S"
+    try:
+        a = datetime.strptime(str(later)[:19], fmt)
+        b = datetime.strptime(str(earlier)[:19], fmt)
+    except (TypeError, ValueError):
+        return None
+    return (a - b).total_seconds()
+
+
+def warehouse_has_acted(picking: dict) -> bool:
+    """Has anybody TOUCHED this picking since the app drafted it?
+
+    Noah's ask (2026-08-17): "warehouse performs any action on the transfer
+    and it gets marked as Seen by warehouse". Leaving draft is one such
+    action, but so is editing quantities, adding a line, or splitting it —
+    all of which leave the state alone and bump `write_date`. Both signals
+    count; when Odoo gives us no dates, state is the whole answer."""
+    if str(picking.get("state") or "") != "draft":
+        return True
+    gap = _seconds_between(picking.get("write_date"), picking.get("create_date"))
+    return gap is not None and gap > _OWN_WRITE_SECONDS
+
 
 def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) -> bool:
     """The two-way sync's OUTBOUND half: when the warehouse acts on an
-    app-placed picking IN ODOO (marks it to-do, validates it, cancels it),
-    the app workflow follows — no app clicks required.
+    app-placed picking IN ODOO (edits it, marks it to-do, validates it,
+    cancels it), the app workflow follows — no app clicks required.
 
-      confirmed/assigned  → working on it
-      done (validated)    → sent (qtys read back) → count transfer prepared
-      cancelled           → cancelled
+      any write / leaving draft → seen by warehouse
+      done (validated)          → staged (qtys read back across the family)
+      cancelled                 → cancelled
+
+    A validated picking that landed in Staging2 waits there: what goes to
+    the floor, and which requests ride it, is the delivery form's answer —
+    see delivery.py. A picking validated straight into floor staging (the
+    direct path, no consolidation) still gets its own count transfer.
 
     Throttled per request like the count listener; safe on every UI refresh.
     Returns True when the request just changed state."""
@@ -288,7 +424,7 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
         rows = conn.search_read(
             "stock.picking",
             [["id", "=", req.odoo_picking_id]],
-            ["state", "location_dest_id"],
+            ["state", "location_dest_id", "write_date", "create_date"],
         )
     except OdooError as e:
         log.warning("outbound poll failed for request %s: %s", req.id, e)
@@ -307,11 +443,16 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
         db.commit()
         return True
 
-    if state in _STARTED_STATES and req.status == TransferRequestStatus.REQUESTED.value:
+    if (
+        req.status == TransferRequestStatus.REQUESTED.value
+        and state != "done"
+        and warehouse_has_acted(rows[0])
+    ):
         req.status = TransferRequestStatus.WORKING.value
+        detail = f"marked {state}" if state in _STARTED_STATES else f"edited it ({state})"
         _event(
             db, req, TransferEventKind.STATUS,
-            f"warehouse started {req.odoo_picking_name} in Odoo ({state}) — synced",
+            f"seen by the warehouse — they {detail} on {req.odoo_picking_name} in Odoo",
             status=req.status,
         )
         db.commit()
@@ -322,11 +463,11 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
         # numbers back...
         readback_note = refresh_sent_quantities(db, settings, req)
         req.status = TransferRequestStatus.SENT.value
-        # ...but where did it actually GO? The warehouse's real process
-        # retargets transfers to III/Staging2 (their consolidation point)
-        # and later sends ONE pallet to floor staging. Goods at staging2
-        # aren't countable yet — the count waits for the pallet to land
-        # (poll_pallets stages it then).
+        # ...but where did it actually GO? Normally III/Staging2 — the
+        # warehouse's consolidation point — where it waits for the pallet
+        # the warehouse declares on the delivery form. A picking validated
+        # straight into floor staging skipped consolidation, so it gets its
+        # own count transfer, as it always did.
         dest_field = rows[0].get("location_dest_id")
         dest_id = dest_field[0] if isinstance(dest_field, list) else dest_field
         dest_name = (
@@ -355,8 +496,8 @@ def poll_outbound_status(db: Session, settings: Settings, req: TransferRequest) 
             _event(
                 db, req, TransferEventKind.STATUS,
                 f"{req.odoo_picking_name} validated in Odoo to "
-                f"{dest_name or 'a warehouse staging location'} — waiting for the "
-                "pallet to floor staging; the count will be prepared when it lands",
+                f"{dest_name or 'a warehouse staging location'} — stock is staged, "
+                "waiting for the warehouse to send the pallet to the floor",
                 status=req.status,
             )
             _event(db, req, TransferEventKind.ODOO, readback_note)

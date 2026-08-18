@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     odoo_fixtures_dir: str = "backend/data/demo_fixtures"
     # seconds between polls of a count picking's state (per request)
     odoo_count_poll_seconds: int = 10
+
+    # --- delivery form (warehouse declares what rode the pallet) ---
+    # Units of difference between what was requested and what's on the pallet
+    # before the form asks WHY. Small gaps are the noise of picking whole
+    # cases; anything bigger is a decision the floor deserves an answer for.
+    transfer_discrepancy_threshold: float = 3
+    # how many recent staging2 → floor-staging pickings the form offers
+    delivery_candidate_limit: int = 12
     # operation types for floor OOS data cleanup, matched by name (ilike; %
     # wildcards allowed — the live names are "USA-III: Inventory Adj Reduction"
     # and "USA-III: Inventory Adj  Adding Qty", note the double space)

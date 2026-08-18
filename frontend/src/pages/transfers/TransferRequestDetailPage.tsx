@@ -1,10 +1,17 @@
 /* One transfer request, live: named after its Odoo picking, one-tap stage
-   buttons for the warehouse, the barcode-count handoff for the floor, and
-   the shared timeline. Counting happens in Odoo — this page just knows. */
+   buttons for the warehouse, the delivery it rode to the floor, and the
+   shared timeline. The work happens in Odoo — this page just knows.
+
+   Since the delivery-form rework, a request's own "count" is the exception
+   (the direct path, straight to floor staging). Normally its stock is
+   consolidated in Staging 2, rides a pallet the warehouse declares, and
+   closes when that pallet lands — so the Odoo card shows the delivery, and
+   any line the warehouse couldn't fill carries their reason for it. */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTransferAction, useTransferRequest } from "../../api/hooks";
 import type {
+  DeliveryRefOut,
   OdooRefOut,
   TransferEventOut,
   TransferLineOut,
@@ -101,7 +108,9 @@ function Detail({ req }: { req: TransferRequestOut }) {
 
   const a = req.actions;
   const onError = (e: Error) => toast.error(e.message);
-  const showCounted = req.status === "done";
+  // a request that closed against a delivery has no per-line count of its own
+  // — the pallet was counted, not this request. Don't print columns of zeros.
+  const showCounted = req.lines.some((l) => l.qty_counted !== null);
 
   return (
     <>
@@ -139,8 +148,8 @@ function Detail({ req }: { req: TransferRequestOut }) {
           {a.can_ack && (
             <ActionCard
               title="New request"
-              hint="Tell the floor you've laid eyes on it and you're pulling stock."
-              button="Working on it"
+              hint="Tell the floor you've laid eyes on it. Touching the picking in Odoo does this on its own — this is for when you haven't yet."
+              button="I've seen it"
               loading={ack.isPending}
               onClick={() => ack.mutate({ id: req.id }, { onError })}
             />
@@ -150,10 +159,10 @@ function Detail({ req }: { req: TransferRequestOut }) {
               title={req.status === "requested" ? "Grab and go" : "Finishing up?"}
               hint={
                 req.placement.status === "created"
-                  ? `Adjust quantities in ${req.placement.picking_name} as you pick — they're read back when you tap Sent, and the count transfer is prepared automatically.`
-                  : "Tap Sent when the cart is at staging — quantities are taken from the request."
+                  ? `Adjust quantities in ${req.placement.picking_name} as you pick — validating it in Odoo marks this staged on its own, and quantities are read back either way.`
+                  : "Tap Staged when the stock is out of the warehouse — quantities are taken from the request."
               }
-              button="Sent to staging"
+              button="Mark staged"
               loading={sent.isPending}
               onClick={() => sent.mutate({ id: req.id }, { onError })}
             />
@@ -237,6 +246,26 @@ function Detail({ req }: { req: TransferRequestOut }) {
                             floor {fmtQty(line.floor_qty)} · whse {fmtQty(line.bwhse_qty)}
                           </span>
                         </div>
+                        {/* the warehouse's own words for a line that didn't
+                            come in full — the whole point of the form */}
+                        {line.reason_labels.length > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {line.reason_labels.map((label) => (
+                              <span
+                                key={label}
+                                className="rounded-full bg-warn-container px-2 py-0.5 text-[11.5px]
+                                  font-semibold text-on-surface"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                            {line.reason_note && (
+                              <span className="text-[11.5px] text-on-surface-variant">
+                                {line.reason_note}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {fmtQty(line.qty_requested)}
@@ -279,6 +308,7 @@ function Detail({ req }: { req: TransferRequestOut }) {
             )}
           </Card>
 
+          {req.delivery && <DeliveryCard delivery={req.delivery} status={req.status} />}
           <OdooCard placement={req.placement} count={req.count} />
           <ContextMenu menu={menu.menu} onClose={menu.close} />
         </div>
@@ -384,13 +414,55 @@ function ActionCard({
   );
 }
 
+/** The received transfer this request rode to the floor — "a link to the
+ *  received transfer", plus who else was on it, because a pallet that arrived
+ *  short is easier to understand when you can see it was shared. */
+function DeliveryCard({
+  delivery,
+  status,
+}: {
+  delivery: DeliveryRefOut;
+  status: TransferRequestOut["status"];
+}) {
+  const landed = delivery.validated_at !== null;
+  const others = delivery.request_count - 1;
+  return (
+    <Card tone={status === "done" ? "primary" : undefined}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold">
+            {landed ? "Received on the floor" : "On its way to the floor"}
+          </div>
+          <p className={`mt-0.5 text-[13px] ${status === "done" ? "opacity-90" : "text-on-surface-variant"}`}>
+            <span className="font-mono">{delivery.picking_name}</span>
+            {others > 0 && ` · shared with ${others} other request${others === 1 ? "" : "s"}`}
+            {landed
+              ? " · the floor counts the whole pallet in Odoo"
+              : " · closes here the moment the warehouse validates it in Odoo"}
+          </p>
+        </div>
+        {delivery.picking_url && (
+          <a
+            href={delivery.picking_url}
+            target="_blank"
+            rel="noreferrer"
+            className="state-layer shrink-0 rounded-full px-3 py-1.5 text-[13px] font-semibold underline"
+          >
+            Open in Odoo ↗
+          </a>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function OdooCard({ placement, count }: { placement: OdooRefOut; count: OdooRefOut }) {
   if (placement.status === "none" && count.status === "none") return null;
   return (
     <Card>
       <h3 className="headline mb-1 text-[16px]">In Odoo</h3>
       <div className="flex flex-col gap-2.5">
-        <OdooRow label="Warehouse picking (BWHSE → Staging)" r={placement} />
+        <OdooRow label="Warehouse picking (BWHSE → Staging 2)" r={placement} />
         {count.status !== "none" && (
           <OdooRow label="Count transfer (Staging → Floor)" r={count} />
         )}

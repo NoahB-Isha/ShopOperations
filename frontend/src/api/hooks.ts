@@ -685,7 +685,74 @@ export function useSendPallet() {
     onSuccess: (out) => {
       qc.setQueryData(["staging2"], out);
       qc.invalidateQueries({ queryKey: ["transfer-requests"] });
+      qc.invalidateQueries({ queryKey: ["deliveries"] });
     },
+  });
+}
+
+// ------------------------------------- deliveries (the warehouse's form)
+export function useDeliveries() {
+  return useQuery({
+    queryKey: ["deliveries"],
+    queryFn: () => api<import("./types").DeliveryOut[]>("/transfer-requests/deliveries"),
+    // this GET is also the pallet + count validation listener
+    refetchInterval: BOARD_POLL_MS,
+  });
+}
+
+/** Question 1: recent staging2 → floor-staging transfers. `search` is the
+ *  "Don't see it?" path and matches a picking name anywhere in Odoo. */
+export function useDeliveryCandidates(search: string, enabled = true) {
+  return useQuery({
+    queryKey: ["delivery-candidates", search],
+    queryFn: () =>
+      api<import("./types").DeliveryCandidatesOut>(
+        `/transfer-requests/deliveries/candidates${
+          search ? `?search=${encodeURIComponent(search)}` : ""
+        }`,
+      ),
+    enabled,
+  });
+}
+
+/** Questions 2 + 3 for a picking and the current selection. A mutation, not a
+ *  query: it reads Odoo live and the answer changes as boxes are ticked. */
+export function useDeliveryPreview() {
+  return useMutation({
+    mutationFn: (body: { odoo_picking_id: number; request_ids: number[] }) =>
+      api<import("./types").DeliveryPreviewOut>("/transfer-requests/deliveries/preview", {
+        method: "POST",
+        body,
+      }),
+  });
+}
+
+export function useDeclareDelivery() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: import("./types").DeclareDeliveryIn) =>
+      api<import("./types").DeliveryOut>("/transfer-requests/deliveries", {
+        method: "POST",
+        body,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deliveries"] });
+      qc.invalidateQueries({ queryKey: ["transfer-requests"] });
+      qc.invalidateQueries({ queryKey: ["staging2"] });
+      qc.invalidateQueries({ queryKey: ["coming-soon"] });
+    },
+  });
+}
+
+export function useRetryDeliveryCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<import("./types").DeliveryOut>(
+        `/transfer-requests/deliveries/${id}/prepare-count`,
+        { method: "POST" },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["deliveries"] }),
   });
 }
 

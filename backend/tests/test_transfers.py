@@ -67,12 +67,25 @@ def test_placement_is_simulated_honestly_when_writes_off(client, db, settings_en
     assert req["actions"]["can_edit_lines"] is True
 
 
+def _floor_staging_id(sim) -> int:
+    return next(
+        loc["id"]
+        for loc in sim.search_read("stock.location", [], ["complete_name"])
+        if "STAGING" in str(loc["complete_name"])
+    )
+
+
 def test_full_flow_against_simulator_with_barcode_validation(
     client, db, live_env, monkeypatch
 ):
-    """The acceptance path, Odoo-native: request 10 → warehouse sends 9 (in
-    'Odoo') → count transfer prepared → human validates 8 in the barcode app
-    → app detects it, closes the request, files the -1 adjustment."""
+    """The DIRECT path (no consolidation): request 10 → warehouse retargets
+    the picking straight to floor staging and sends 9 (in 'Odoo') → count
+    transfer prepared → human validates 8 in the barcode app → app detects
+    it, closes the request, files the -1 adjustment.
+
+    Straight-to-floor-staging is what makes a request countable on its own.
+    The everyday route piles into Staging2 and rides a declared pallet —
+    test_delivery_form_closes_the_requests_that_rode_it covers that."""
     copper, *_ = _setup(db)
     _sync_locations(db, live_env)
     sim = _wire_simulator(live_env, monkeypatch)
@@ -116,8 +129,13 @@ def test_full_flow_against_simulator_with_barcode_validation(
     assert r.status_code == 200 and r.json()["status"] == "working_on_it"
 
     # warehouse trims the quantity to 9 IN ODOO (like they would while picking)
+    # and sends it straight to floor staging rather than the Staging2 pile
     [move] = sim.search_read("stock.move", [["picking_id", "=", placement_id]], ["id"])
     sim.call_kw("stock.move", "write", [[move["id"]], {"product_uom_qty": 9, "quantity": 9}])
+    staging_id = _floor_staging_id(sim)
+    sim.call_kw(
+        "stock.picking", "write", [[placement_id], {"location_dest_id": staging_id}]
+    )
 
     # ---- sent: qtys read back; count transfer prepared in the same motion
     r = client.post(f"/api/v1/transfer-requests/{rid}/sent", json={}, headers=wh)
@@ -135,11 +153,6 @@ def test_full_flow_against_simulator_with_barcode_validation(
         "stock.picking", [["id", "=", count_id]], ["state", "location_id", "location_dest_id"]
     )
     assert count_pick["state"] == "assigned"  # To Do + availability checked
-    staging_id = next(
-        loc["id"]
-        for loc in sim.search_read("stock.location", [], ["complete_name"])
-        if "STAGING" in str(loc["complete_name"])
-    )
     assert count_pick["location_id"] == staging_id
     count_moves = sim.search_read(
         "stock.move", [["picking_id", "=", count_id]], ["location_id", "product_uom_qty"]
@@ -180,8 +193,9 @@ def test_full_flow_against_simulator_with_barcode_validation(
 
 
 def test_simulated_flow_manual_close(client, db, settings_env):
-    """With writes gated there's no Odoo picking to scan — the flow still
-    moves and closes manually, with counted taken as sent (no invented
+    """With writes gated there's no Odoo picking at all — no draft to pull
+    from, no pallet to declare, nothing to scan. The flow still moves, and
+    the floor closes it by hand with counted taken as sent (no invented
     discrepancies)."""
     copper, *_ = _setup(db)
     _sync_locations(db, settings_env)
@@ -198,8 +212,10 @@ def test_simulated_flow_manual_close(client, db, settings_env):
     r = client.post(f"/api/v1/transfer-requests/{rid}/sent", json={}, headers=wh)
     assert r.status_code == 200, r.text
     req = r.json()
-    assert req["status"] == "counting"
-    assert req["count"]["status"] == "simulated"
+    # staged, with no count of its own: the pallet carries the count now, and
+    # in gated mode there's no pallet either — hence the manual close below
+    assert req["status"] == "sent"
+    assert req["count"]["status"] == "none"
     assert req["lines"][0]["qty_sent"] == 5  # assumed from the request
     assert req["actions"]["can_mark_done"] is False  # closing is the floor's call
     r = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor)
@@ -351,9 +367,10 @@ def test_coming_soon_aggregates_active_requests(client, db, settings_env):
 
 def test_odoo_actions_drive_the_workflow(client, db, live_env, monkeypatch):
     """Two-way sync, OUTBOUND half: the warehouse never opens the app —
-    reserving the picking in Odoo flips the request to working, validating
-    it flips to sent (quantities read back) and stages the count transfer,
-    and cancelling in Odoo cancels the request."""
+    reserving the picking in Odoo flips the request to seen-by-warehouse,
+    validating it into Staging2 flips it to staged (quantities read back,
+    NO count yet — that comes with the pallet), and cancelling in Odoo
+    cancels the request."""
     copper, *_ = _setup(db)
     _sync_locations(db, live_env)
     sim = _wire_simulator(live_env, monkeypatch)
@@ -388,11 +405,13 @@ def test_odoo_actions_drive_the_workflow(client, db, live_env, monkeypatch):
     sim.call_kw("stock.picking", "write", [[picking_id], {"state": "done"}])
     r = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor)
     req = r.json()
-    assert req["status"] == "counting"  # sent → count transfer staged in one motion
+    # the placement drafts into Staging2 now, so a validated picking means
+    # "staged" — the count belongs to the pallet the warehouse declares
+    assert req["status"] == "sent"
     assert req["lines"][0]["qty_sent"] == 7
-    assert req["count"]["status"] == "created"
-    assert any("started" in e["note"] and "Odoo" in e["note"] for e in req["events"])
-    assert any("validated in Odoo" in e["note"] for e in req["events"])
+    assert req["count"]["status"] == "none"
+    assert any("seen by the warehouse" in e["note"] for e in req["events"])
+    assert any("waiting for the warehouse to send the pallet" in e["note"] for e in req["events"])
 
     # a second request, cancelled straight in Odoo
     r = client.post(
@@ -442,10 +461,11 @@ def test_coming_soon_includes_native_odoo_transfers(client, db, settings_env):
 
 
 def test_staging2_pallet_flow(client, db, live_env, monkeypatch):
-    """The warehouse's REAL process: transfers get retargeted to III/Staging2
-    and validated there (request goes SENT but the count WAITS), staging2
-    accumulates, then 'Send all' renders ONE pallet draft — and when the
-    pallet is validated in Odoo, the waiting requests flip to counting."""
+    """The warehouse's REAL process: requests are drafted into III/Staging2
+    and validated there (request goes SENT, the count WAITS), staging2
+    accumulates, then 'Send all' renders ONE pallet draft. Validating that
+    pallet lands it — but an UNDECLARED pallet closes nobody's request; see
+    test_delivery_form_closes_the_requests_that_rode_it for the real path."""
     copper, *_ = _setup(db)
     _sync_locations(db, live_env)
     sim = _wire_simulator(live_env, monkeypatch)
@@ -486,7 +506,7 @@ def test_staging2_pallet_flow(client, db, live_env, monkeypatch):
     req = r.json()
     assert req["status"] == "sent"  # NOT counting — goods sit in staging2
     assert req["count"]["status"] == "none"
-    assert any("waiting for the pallet" in e["note"] for e in req["events"])
+    assert any("waiting for the warehouse" in e["note"] for e in req["events"])
 
     # ---- the staging2 page shows the fixture's consolidation stock
     r = client.get("/api/v1/transfer-requests/staging2", headers=wh)
@@ -520,19 +540,17 @@ def test_staging2_pallet_flow(client, db, live_env, monkeypatch):
     assert pallet_picking["location_dest_id"] == staging_id
     assert str(pallet_picking["origin"]).startswith("ILAPP-PLT-")
 
-    # ---- a human validates the pallet in Odoo → waiting request flips to
-    # counting on the next board read
+    # ---- a human validates the pallet in Odoo. It lands as a pallet, but
+    # nobody has said WHOSE stock is on it, so it closes nothing: an
+    # undeclared delivery asks for its details instead of guessing.
     sim.call_kw(
         "stock.picking", "write", [[pallet_picking["id"]], {"state": "done"}]
     )
     r = client.get("/api/v1/transfer-requests", headers=floor)
     row = next(x for x in r.json() if x["id"] == rid)
-    assert row["status"] == "counting"
-    r = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor)
-    req = r.json()
-    assert req["count"]["status"] == "created"
-    assert req["lines"][0]["qty_sent"] == 10
-    assert any("pallet" in e["note"] and "landed" in e["note"] for e in req["events"])
+    assert row["status"] == "sent"
+    [landed] = client.get("/api/v1/transfer-requests/deliveries", headers=wh).json()
+    assert landed["status"] == "validated" and landed["needs_details"] is True
 
     # the pallet reads validated on the staging2 page
     r = client.get("/api/v1/transfer-requests/staging2", headers=wh)
@@ -663,6 +681,13 @@ def test_count_validation_survives_a_real_throttle(client, db, live_env, monkeyp
     )
     assert r.status_code == 201, r.text
     rid = r.json()["id"]
+    # direct path (straight to floor staging) — that's what gives a single
+    # request its own count picking, which is what this test is about
+    sim.call_kw(
+        "stock.picking",
+        "write",
+        [[r.json()["placement"]["picking_id"]], {"location_dest_id": _floor_staging_id(sim)}],
+    )
     r = client.post(f"/api/v1/transfer-requests/{rid}/sent", json={}, headers=wh)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "counting"
@@ -685,18 +710,26 @@ def test_count_validation_survives_a_real_throttle(client, db, live_env, monkeyp
     assert any("validated in Odoo" in e["note"] for e in body["events"])
 
 
-def test_warehouse_built_pallet_advances_waiting_requests(client, db, live_env, monkeypatch):
+def test_warehouse_built_pallet_is_found_and_asks_for_its_details(
+    client, db, live_env, monkeypatch
+):
     """Two requests go out to Staging2, then the warehouse consolidates them
     with a PLAIN Odoo transfer (staging2 → floor staging) instead of the app's
-    'Send all' button. Nothing used to see that: poll_pallets only watches
-    pallets the app rendered, so both requests sat in SENT forever."""
+    'Send all' button — and without filling the delivery form.
+
+    The app finds the picking (it can't be processed twice, and it shows on
+    the deliveries list needing details) but it does NOT close either
+    request: nothing has said whose stock is on that pallet, and guessing
+    would close requests that are still waiting for theirs. The form is how
+    that gets answered."""
     copper, incense, _ = _setup(db)
     _sync_locations(db, live_env)
     sim = _wire_simulator(live_env, monkeypatch)
     set_flag(db, "write_create_internal_transfer", True)
-    monkeypatch.setattr(
-        "app.transfers.pallet.get_connection", lambda settings, read_only=True: sim
-    )
+    for module in ("pallet", "delivery"):
+        monkeypatch.setattr(
+            f"app.transfers.{module}.get_connection", lambda settings, read_only=True: sim
+        )
     monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
     from app.config import get_settings
 
@@ -739,16 +772,434 @@ def test_warehouse_built_pallet_advances_waiting_requests(client, db, live_env, 
             [{"picking_id": manual, "product_id": product.odoo_product_id,
               "product_uom_qty": qty, "quantity": qty, "state": "done"}])
 
-    # the board GET is the listener — both requests become countable
+    # the board GET is the listener — it FINDS the pallet...
     client.get("/api/v1/transfer-requests", headers=floor_hdr)
+    wh_hdr = login(client, "wh@test.io")
+    [found] = client.get("/api/v1/transfer-requests/deliveries", headers=wh_hdr).json()
+    assert found["needs_details"] is True
+    assert found["requests"] == []
+    assert found["item_count"] == 2  # it read what was on it
+    assert found["count"]["status"] == "none"  # nothing to count until it's explained
+
+    # ...and leaves both requests alone, honestly waiting
     for rid in rids:
         body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr).json()
-        assert body["status"] == "counting", (rid, body["status"])
-        assert any("landed at floor staging" in e["note"] for e in body["events"])
+        assert body["status"] == "sent", (rid, body["status"])
+        assert body["delivery"] is None
 
-    # and it is not processed twice — a second pass moves nothing new
+    # and it is not processed twice — a second pass finds nothing new
     from app.transfers.pallet import poll_manual_pallets
 
     monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
     get_settings.cache_clear()
     assert poll_manual_pallets(db, get_settings()) == 0
+
+    # ---- and now the form: the warehouse says what rode it
+    r = client.get("/api/v1/transfer-requests/deliveries/candidates", headers=wh_hdr)
+    assert r.status_code == 200, r.text
+    names = {c["name"]: c for c in r.json()["candidates"]}
+    candidate = next(c for c in names.values() if c["odoo_picking_id"] == manual)
+    assert candidate["already_declared"] is False and candidate["from_staging2"] is True
+
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries/preview",
+        json={"odoo_picking_id": manual, "request_ids": []},
+        headers=wh_hdr,
+    )
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    # both requests are staged AND their items are on the pallet, so the form
+    # arrives with them already ticked
+    assert {s["request_id"] for s in preview["suggestions"] if s["auto_select"]} == set(rids)
+    assert all("staged in Staging 2" in s["reason"] for s in preview["suggestions"])
+
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries",
+        json={"odoo_picking_id": manual, "request_ids": rids},
+        headers=wh_hdr,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["needs_details"] is False
+    assert {req["id"] for req in body["requests"]} == set(rids)
+    # the pallet was already validated in Odoo, so both requests closed and
+    # ONE count transfer covers the whole pallet
+    for rid in rids:
+        req = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor_hdr).json()
+        assert req["status"] == "done", (rid, req["status"])
+        assert req["delivery"]["picking_name"] == body["picking_name"]
+        assert req["delivery"]["request_count"] == 2
+        assert req["count"]["status"] == "none"  # the DELIVERY has the count
+        assert any("received on the floor" in e["note"] for e in req["events"])
+
+
+# ---------------------------------------------------------- the delivery form
+def test_allocation_and_reason_rules_are_pure():
+    """The two rules the floor will ask about, unit-tested away from Odoo.
+
+    FIFO: the older request is filled first, and a surplus lands on the last
+    line that wanted the product (it's real stock; it has to go somewhere)."""
+    from app.transfers.delivery import (
+        DeliveryError,
+        allocate_sent,
+        needs_reason,
+        validate_reasons,
+    )
+
+    # request A (line 1) asked 10, request B (line 2) asked 6; 12 arrived
+    assert allocate_sent([(1, 100, 10), (2, 100, 6)], {100: 12}) == {1: 10.0, 2: 2.0}
+    # nothing arrived for that product at all
+    assert allocate_sent([(1, 100, 10)], {}) == {1: 0.0}
+    # more than everyone asked for: the surplus joins the last asker
+    assert allocate_sent([(1, 100, 4), (2, 100, 4)], {100: 11}) == {1: 4.0, 2: 7.0}
+
+    # threshold: 3 is the noise floor, either direction, and only for things
+    # somebody actually requested
+    assert needs_reason(12, 9, 3) is False  # exactly 3 short
+    assert needs_reason(12, 8, 3) is True
+    assert needs_reason(12, 16, 3) is True  # over-sending is a difference too
+    assert needs_reason(0, 40, 3) is False  # nobody asked — an extra, not a gap
+
+    assert validate_reasons(["no_stock", "no_stock"], "") == ["no_stock"]
+    assert validate_reasons([], "pallet wouldn't fit") == ["other"]
+    assert validate_reasons(["bogus"], "typed instead") == ["other"]
+    for bad in ([], ["other"]):
+        try:
+            validate_reasons(bad, "   ")
+        except DeliveryError:
+            pass
+        else:
+            raise AssertionError(f"{bad} with no note should be refused")
+
+
+def test_delivery_form_closes_the_requests_that_rode_it(client, db, live_env, monkeypatch):
+    """The whole new flow, end to end:
+
+    two requests → warehouse pulls them into Staging2 in Odoo (short on one
+    item) → makes ONE pallet transfer in Odoo → fills the form (transfer,
+    which requests, why the gap) → validates the pallet → both requests close
+    as DONE against the received transfer, and ONE count transfer covers the
+    pallet, whose own count files adjustments against the delivery."""
+    copper, incense, _ = _setup(db)
+    extra = mk_product(db, "IN0000000888", "Camphor Tablets", odoo_id=205)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    for module in ("pallet", "delivery"):
+        monkeypatch.setattr(
+            f"app.transfers.{module}.get_connection", lambda settings, read_only=True: sim
+        )
+    set_flag(db, "write_create_internal_transfer", True)
+    set_flag(db, "write_prepare_count_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    wh = login(client, "wh@test.io")
+
+    from app.models import OdooLocation
+    from sqlalchemy import select as sa_select
+
+    staging2 = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging2"))
+    staging = db.scalar(sa_select(OdooLocation).where(OdooLocation.key == "staging"))
+
+    # ---- the floor asks: 12 copper on one request, 5 incense on another
+    rids = {}
+    for product, qty in ((copper, 12), (incense, 5)):
+        r = client.post(
+            "/api/v1/transfer-requests",
+            json={"lines": [{"product_id": product.id, "qty": qty}]},
+            headers=floor,
+        )
+        assert r.status_code == 201, r.text
+        rids[product.global_sku] = r.json()["id"]
+
+    # ---- warehouse pulls in Odoo: only 6 copper exist, incense in full
+    for sku, sent in (("CA0023000009", 6), ("IN0000000777", 5)):
+        rid = rids[sku]
+        picking = client.get(f"/api/v1/transfer-requests/{rid}", headers=wh).json()
+        pid = picking["placement"]["picking_id"]
+        for mv in sim.search_read("stock.move", [["picking_id", "=", pid]], ["id"]):
+            sim.call_kw(
+                "stock.move", "write", [[mv["id"]], {"quantity": sent, "state": "done"}]
+            )
+        sim.call_kw("stock.picking", "write", [[pid], {"state": "done"}])
+
+    # the board is the listener: both requests read as staged, waiting for a
+    # pallet, with the warehouse's real numbers on them
+    client.get("/api/v1/transfer-requests", headers=floor)
+    for sku, sent in (("CA0023000009", 6), ("IN0000000777", 5)):
+        body = client.get(f"/api/v1/transfer-requests/{rids[sku]}", headers=wh).json()
+        assert body["status"] == "sent", (sku, body["status"])
+        assert body["lines"][0]["qty_sent"] == sent
+
+    # ---- warehouse builds THEIR pallet in Odoo (still a draft), and slips in
+    # something nobody asked for
+    manual = sim.call_kw(
+        "stock.picking",
+        "create",
+        [{
+            "name": "III/INT/PALLET1",
+            "location_id": staging2.odoo_id,
+            "location_dest_id": staging.odoo_id,
+            "state": "assigned",
+        }],
+    )
+    for product, qty in ((copper, 6), (incense, 5), (extra, 40)):
+        sim.call_kw(
+            "stock.move",
+            "create",
+            [{
+                "picking_id": manual,
+                "product_id": product.odoo_product_id,
+                "product_uom_qty": qty,
+                "quantity": qty,
+            }],
+        )
+
+    # ---- question 1: it's offered as a candidate
+    r = client.get("/api/v1/transfer-requests/deliveries/candidates", headers=wh)
+    assert r.status_code == 200, r.text
+    ids = {c["odoo_picking_id"] for c in r.json()["candidates"]}
+    assert manual in ids
+    # "Don't see it?" — search by name reaches anything in Odoo
+    r = client.get(
+        "/api/v1/transfer-requests/deliveries/candidates?search=PALLET1", headers=wh
+    )
+    assert [c["odoo_picking_id"] for c in r.json()["candidates"]] == [manual]
+    # the floor doesn't fill this form
+    assert client.get(
+        "/api/v1/transfer-requests/deliveries/candidates", headers=floor
+    ).status_code == 403
+
+    # ---- questions 2 and 3
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries/preview",
+        json={"odoo_picking_id": manual, "request_ids": sorted(rids.values())},
+        headers=wh,
+    )
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    assert {s["request_id"] for s in preview["suggestions"] if s["auto_select"]} == set(
+        rids.values()
+    )
+    # only copper differs by more than 3 — incense matched, and the camphor
+    # nobody requested is an EXTRA, not a question
+    assert [(row["product_id"], row["qty_requested"], row["qty_sent"], row["delta"])
+            for row in preview["review"]] == [(copper.id, 12.0, 6.0, -6.0)]
+    assert [row["product_id"] for row in preview["extras"]] == [extra.id]
+    assert preview["review"][0]["requested_by"] and preview["threshold"] == 3
+    assert {o["value"] for o in preview["reason_options"]} == {
+        "no_stock", "full_case", "another_transfer", "other"
+    }
+
+    # ---- submitting without answering is refused, by name
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries",
+        json={"odoo_picking_id": manual, "request_ids": sorted(rids.values())},
+        headers=wh,
+    )
+    assert r.status_code == 422 and "Copper Water Bottle" in r.json()["detail"]
+
+    # ---- ...and "Other" with nothing written is refused too
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries",
+        json={
+            "odoo_picking_id": manual,
+            "request_ids": sorted(rids.values()),
+            "reasons": [{"product_id": copper.id, "reasons": ["other"], "note": ""}],
+        },
+        headers=wh,
+    )
+    assert r.status_code == 422 and "note" in r.json()["detail"]
+
+    # ---- the real submission
+    r = client.post(
+        "/api/v1/transfer-requests/deliveries",
+        json={
+            "odoo_picking_id": manual,
+            "request_ids": sorted(rids.values()),
+            "reasons": [
+                {
+                    "product_id": copper.id,
+                    "reasons": ["no_stock", "another_transfer"],
+                    "note": "6 left in the bin",
+                }
+            ],
+            "note": "pallet 1 of 2",
+        },
+        headers=wh,
+    )
+    assert r.status_code == 201, r.text
+    delivery = r.json()
+    assert delivery["status"] == "open"  # not validated in Odoo yet
+    assert delivery["needs_details"] is False
+    assert delivery["declared_by"] and delivery["note"] == "pallet 1 of 2"
+    assert delivery["item_count"] == 3 and delivery["total_units"] == 51
+    [gap] = delivery["discrepancies"]
+    assert gap["reason_labels"] == [
+        "We don't have enough stock", "I'll include it in another transfer"
+    ]
+
+    # the copper request now shows what's coming and WHY it's short
+    copper_req = client.get(
+        f"/api/v1/transfer-requests/{rids['CA0023000009']}", headers=floor
+    ).json()
+    assert copper_req["status"] == "sent"
+    assert copper_req["lines"][0]["qty_sent"] == 6
+    assert copper_req["lines"][0]["reasons"] == ["no_stock", "another_transfer"]
+    assert copper_req["lines"][0]["reason_note"] == "6 left in the bin"
+    assert copper_req["delivery"]["picking_name"] == "III/INT/PALLET1"
+    assert any(
+        "6 of 12" in e["note"] and "don't have enough stock" in e["note"]
+        for e in copper_req["events"]
+    )
+    # its own count is not on offer — the pallet's count is the count
+    assert copper_req["actions"]["can_prepare_count"] is False
+    assert copper_req["actions"]["can_mark_done"] is False
+
+    # ---- a human validates the pallet in Odoo
+    sim.call_kw("stock.picking", "write", [[manual], {"state": "done"}])
+    client.get("/api/v1/transfer-requests", headers=floor)  # the board is the listener
+
+    for rid in rids.values():
+        req = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+        assert req["status"] == "done", (rid, req["status"])
+        assert any("received on the floor" in e["note"] for e in req["events"])
+        assert req["delivery"]["request_count"] == 2
+
+    [delivery] = client.get("/api/v1/transfer-requests/deliveries", headers=wh).json()
+    assert delivery["status"] == "counting"
+    assert delivery["count"]["status"] == "created"
+    count_id = delivery["count"]["picking_id"]
+    assert delivery["count"]["barcode_url"].endswith(f"/odoo/barcode/{count_id}")
+    # ONE count for the pallet, staging → floor, all three items on it
+    [count_pick] = sim.search_read(
+        "stock.picking", [["id", "=", count_id]], ["location_id", "location_dest_id"]
+    )
+    assert count_pick["location_id"] == staging.odoo_id
+    count_moves = sim.search_read("stock.move", [["picking_id", "=", count_id]], ["id"])
+    assert len(count_moves) == 3
+
+    # ---- the floor scans it and comes up one copper short
+    for mv in sim.search_read(
+        "stock.move", [["picking_id", "=", count_id]], ["id", "product_id", "quantity"]
+    ):
+        found = 5 if mv["product_id"] == copper.odoo_product_id else mv["quantity"]
+        sim.call_kw("stock.move", "write", [[mv["id"]], {"quantity": found, "state": "done"}])
+    sim.call_kw("stock.picking", "write", [[count_id], {"state": "done"}])
+
+    client.get("/api/v1/transfer-requests/deliveries", headers=wh)  # listener
+    [delivery] = client.get("/api/v1/transfer-requests/deliveries", headers=wh).json()
+    assert delivery["status"] == "counted"
+
+    # the difference queues against the DELIVERY, not one request
+    [adj] = client.get("/api/v1/adjustments", headers=wh).json()
+    assert (adj["qty_expected"], adj["qty_counted"], adj["delta"]) == (6, 5, -1)
+    assert adj["request_id"] is None
+    assert adj["delivery_name"] == "III/INT/PALLET1"
+
+
+def test_a_plain_edit_in_odoo_counts_as_seen(client, db, live_env, monkeypatch):
+    """"Warehouse performs ANY action on the transfer and it gets marked as
+    Seen by warehouse" (Noah). Editing a quantity leaves the picking in
+    draft and only moves `write_date` — the old listener watched the state
+    alone and missed it."""
+    copper, *_ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    set_flag(db, "write_create_internal_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+
+    r = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 10}]},
+        headers=floor,
+    )
+    rid, pid = r.json()["id"], r.json()["placement"]["picking_id"]
+    assert r.json()["status"] == "requested"
+
+    # the app's own create stamps write_date == create_date: still unseen
+    sim.call_kw(
+        "stock.picking",
+        "write",
+        [[pid], {"create_date": "2026-08-17 09:00:00", "write_date": "2026-08-17 09:00:00"}],
+    )
+    body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+    assert body["status"] == "requested"
+
+    # somebody in the warehouse edits it — still a draft, but touched
+    sim.call_kw("stock.picking", "write", [[pid], {"write_date": "2026-08-17 09:41:00"}])
+    body = client.get(f"/api/v1/transfer-requests/{rid}", headers=floor).json()
+    assert body["status"] == "working_on_it"
+    assert any("seen by the warehouse" in e["note"] for e in body["events"])
+
+
+def test_sent_quantities_sum_across_a_split(client, db, live_env, monkeypatch):
+    """"The warehouse splits up the order however many ways they want."
+
+    Odoo carries `origin` onto backorders and copies, so both halves of a
+    split carry the request's own reference. Only VALIDATED pickings count —
+    summing a done picking with the backorder that still owes the rest would
+    double the quantity, and the floor would be told 10 arrived when 6 did."""
+    copper, *_ = _setup(db)
+    _sync_locations(db, live_env)
+    sim = _wire_simulator(live_env, monkeypatch)
+    set_flag(db, "write_create_internal_transfer", True)
+    monkeypatch.setenv("ODOO_COUNT_POLL_SECONDS", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    floor = login(client, "floor@test.io")
+    wh = login(client, "wh@test.io")
+
+    r = client.post(
+        "/api/v1/transfer-requests",
+        json={"lines": [{"product_id": copper.id, "qty": 10}]},
+        headers=floor,
+    )
+    rid, pid = r.json()["id"], r.json()["placement"]["picking_id"]
+    reference = r.json()["placement"]["reference"]
+
+    # they ship 6 now (validated) and Odoo raises a backorder for 4
+    for mv in sim.search_read("stock.move", [["picking_id", "=", pid]], ["id"]):
+        sim.call_kw("stock.move", "write", [[mv["id"]], {"quantity": 6, "state": "done"}])
+    sim.call_kw("stock.picking", "write", [[pid], {"state": "done"}])
+    backorder = sim.call_kw(
+        "stock.picking",
+        "create",
+        [{"name": "III/INT/BACKORDER", "origin": reference, "state": "assigned"}],
+    )
+    sim.call_kw(
+        "stock.move",
+        "create",
+        [{
+            "picking_id": backorder,
+            "product_id": copper.odoo_product_id,
+            "product_uom_qty": 4,
+            "quantity": 4,
+        }],
+    )
+
+    body = client.get(f"/api/v1/transfer-requests/{rid}", headers=wh).json()
+    assert body["status"] == "sent"
+    assert body["lines"][0]["qty_sent"] == 6  # NOT 10
+
+    # the rest goes out the next day
+    for mv in sim.search_read("stock.move", [["picking_id", "=", backorder]], ["id"]):
+        sim.call_kw("stock.move", "write", [[mv["id"]], {"quantity": 4, "state": "done"}])
+    sim.call_kw("stock.picking", "write", [[backorder], {"state": "done"}])
+    from app.models import TransferRequest
+    from app.transfers.service import outbound_family, refresh_sent_quantities
+
+    req = db.get(TransferRequest, rid)
+    db.refresh(req)
+    assert len(outbound_family(sim, db, req)) == 2
+    note = refresh_sent_quantities(db, get_settings(), req)
+    db.commit()
+    assert req.lines[0].qty_sent == 10
+    assert "III/INT/BACKORDER" in note

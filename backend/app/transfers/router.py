@@ -1,14 +1,19 @@
-"""BWHSE→Floor transfer requests + the warehouse adjustments queue.
+"""BWHSE→Floor transfer requests, the delivery form, and the warehouse
+adjustments queue.
 
-Odoo-native flow: placing a request immediately renders the BWHSE→STAGING
-draft (the request adopts the picking's name). Warehouse taps "working on
-it" then "sent" — their part ends there. The app prepares the STAGING→FLOOR
-count transfer (duplicate → mark To Do → check availability), the floor
-scans it in Odoo's barcode app, and the app listens for the validation to
-close the request and reconcile sent-vs-counted into the adjustments queue.
+Odoo-native flow (reworked 2026-08-17 — the warehouse lives in Odoo):
+
+  1. floor places a request     → BWHSE→Staging2 draft rendered in Odoo
+  2. warehouse touches it there → "seen by warehouse" (any write counts)
+  3. they pull it, splitting it however they like, into III/Staging2
+  4. they make ONE staging2 → floor-staging transfer in Odoo
+  5. they fill the DELIVERY FORM here: which transfer, which requests are in
+     it, and why any quantity differs by more than a few units
+  6. the pallet validates → every request on it closes as done against it,
+     and ONE count transfer is prepared for the whole pallet
 
 The UI polls these endpoints (POS-board style); reads are cheap and the
-Odoo validation check is throttled per request.
+Odoo checks are throttled per request and per delivery.
 """
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth.deps import AuthedUser, require_roles
@@ -26,6 +31,8 @@ from ..models import (
     Adjustment,
     AdjustmentStatus,
     OdooWriteOutcome,
+    PalletRequestLink,
+    PalletTransfer,
     Product,
     Role,
     StagingInboundMove,
@@ -39,6 +46,7 @@ from ..models import (
     not_blacklisted,
     utcnow,
 )
+from . import delivery as delivery_service
 from . import pallet as pallet_service
 from . import service
 from .flow import ACTIVE_STATUSES, InvalidTransition, NotAllowedError, check_transition
@@ -88,6 +96,23 @@ class LineOut(BaseModel):
     delta: float | None  # counted - sent, once done
     floor_qty: float
     bwhse_qty: float
+    # the warehouse's own words, from the delivery form, when this line
+    # didn't come in full — "a clear note that it wasn't included"
+    reasons: list[str] = []
+    reason_labels: list[str] = []
+    reason_note: str = ""
+
+
+class DeliveryRefOut(BaseModel):
+    """The received transfer a request rode to the floor."""
+
+    id: int
+    status: str  # open | validated | counting | counted | cancelled
+    picking_name: str
+    picking_url: str
+    declared_at: datetime | None
+    validated_at: datetime | None
+    request_count: int  # how many requests shared it
 
 
 class EventOut(BaseModel):
@@ -132,6 +157,7 @@ class RequestSummaryOut(BaseModel):
     open_adjustments: int
     picking_status: str
     count_status: str
+    delivery: DeliveryRefOut | None = None
 
 
 class RequestOut(BaseModel):
@@ -147,6 +173,7 @@ class RequestOut(BaseModel):
     lines: list[LineOut]
     events: list[EventOut]
     actions: ActionsOut
+    delivery: DeliveryRefOut | None = None
 
 
 # ------------------------------------------------------------------ helpers
@@ -189,6 +216,48 @@ def _user_names(db: Session, ids: set[int | None]) -> dict[int, str]:
     }
 
 
+def _deliveries_for(db: Session, request_ids: set[int]) -> dict[int, PalletTransfer]:
+    """request id -> the delivery it rides, in ONE query. A request rides at
+    most one (declare() refuses to double-book), so the newest link wins if
+    history ever leaves two behind."""
+    if not request_ids:
+        return {}
+    rows = db.execute(
+        select(PalletRequestLink.request_id, PalletTransfer)
+        .join(PalletTransfer, PalletTransfer.id == PalletRequestLink.pallet_id)
+        .where(PalletRequestLink.request_id.in_(request_ids))
+        .order_by(PalletRequestLink.id)
+    ).all()
+    return dict(rows)  # type: ignore[arg-type]
+
+
+def _delivery_ref(db: Session, pallet: PalletTransfer | None) -> DeliveryRefOut | None:
+    if pallet is None:
+        return None
+    count = db.scalar(
+        select(func.count())
+        .select_from(PalletRequestLink)
+        .where(PalletRequestLink.pallet_id == pallet.id)
+    )
+    return DeliveryRefOut(
+        id=pallet.id,
+        status=pallet.status,
+        picking_name=pallet.display_name,
+        picking_url=pallet.odoo_picking_url,
+        declared_at=pallet.declared_at,
+        validated_at=pallet.validated_at,
+        request_count=int(count or 0),
+    )
+
+
+def _reasons_by_product(db: Session, pallet: PalletTransfer | None) -> dict[int, tuple]:
+    if pallet is None:
+        return {}
+    return {
+        d.product_id: (list(d.reasons or []), d.note) for d in pallet.discrepancies
+    }
+
+
 def _may(current: str, to: str, authed: AuthedUser) -> bool:
     try:
         check_transition(current, to, authed.role_names)
@@ -197,7 +266,9 @@ def _may(current: str, to: str, authed: AuthedUser) -> bool:
         return False
 
 
-def _actions(req: TransferRequest, authed: AuthedUser) -> ActionsOut:
+def _actions(
+    req: TransferRequest, authed: AuthedUser, on_delivery: bool = False
+) -> ActionsOut:
     is_floor = authed.has_role(Role.SHOPPE_FLOOR, Role.ADMIN)
     count_live = req.count_status == OdooWriteOutcome.CREATED.value
     return ActionsOut(
@@ -213,10 +284,16 @@ def _actions(req: TransferRequest, authed: AuthedUser) -> ActionsOut:
                 req.status == S.SENT.value
                 or (req.status == S.COUNTING.value and req.count_status == "failed")
             )
+            # on a delivery, the PALLET's count is the count — offering a
+            # per-request one here would move the same units twice
+            and not on_delivery
             and authed.has_role(Role.WAREHOUSE, Role.SHOPPE_FLOOR, Role.ADMIN)
         ),
         can_mark_done=(
-            req.status in (S.SENT.value, S.COUNTING.value) and not count_live and is_floor
+            req.status in (S.SENT.value, S.COUNTING.value)
+            and not count_live
+            and not on_delivery  # its delivery closes it when the pallet lands
+            and is_floor
         ),
         can_cancel=_may(req.status, S.CANCELLED.value, authed),
     )
@@ -226,6 +303,8 @@ def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: 
     pids = {line.product_id for line in req.lines}
     stock = _stock_map(db, pids)
     names = _user_names(db, {req.created_by_id} | {e.actor_user_id for e in req.events})
+    pallet = _deliveries_for(db, {req.id}).get(req.id)
+    reasons = _reasons_by_product(db, pallet)
     lines = []
     for line in req.lines:
         p = line.product
@@ -233,6 +312,7 @@ def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: 
         delta = None
         if line.qty_counted is not None:
             delta = round(float(line.qty_counted) - float(line.qty_sent or 0), 3)
+        codes, note = reasons.get(line.product_id, ([], ""))
         lines.append(
             LineOut(
                 id=line.id,
@@ -247,6 +327,13 @@ def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: 
                 delta=delta,
                 floor_qty=s.get("floor", 0.0),
                 bwhse_qty=s.get("bwhse", 0.0),
+                reasons=codes,
+                reason_labels=[
+                    delivery_service.REASON_LABELS[c]
+                    for c in codes
+                    if c in delivery_service.REASON_LABELS
+                ],
+                reason_note=note,
             )
         )
     events = [
@@ -287,7 +374,8 @@ def _request_out(db: Session, settings: Settings, req: TransferRequest, authed: 
         ),
         lines=lines,
         events=events,
-        actions=_actions(req, authed),
+        actions=_actions(req, authed, on_delivery=pallet is not None),
+        delivery=_delivery_ref(db, pallet),
     )
 
 
@@ -403,11 +491,14 @@ def list_requests(
         elif req.status in (S.REQUESTED.value, S.WORKING.value):
             polled += 1
             service.poll_outbound_status(db, settings, req)
+    # deliveries: land the declared ones, discover undeclared ones, and watch
+    # for the pallet count being scanned onto the floor
     pallet_service.poll_pallets(db, settings)
-    # ...and pallets the warehouse built themselves, straight in Odoo
     pallet_service.poll_manual_pallets(db, settings)
+    delivery_service.poll_delivery_counts(db, settings)
 
     names = _user_names(db, {r.created_by_id for r in requests})
+    deliveries = _deliveries_for(db, {r.id for r in requests})
     open_by_request: dict[int, int] = {}
     if requests:
         rows = db.execute(
@@ -432,6 +523,7 @@ def list_requests(
             open_adjustments=open_by_request.get(r.id, 0),
             picking_status=r.picking_status,
             count_status=r.count_status,
+            delivery=_delivery_ref(db, deliveries.get(r.id)),
         )
         for r in requests
     ]
@@ -645,6 +737,363 @@ def staging2_send_all(
     return _staging2_out(db, settings)
 
 
+# ------------------------------------------------------------ delivery form
+# "The warehouse must fill out a form that details the transfer being sent"
+# (Noah, 2026-08-17). Three questions; the app suggests, the human decides.
+# All declared BEFORE /{request_id} — route order matters.
+class DeliveryRequestOut(BaseModel):
+    id: int
+    display_name: str
+    status: str
+    created_by: str
+    line_count: int
+
+
+class DeliveryDiscrepancyOut(BaseModel):
+    product_id: int
+    sku: str
+    barcode: str
+    name: str
+    qty_requested: float
+    qty_sent: float
+    delta: float
+    reasons: list[str]
+    reason_labels: list[str]
+    note: str
+
+
+class DeliveryItemOut(BaseModel):
+    product_id: int
+    sku: str
+    name: str
+    qty: float
+
+
+class DeliveryOut(BaseModel):
+    id: int
+    status: str
+    picking_status: str
+    # the Odoo picking itself — the form needs it to re-open an undeclared one
+    odoo_picking_id: int | None
+    picking_name: str
+    picking_url: str
+    picking_error: str
+    item_count: int
+    total_units: float
+    created_at: datetime
+    validated_at: datetime | None
+    declared_at: datetime | None
+    declared_by: str
+    note: str
+    needs_details: bool
+    requests: list[DeliveryRequestOut]
+    discrepancies: list[DeliveryDiscrepancyOut]
+    items: list[DeliveryItemOut]
+    count: OdooRefOut
+
+
+class CandidateOut(BaseModel):
+    odoo_picking_id: int
+    name: str
+    state: str
+    date: str
+    item_count: int
+    total_units: float
+    already_declared: bool
+    declared_pallet_id: int | None
+    from_staging2: bool
+
+
+class CandidatesOut(BaseModel):
+    candidates: list[CandidateOut]
+    note: str
+
+
+class SuggestionOut(BaseModel):
+    request_id: int
+    display_name: str
+    status: str
+    created_by: str
+    created_at: datetime
+    line_count: int
+    matched_items: int
+    total_requested: float
+    reason: str
+    suggested: bool
+    auto_select: bool
+
+
+class ReviewRowOut(BaseModel):
+    product_id: int
+    sku: str
+    barcode: str
+    name: str
+    qty_requested: float
+    qty_sent: float
+    delta: float
+    requested_by: list[str]
+    reasons: list[str]
+    note: str
+
+
+class ExtraRowOut(BaseModel):
+    product_id: int
+    sku: str
+    barcode: str
+    name: str
+    qty_sent: float
+
+
+class PreviewOut(BaseModel):
+    picking: CandidateOut | None
+    suggestions: list[SuggestionOut]
+    review: list[ReviewRowOut]
+    extras: list[ExtraRowOut]
+    threshold: float
+    reason_options: list[dict[str, str]]
+    note: str
+
+
+class PreviewIn(BaseModel):
+    odoo_picking_id: int = Field(gt=0)
+    request_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+class ReasonIn(BaseModel):
+    product_id: int
+    reasons: list[str] = Field(default_factory=list, max_length=8)
+    note: str = Field(default="", max_length=1000)
+
+
+class DeclareIn(BaseModel):
+    odoo_picking_id: int = Field(gt=0)
+    request_ids: list[int] = Field(min_length=1, max_length=200)
+    reasons: list[ReasonIn] = Field(default_factory=list, max_length=500)
+    note: str = Field(default="", max_length=2000)
+
+
+REASON_OPTIONS = [
+    {"value": value, "label": label} for value, label in delivery_service.REASON_LABELS.items()
+]
+
+
+def _delivery_out(db: Session, pallet: PalletTransfer) -> DeliveryOut:
+    names = _user_names(db, {pallet.declared_by_id, pallet.created_by_id})
+    lines = pallet.lines or []
+    return DeliveryOut(
+        id=pallet.id,
+        status=pallet.status,
+        picking_status=pallet.picking_status,
+        odoo_picking_id=pallet.odoo_picking_id,
+        picking_name=pallet.display_name,
+        picking_url=pallet.odoo_picking_url,
+        picking_error=pallet.picking_error,
+        item_count=len(lines),
+        total_units=round(sum(float(ln.get("qty") or 0) for ln in lines), 3),
+        created_at=pallet.created_at,
+        validated_at=pallet.validated_at,
+        declared_at=pallet.declared_at,
+        declared_by=names.get(pallet.declared_by_id or 0, ""),
+        note=pallet.note,
+        # a validated pallet nobody has explained: it moved real stock and the
+        # app can't close a single request until someone says whose it was
+        needs_details=not pallet.is_declared and pallet.status != "cancelled",
+        requests=[
+            DeliveryRequestOut(
+                id=link.request.id,
+                display_name=link.request.display_name,
+                status=link.request.status,
+                created_by=_user_names(db, {link.request.created_by_id}).get(
+                    link.request.created_by_id or 0, "unknown"
+                ),
+                line_count=len(link.request.lines),
+            )
+            for link in pallet.request_links
+        ],
+        discrepancies=[
+            DeliveryDiscrepancyOut(
+                product_id=d.product_id,
+                sku=d.product.global_sku,
+                barcode=d.product.barcode or "",
+                name=d.product.name,
+                qty_requested=d.qty_requested,
+                qty_sent=d.qty_sent,
+                delta=round(d.qty_sent - d.qty_requested, 3),
+                reasons=list(d.reasons or []),
+                reason_labels=[
+                    delivery_service.REASON_LABELS[c]
+                    for c in (d.reasons or [])
+                    if c in delivery_service.REASON_LABELS
+                ],
+                note=d.note,
+            )
+            for d in pallet.discrepancies
+        ],
+        items=[
+            DeliveryItemOut(
+                product_id=int(ln.get("product_id") or 0),
+                sku=str(ln.get("sku") or ""),
+                name=str(ln.get("name") or ""),
+                qty=float(ln.get("qty") or 0),
+            )
+            for ln in lines
+        ],
+        count=OdooRefOut(
+            status=pallet.count_status,
+            reference=pallet.count_reference,
+            error=pallet.count_error,
+            picking_id=pallet.count_picking_id,
+            picking_name=pallet.count_picking_name,
+            url=pallet.count_picking_url,
+            barcode_url=pallet.count_barcode_url,
+        ),
+    )
+
+
+def _delivery_query():
+    # populate_existing for the same reason _get_request needs it: the session
+    # keeps objects across commits, so a re-read must overwrite collections
+    # that changed underneath (links and discrepancies are rewritten on every
+    # form submission)
+    return (
+        select(PalletTransfer)
+        .options(
+            selectinload(PalletTransfer.request_links)
+            .selectinload(PalletRequestLink.request)
+            .selectinload(TransferRequest.lines),
+            selectinload(PalletTransfer.discrepancies),
+        )
+        .execution_options(populate_existing=True)
+    )
+
+
+def _load_deliveries(db: Session, limit: int = 15) -> list[PalletTransfer]:
+    return list(
+        db.scalars(_delivery_query().order_by(PalletTransfer.id.desc()).limit(limit)).all()
+    )
+
+
+def _load_delivery(db: Session, pallet_id: int) -> PalletTransfer:
+    pallet = db.scalar(_delivery_query().where(PalletTransfer.id == pallet_id))
+    if pallet is None:
+        raise HTTPException(404, "Delivery not found.")
+    return pallet
+
+
+@router.get("/deliveries", response_model=list[DeliveryOut])
+def list_deliveries(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
+) -> list[DeliveryOut]:
+    """Recent pallets to the floor, newest first — and, like every board GET
+    here, the listener for their validation and their count."""
+    pallet_service.poll_pallets(db, settings)
+    pallet_service.poll_manual_pallets(db, settings)
+    delivery_service.poll_delivery_counts(db, settings)
+    return [_delivery_out(db, p) for p in _load_deliveries(db)]
+
+
+@router.get("/deliveries/candidates", response_model=CandidatesOut)
+def delivery_candidates(
+    search: str = "",
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
+) -> CandidatesOut:
+    """Question 1: "please select the transfer you're sending". Recent
+    staging2 → floor-staging transfers; `search` is the "Don't see it?" path
+    and matches a picking name anywhere in Odoo."""
+    candidates, note = delivery_service.candidate_pickings(db, settings, search[:80])
+    return CandidatesOut(
+        candidates=[CandidateOut(**vars(c)) for c in candidates], note=note
+    )
+
+
+@router.post("/deliveries/preview", response_model=PreviewOut)
+def delivery_preview(
+    body: PreviewIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
+) -> PreviewOut:
+    """Questions 2 and 3 for one selected transfer: which requests the app
+    thinks are in it, and which items need a reason given that selection.
+    Recomputed as the selection changes — the threshold lives here so every
+    client asks the same questions."""
+    try:
+        preview = delivery_service.preview(
+            db,
+            settings,
+            odoo_picking_id=body.odoo_picking_id,
+            request_ids=body.request_ids,
+        )
+    except delivery_service.DeliveryError as e:
+        raise HTTPException(422, str(e)) from e
+    return PreviewOut(
+        picking=CandidateOut(**vars(preview.picking)) if preview.picking else None,
+        suggestions=[SuggestionOut(**vars(s)) for s in preview.suggestions],
+        review=[ReviewRowOut(**vars(r)) for r in preview.review],
+        extras=[ExtraRowOut(**vars(r)) for r in preview.extras],
+        threshold=preview.threshold,
+        reason_options=REASON_OPTIONS,
+        note=preview.note,
+    )
+
+
+@router.post("/deliveries", response_model=DeliveryOut, status_code=201)
+def declare_delivery(
+    body: DeclareIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
+) -> DeliveryOut:
+    """Submit the form. Links the requests to the pallet, freezes what's on
+    it, writes the sent quantities back onto the request lines, and records
+    the reasons. If the pallet is already validated in Odoo, the requests
+    close as done in the same call."""
+    try:
+        pallet = delivery_service.declare(
+            db,
+            settings,
+            actor_user_id=authed.id,
+            odoo_picking_id=body.odoo_picking_id,
+            request_ids=list(dict.fromkeys(body.request_ids)),
+            reasons=[
+                delivery_service.ReasonIn(
+                    product_id=r.product_id, reasons=r.reasons, note=r.note
+                )
+                for r in body.reasons
+            ],
+            note=body.note,
+        )
+    except delivery_service.DeliveryError as e:
+        db.rollback()
+        raise HTTPException(422, str(e)) from e
+    return _delivery_out(db, _load_delivery(db, pallet.id))
+
+
+@router.post("/deliveries/{pallet_id}/prepare-count", response_model=DeliveryOut)
+def retry_delivery_count(
+    pallet_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.WAREHOUSE, Role.SHOPPE_FLOOR)),
+) -> DeliveryOut:
+    pallet = _load_delivery(db, pallet_id)
+    if pallet.count_status == OdooWriteOutcome.CREATED.value:
+        raise HTTPException(
+            409, f"{pallet.count_picking_name} already exists — scan it in Odoo."
+        )
+    if pallet.status not in ("validated", "counting"):
+        raise HTTPException(
+            409, "The count applies once the pallet has been validated in Odoo."
+        )
+    delivery_service.prepare_delivery_count(db, settings, pallet, authed.id)
+    db.commit()
+    return _delivery_out(db, _load_delivery(db, pallet.id))
+
+
 @router.get("/{request_id}", response_model=RequestOut)
 def get_request(
     request_id: int,
@@ -653,10 +1102,14 @@ def get_request(
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
     req = _get_request(db, request_id)
-    # both listeners: Odoo-side warehouse actions and the close-out
-    if service.poll_outbound_status(db, settings, req) or service.poll_close_out(
+    # every listener that can move THIS request: Odoo-side warehouse actions,
+    # the direct-path close-out, and the delivery it may be riding
+    moved = service.poll_outbound_status(db, settings, req) or service.poll_close_out(
         db, settings, req
-    ):
+    )
+    if req.status == S.SENT.value:
+        moved = bool(pallet_service.poll_pallets(db, settings)) or moved
+    if moved:
         req = _get_request(db, request_id)
     return _request_out(db, settings, req, authed)
 
@@ -732,29 +1185,38 @@ def mark_sent(
     settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*PARTICIPANTS)),
 ) -> RequestOut:
-    """Warehouse is done: stock is at staging. Sent quantities are read back
-    from the Odoo picking, and the count transfer is prepared for the
-    barcode app in the same motion."""
+    """Warehouse is done picking: the stock is staged. Sent quantities are
+    read back from Odoo.
+
+    Where it's staged decides what happens next. Straight to floor staging
+    (the direct path) → the count transfer is prepared here, as it always
+    was. Into Staging2 → it waits for the pallet, and the DELIVERY's count
+    covers it; preparing one per request as well would move the same units
+    twice."""
     req = _get_request(db, request_id)
     _check(req.status, S.SENT.value, authed)
+    countable = service.landed_at_floor_staging(db, settings, req)
     readback_note = service.refresh_sent_quantities(db, settings, req)
     req.status = S.SENT.value
     _event(
         db, req, TransferEventKind.STATUS, authed,
-        status=req.status, note=body.note or "sent to floor staging",
+        status=req.status,
+        note=body.note
+        or ("sent to floor staging" if countable else "staged, ready for the next pallet"),
     )
     _event(db, req, TransferEventKind.ODOO, authed, note=readback_note)
 
-    service.prepare_count_transfer(db, settings, req, authed.id)
-    if req.count_status in (
-        OdooWriteOutcome.CREATED.value,
-        OdooWriteOutcome.SIMULATED.value,
-    ):
-        req.status = S.COUNTING.value
-        _event(
-            db, req, TransferEventKind.STATUS, authed,
-            status=req.status, note="ready to count",
-        )
+    if countable:
+        service.prepare_count_transfer(db, settings, req, authed.id)
+        if req.count_status in (
+            OdooWriteOutcome.CREATED.value,
+            OdooWriteOutcome.SIMULATED.value,
+        ):
+            req.status = S.COUNTING.value
+            _event(
+                db, req, TransferEventKind.STATUS, authed,
+                status=req.status, note="ready to count",
+            )
     db.commit()
     return _request_out(db, settings, _get_request(db, req.id), authed)
 
@@ -858,6 +1320,10 @@ def add_note(
 class AdjustmentOut(BaseModel):
     id: int
     request_id: int | None
+    # a delivery's own count reconciles the whole pallet, so its adjustments
+    # name the delivery instead of a single request
+    delivery_id: int | None = None
+    delivery_name: str = ""
     product_id: int
     sku: str
     barcode: str = ""
@@ -881,13 +1347,25 @@ def _adjustment_out(db: Session, rows: list[Adjustment]) -> list[AdjustmentOut]:
         )
     }
     names = _user_names(db, {a.resolved_by_id for a in rows})
+    pallet_ids = {a.pallet_id for a in rows if a.pallet_id}
+    pallets = (
+        {
+            p.id: p
+            for p in db.scalars(select(PalletTransfer).where(PalletTransfer.id.in_(pallet_ids)))
+        }
+        if pallet_ids
+        else {}
+    )
     out = []
     for a in rows:
         p = products.get(a.product_id)
+        pallet = pallets.get(a.pallet_id or 0)
         out.append(
             AdjustmentOut(
                 id=a.id,
                 request_id=a.request_id,
+                delivery_id=a.pallet_id,
+                delivery_name=pallet.display_name if pallet else "",
                 product_id=a.product_id,
                 sku=p.global_sku if p else "",
                 barcode=(p.barcode or "") if p else "",

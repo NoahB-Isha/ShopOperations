@@ -25,9 +25,18 @@ test("admin, warehouse, and orderer see different navs", async ({ page }) => {
   await expect(page.getByRole("navigation").first()).toContainText("Centers");
   await page.getByRole("button", { name: /sign out/i }).click();
 
+  // the warehouse menu is deliberately two items since 2026-08-17 — they work
+  // in Odoo, so the app gives them the delivery form and product lookup. The
+  // pages that left (Incoming, Transfers, Coming soon, Out of stock,
+  // Adjustments) kept their routes; they're just not menu items.
   await login(page, "warehouse@demo.ishalife.test");
-  await expect(page.getByRole("navigation").first()).toContainText("Incoming");
+  await expect(page.getByRole("navigation").first()).toContainText("Send to floor");
+  await expect(page.getByRole("navigation").first()).toContainText("Search Inventory");
   await expect(page.getByRole("navigation").first()).not.toContainText("Purchasing");
+  await expect(page.getByRole("navigation").first()).not.toContainText("Incoming");
+  // …and the route still opens for them
+  await page.goto("/incoming");
+  await expect(page.getByRole("heading", { name: "Incoming" })).toBeVisible();
   await page.getByRole("button", { name: /sign out/i }).click();
 
   await login(page, "orderer@demo.ishalife.test");

@@ -633,12 +633,22 @@ class OdooWriter:
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,
+        allow_foreign_source: bool = False,
     ) -> WriteResult:
-        """Duplicate an app-created BWHSE→STAGING picking as the STAGING→FLOOR
-        count transfer: copy, retarget the locations, mark To Do
-        (action_confirm), check availability (action_assign). The result is a
-        ready-to-scan transfer for Odoo's barcode app — a human validates it
-        there; the app only watches for that validation."""
+        """Duplicate a picking as the STAGING→FLOOR count transfer: copy,
+        retarget the locations, mark To Do (action_confirm), check
+        availability (action_assign). The result is a ready-to-scan transfer
+        for Odoo's barcode app — a human validates it there; the app only
+        watches for that validation.
+
+        `allow_foreign_source` permits copying a picking the app did NOT
+        create. Since 2026-08-17 the pallet that carries stock to the floor
+        is normally made by the warehouse in Odoo and declared on the app's
+        delivery form, so its origin is not app-prefixed — and its contents
+        are exactly what the floor has to count. This does not weaken the
+        blast-radius rules: Odoo's `copy` writes nothing to the source, the
+        COPY still carries our own ILAPP-CNT- reference (so unlink safety is
+        unchanged), and the caller has to ask for it explicitly."""
         started = time.monotonic()
         operation = "prepare_count_transfer"
 
@@ -691,7 +701,9 @@ class OdooWriter:
                 raise WriterValidationError(
                     f"Picking #{source_picking_odoo_id} not found in Odoo."
                 )
-            if not is_app_reference(str(src[0].get("origin") or "")):
+            if not allow_foreign_source and not is_app_reference(
+                str(src[0].get("origin") or "")
+            ):
                 raise WriterValidationError(
                     f"Refusing to duplicate {src[0].get('name')}: its reference isn't "
                     "app-prefixed, so the app didn't create it."

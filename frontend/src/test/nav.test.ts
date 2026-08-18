@@ -5,15 +5,15 @@ test("each role sees its own nav", () => {
     "Place an order",
     "Order history",
   ]);
+  // the warehouse menu was cut to two 2026-08-17: they work in Odoo, so the
+  // app gives them the delivery form and product lookup. Scan/inbox/settings
+  // are top-bar furniture, not nav items; the pages that left (incoming,
+  // transfers, coming soon, out of stock, adjustments) kept their routes.
   expect(navForRoles(new Set(["warehouse"])).map((i) => i.label)).toEqual([
-    "Incoming",
-    "Transfers",
-    "Staging 2",
-    "Coming soon",
-    "Out of stock",
-    "Adjustments",
+    "Send to floor",
     "Search Inventory",
   ]);
+  expect(homeForRoles(new Set(["warehouse"]))).toBe("/staging2");
   const adminPaths = navForRoles(new Set(["admin"])).map((i) => i.path);
   expect(adminPaths).toContain("/reports");
   expect(adminPaths).toContain("/out-of-stock");

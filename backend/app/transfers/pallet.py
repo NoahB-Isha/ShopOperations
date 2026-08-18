@@ -1,15 +1,18 @@
 """The staging2 pallet flow — the warehouse's REAL process.
 
-Warehouse retargets outbound transfers to III/Staging2 (their consolidation
-point), picks several into it, then sends ONE pallet to floor staging. The
-app mirrors that: the staging2 page shows what's sitting there (live read —
-this is an action screen, and the brief allows on-demand refresh), and
-'Send all to III-FLORR-STAGING' renders the pallet as a DRAFT internal
-transfer a human validates in Odoo.
+Warehouse pulls requests into III/Staging2 (their consolidation point),
+accumulates, then sends ONE pallet to floor staging. The app mirrors that:
+the staging2 page shows what's sitting there (live read — this is an action
+screen, and the brief allows on-demand refresh), and 'Send all to
+III-FLORR-STAGING' renders the pallet as a DRAFT internal transfer a human
+validates in Odoo — a convenience, not the only route. Normally the
+warehouse makes that transfer in Odoo themselves and tells the app about it
+on the delivery form (delivery.py).
 
-Pallet validation is the signal that goods reached floor staging: the
-listener then prepares count transfers for every request that was SENT and
-still waiting (their goods rode the pallet).
+Pallet validation is the signal that goods reached floor staging. WHAT rode
+it is a human's answer, not an inference: a declared pallet closes the
+requests linked to it (delivery.land) and gets one count transfer; an
+undeclared one is recorded and asks for its details.
 """
 from __future__ import annotations
 
@@ -17,17 +20,17 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from ..config import Settings
 from ..models import (
     OdooLocation,
     OdooWriteOutcome,
+    PalletRequestLink,
     PalletTransfer,
     Product,
     StockLevel,
-    TransferEventKind,
     TransferRequest,
     TransferRequestStatus,
     utcnow,
@@ -35,9 +38,10 @@ from ..models import (
 from ..odoo.connection import get_connection
 from ..odoo.errors import OdooError, OdooWriteError
 from ..odoo.operations import new_reference
+from ..odoo.urls import odoo_record_url
 from ..odoo.writer import OdooWriter
 from ..ordering.service import get_app_setting, set_app_setting
-from .service import _event, prepare_count_transfer
+from . import delivery
 
 log = logging.getLogger("transfers.pallet")
 
@@ -134,14 +138,20 @@ def staging2_snapshot(db: Session, settings: Settings) -> Staging2Snapshot:
 
 def open_pallet(db: Session) -> PalletTransfer | None:
     """The pallet still awaiting validation in Odoo, if there is one. 'Open'
-    means the app rendered a picking (created live, or simulated when writes
-    are gated) and the validation listener hasn't seen it land or cancel."""
+    means a picking exists for it — rendered by the app (created live, or
+    simulated when writes are gated) or made by the warehouse and declared
+    on the delivery form — and the validation listener hasn't seen it land or
+    cancel. Either way its stock is still sitting in staging2, so 'Send all'
+    would draft a second move over the same units."""
     return db.scalars(
         select(PalletTransfer)
         .where(
             PalletTransfer.status == "open",
-            PalletTransfer.picking_status.in_(
-                (OdooWriteOutcome.CREATED.value, OdooWriteOutcome.SIMULATED.value)
+            or_(
+                PalletTransfer.picking_status.in_(
+                    (OdooWriteOutcome.CREATED.value, OdooWriteOutcome.SIMULATED.value)
+                ),
+                PalletTransfer.odoo_picking_id.is_not(None),
             ),
         )
         .order_by(PalletTransfer.id.desc())
@@ -214,13 +224,18 @@ def create_pallet(
 
 def poll_pallets(db: Session, settings: Settings) -> int:
     """Listener for pallet validation. When a pallet lands (picking done),
-    every request sitting in SENT with no count transfer yet gets its count
-    prepared — the goods just reached floor staging. Throttled per pallet;
-    safe on every board refresh. Returns how many requests moved."""
+    the requests DECLARED on it close as done and the pallet gets its one
+    count transfer (delivery.land). Covers both kinds of open pallet: the
+    ones the app rendered and the ones the warehouse made and declared.
+    Throttled per pallet; safe on every board refresh. Returns how many
+    requests closed."""
     pallets = db.scalars(
-        select(PalletTransfer).where(
+        select(PalletTransfer)
+        .options(
+            selectinload(PalletTransfer.request_links).selectinload(PalletRequestLink.request)
+        )
+        .where(
             PalletTransfer.status == "open",
-            PalletTransfer.picking_status == OdooWriteOutcome.CREATED.value,
             PalletTransfer.odoo_picking_id.is_not(None),
         )
     ).all()
@@ -259,40 +274,8 @@ def poll_pallets(db: Session, settings: Settings) -> int:
             continue
         if state != "done":
             continue
-        pallet.status = "validated"
-        pallet.validated_at = now
-        moved += _advance_waiting_requests(db, settings, pallet.odoo_picking_name)
+        moved += delivery.land(db, settings, pallet)
     db.commit()
-    return moved
-
-
-def _advance_waiting_requests(db: Session, settings: Settings, pallet_name: str) -> int:
-    """A pallet landed at floor staging, so every request that was SENT and
-    still waiting can be counted — their goods rode it. Deliberately not
-    per-product: a pallet is 'the goods got there', and the actual sent-vs-
-    counted reconciliation happens later at the staging→floor step."""
-    waiting = db.scalars(
-        select(TransferRequest).where(
-            TransferRequest.status == TransferRequestStatus.SENT.value,
-            TransferRequest.count_status.in_(
-                (OdooWriteOutcome.NONE.value, OdooWriteOutcome.FAILED.value)
-            ),
-        )
-    ).all()
-    moved = 0
-    for req in waiting:
-        _event(
-            db, req, TransferEventKind.ODOO,
-            f"pallet {pallet_name} landed at floor staging",
-        )
-        prepare_count_transfer(db, settings, req, actor_user_id=None)
-        if req.count_status in (
-            OdooWriteOutcome.CREATED.value,
-            OdooWriteOutcome.SIMULATED.value,
-        ):
-            req.status = TransferRequestStatus.COUNTING.value
-            _event(db, req, TransferEventKind.STATUS, "ready to count", status=req.status)
-            moved += 1
     return moved
 
 
@@ -300,31 +283,28 @@ MANUAL_PALLET_STATE_KEY = "manual_pallet_poll_state"
 
 
 def poll_manual_pallets(db: Session, settings: Settings) -> int:
-    """Detect a pallet the WAREHOUSE built themselves.
+    """Discover a pallet the WAREHOUSE sent without telling the app.
 
-    `poll_pallets` only ever watches pallets the app rendered (a PalletTransfer
-    row with an ILAPP-PLT- picking). When the warehouse instead makes a plain
-    Odoo transfer staging2 → floor staging — which is normal, the /staging2
-    button is a convenience, not the only route — nothing saw it and every
-    request sat in SENT 'waiting for the pallet' forever.
+    A validated staging2 → floor-staging picking means goods reached floor
+    staging whoever made it. If it was declared on the delivery form,
+    poll_pallets already lands it (its row carries the picking id). This is
+    the OTHER case: nobody filled the form, so the app records the picking —
+    undeclared, so it closes nobody's request — and the deliveries list asks
+    for its details. Recording it also means it can't be processed twice;
+    picking_status stays NONE because the app wrote nothing.
 
-    A validated staging2 → floor-staging picking means the same thing whoever
-    made it, so it advances the waiting requests identically. The discovered
-    picking is recorded as a PalletTransfer so it can't be processed twice and
-    shows up in pallet history; picking_status stays NONE because the app
-    didn't write it, which also keeps it out of open_pallet()'s way (that guard
-    is about a pallet the app rendered and is still awaiting validation).
+    Returns how many undeclared pallets it newly found.
     """
     waiting_exists = db.scalar(
         select(TransferRequest.id).where(
-            TransferRequest.status == TransferRequestStatus.SENT.value,
-            TransferRequest.count_status.in_(
-                (OdooWriteOutcome.NONE.value, OdooWriteOutcome.FAILED.value)
-            ),
+            TransferRequest.status == TransferRequestStatus.SENT.value
         )
     )
     if not waiting_exists:
-        return 0  # nothing to advance — don't touch Odoo at all
+        # Nobody is waiting on a delivery, so an undeclared one closes
+        # nothing — don't touch Odoo at all (the delivery form reads live
+        # when the warehouse actually opens it). Politeness, per the brief.
+        return 0
 
     now = utcnow()
     state = get_app_setting(db, MANUAL_PALLET_STATE_KEY) or {}
@@ -369,23 +349,45 @@ def poll_manual_pallets(db: Session, settings: Settings) -> int:
             )
         )
     }
-    moved = 0
+    found = 0
     for row in rows:
         if row["id"] in known:
-            continue  # already handled (app pallet, or seen on an earlier pass)
+            continue  # already handled (app pallet, declared, or seen earlier)
         if str(row.get("origin") or "").startswith("ILAPP-"):
             continue  # an app pallet whose row we somehow missed — not ours to adopt
+        try:
+            contents = delivery.picking_contents(db, conn, row["id"])
+        except OdooError:
+            contents = {}
+        products = {
+            p.id: p
+            for p in db.scalars(select(Product).where(Product.id.in_(contents or {-1})))
+        }
         db.add(
             PalletTransfer(
                 status="validated",
                 picking_status=OdooWriteOutcome.NONE.value,  # the app wrote nothing
                 odoo_picking_id=row["id"],
                 odoo_picking_name=str(row.get("name") or ""),
-                lines=[],  # built in Odoo; the app never froze its contents
+                odoo_picking_url=odoo_record_url(settings, "stock.picking", row["id"]),
+                # what it carried, so the deliveries list and the form can
+                # show it without asking Odoo again. Nobody has said WHOSE
+                # stock it is — that's what "needs details" means.
+                lines=[
+                    {
+                        "product_id": pid,
+                        "sku": (products[pid].odoo_internal_ref or products[pid].global_sku)
+                        if pid in products
+                        else "",
+                        "name": products[pid].name if pid in products else f"product {pid}",
+                        "qty": qty,
+                    }
+                    for pid, qty in sorted(contents.items())
+                ],
                 validated_at=now,
                 checked_at=now,
             )
         )
-        moved += _advance_waiting_requests(db, settings, str(row.get("name") or "a pallet"))
+        found += 1
     db.commit()
-    return moved
+    return found

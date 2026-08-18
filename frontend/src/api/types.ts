@@ -337,6 +337,10 @@ export interface TransferLineOut {
   delta: number | null;
   floor_qty: number;
   bwhse_qty: number;
+  /** the warehouse's own words when this line didn't come in full */
+  reasons: DiscrepancyReason[];
+  reason_labels: string[];
+  reason_note: string;
 }
 
 export interface TransferEventOut {
@@ -380,6 +384,7 @@ export interface TransferRequestOut {
   lines: TransferLineOut[];
   events: TransferEventOut[];
   actions: TransferActionsOut;
+  delivery: DeliveryRefOut | null;
 }
 
 export interface TransferSummaryOut {
@@ -394,11 +399,14 @@ export interface TransferSummaryOut {
   open_adjustments: number;
   picking_status: OdooOutcome;
   count_status: OdooOutcome;
+  delivery: DeliveryRefOut | null;
 }
 
 export interface AdjustmentOut {
   id: number;
   request_id: number | null;
+  delivery_id: number | null;
+  delivery_name: string;
   product_id: number;
   sku: string;
   barcode: string;
@@ -665,9 +673,147 @@ export interface Staging2Item {
   qty: number;
 }
 
+export type DeliveryStatus = "open" | "validated" | "counting" | "counted" | "cancelled";
+
+export type DiscrepancyReason = "no_stock" | "full_case" | "another_transfer" | "other";
+
+/** The received transfer a request rode to the floor. */
+export interface DeliveryRefOut {
+  id: number;
+  status: DeliveryStatus;
+  picking_name: string;
+  picking_url: string;
+  declared_at: string | null;
+  validated_at: string | null;
+  /** how many requests shared the pallet */
+  request_count: number;
+}
+
+export interface DeliveryRequestOut {
+  id: number;
+  display_name: string;
+  status: TransferStatus;
+  created_by: string;
+  line_count: number;
+}
+
+export interface DeliveryDiscrepancyOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  qty_requested: number;
+  qty_sent: number;
+  delta: number;
+  reasons: DiscrepancyReason[];
+  reason_labels: string[];
+  note: string;
+}
+
+export interface DeliveryItemOut {
+  product_id: number;
+  sku: string;
+  name: string;
+  qty: number;
+}
+
+export interface DeliveryOut {
+  id: number;
+  status: DeliveryStatus;
+  picking_status: OdooOutcome;
+  odoo_picking_id: number | null;
+  picking_name: string;
+  picking_url: string;
+  picking_error: string;
+  item_count: number;
+  total_units: number;
+  created_at: string;
+  validated_at: string | null;
+  declared_at: string | null;
+  declared_by: string;
+  note: string;
+  /** it moved real stock and nobody has said whose */
+  needs_details: boolean;
+  requests: DeliveryRequestOut[];
+  discrepancies: DeliveryDiscrepancyOut[];
+  items: DeliveryItemOut[];
+  count: OdooRefOut;
+}
+
+export interface DeliveryCandidateOut {
+  odoo_picking_id: number;
+  name: string;
+  state: string;
+  date: string;
+  item_count: number;
+  total_units: number;
+  already_declared: boolean;
+  declared_pallet_id: number | null;
+  from_staging2: boolean;
+}
+
+export interface DeliveryCandidatesOut {
+  candidates: DeliveryCandidateOut[];
+  note: string;
+}
+
+export interface DeliverySuggestionOut {
+  request_id: number;
+  display_name: string;
+  status: TransferStatus;
+  created_by: string;
+  created_at: string;
+  line_count: number;
+  matched_items: number;
+  total_requested: number;
+  reason: string;
+  /** there's real evidence — the form shows it up front */
+  suggested: boolean;
+  /** evidence strong enough to arrive ticked */
+  auto_select: boolean;
+}
+
+export interface DeliveryReviewRowOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  qty_requested: number;
+  qty_sent: number;
+  delta: number;
+  requested_by: string[];
+  reasons: DiscrepancyReason[];
+  note: string;
+}
+
+export interface DeliveryExtraRowOut {
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  qty_sent: number;
+}
+
+export interface DeliveryPreviewOut {
+  picking: DeliveryCandidateOut | null;
+  suggestions: DeliverySuggestionOut[];
+  review: DeliveryReviewRowOut[];
+  extras: DeliveryExtraRowOut[];
+  threshold: number;
+  reason_options: { value: DiscrepancyReason; label: string }[];
+  note: string;
+}
+
+export interface DeclareDeliveryIn {
+  odoo_picking_id: number;
+  request_ids: number[];
+  reasons: { product_id: number; reasons: DiscrepancyReason[]; note: string }[];
+  note: string;
+}
+
 export interface PalletOut {
   id: number;
-  status: "open" | "validated" | "cancelled";
+  status: DeliveryStatus;
   picking_status: "none" | "created" | "simulated" | "failed";
   picking_name: string;
   picking_url: string;

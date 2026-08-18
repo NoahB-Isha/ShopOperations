@@ -38,7 +38,7 @@ export function TransfersPage() {
         subtitle={
           tab === "new"
             ? "From the Blue Warehouse to the Shoppe floor — sending it renders the draft transfer in Odoo immediately."
-            : "Floor asks, warehouse sends, the barcode count closes it — live board, no refreshing."
+            : "Floor asks, the warehouse pulls it in Odoo, and it closes when the pallet reaches the floor — live board, no refreshing."
         }
       />
 

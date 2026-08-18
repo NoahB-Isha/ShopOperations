@@ -192,7 +192,7 @@ export default function App() {
               } />
               {/* floor can look; only warehouse gets the send button */}
               <Route path="/staging2" element={
-                <Protected title="Staging 2" roles={["warehouse", "shoppe_floor", "floor_rotating"]}>
+                <Protected title="Send to floor" roles={["warehouse", "shoppe_floor", "floor_rotating"]}>
                   <Staging2Page />
                 </Protected>
               } />

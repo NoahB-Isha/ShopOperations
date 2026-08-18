@@ -36,9 +36,9 @@ import {
 const FILTERS = [
   ["active", "Active"],
   ["requested", "Requested"],
-  ["working_on_it", "Working on it"],
-  ["counting", "Counting"],
-  ["done", "Done"],
+  ["working_on_it", "Seen by warehouse"],
+  ["sent", "Staged"],
+  ["done", "Received"],
   ["", "All"],
 ] as const;
 
@@ -148,6 +148,35 @@ export function PastTransfersPanel() {
           )}
         </span>
       ),
+    },
+    {
+      key: "delivery",
+      header: "On delivery",
+      hideBelow: "md",
+      sortable: true,
+      value: (r) => r.delivery?.picking_name ?? "",
+      render: (r) =>
+        r.delivery ? (
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <a
+              href={r.delivery.picking_url || undefined}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="font-mono text-[12.5px] font-semibold text-primary hover:underline"
+            >
+              {r.delivery.picking_name}
+            </a>
+            {r.delivery.request_count > 1 && (
+              <span className="text-[12px] text-on-surface-variant">
+                +{r.delivery.request_count - 1} other
+                {r.delivery.request_count === 2 ? "" : "s"}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="text-on-surface-variant">—</span>
+        ),
     },
     { key: "created_by", header: "Requested by", hideBelow: "sm", sortable: true },
     {

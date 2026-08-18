@@ -2,9 +2,9 @@
  * Phase-2 acceptance flows, end to end through the real UI:
  *
  *   1. floor places a request (the Odoo draft renders immediately — honestly
- *      simulated while writes are gated) → warehouse taps Working on it →
- *      Sent → the count stage appears → floor closes it (manual fallback,
- *      since no live count picking exists with the flag off)
+ *      simulated while writes are gated) → warehouse marks it seen, then
+ *      staged → floor closes it by hand (with writes gated there is no Odoo
+ *      picking to pull from, no pallet to declare and nothing to scan)
  *   2. admin curates a catalog (no quantities), grants it to Zone 1 → the
  *      coordinator opens it to one of their centers
  *   3. the restock checklists render for the floor role
@@ -30,7 +30,7 @@ async function signOut(page: Page) {
   await expect(page).toHaveURL(/login/);
 }
 
-test("transfer flow: place → working on it → sent → counting → done", async ({ page }) => {
+test("transfer flow: place → seen by warehouse → staged → received", async ({ page }) => {
   test.setTimeout(90_000);
 
   // ---- floor: place the request
@@ -50,20 +50,21 @@ test("transfer flow: place → working on it → sent → counting → done", as
   await expect(page.getByText(/simulated/).first()).toBeVisible();
   await signOut(page);
 
-  // ---- warehouse: working on it → sent (count stage prepared in the same motion)
+  // ---- warehouse: seen → staged (the pallet is what gets counted now, and
+  // with writes gated there's no pallet to declare)
   await login(page, "warehouse@demo.ishalife.test");
   await page.goto(`/transfer-requests/${requestId}`);
-  await page.getByRole("button", { name: "Working on it" }).click();
-  await expect(page.getByLabel("Status: Working on it")).toBeVisible();
-  await page.getByRole("button", { name: "Sent to staging" }).click();
-  await expect(page.getByLabel("Status: Counting")).toBeVisible();
+  await page.getByRole("button", { name: "I've seen it" }).click();
+  await expect(page.getByLabel("Status: Seen by warehouse")).toBeVisible();
+  await page.getByRole("button", { name: "Mark staged" }).click();
+  await expect(page.getByLabel("Status: Staged")).toBeVisible();
   await signOut(page);
 
-  // ---- floor: no live count picking (writes gated) -> manual close
+  // ---- floor: nothing live in Odoo (writes gated) -> manual close
   await login(page, "floor@demo.ishalife.test");
   await page.goto(`/transfer-requests/${requestId}`);
   await page.getByRole("button", { name: "Mark done" }).click();
-  await expect(page.getByLabel("Status: Done")).toBeVisible();
+  await expect(page.getByLabel("Status: Received")).toBeVisible();
   // counted taken as sent -> no invented discrepancies
   await expect(page.getByRole("columnheader", { name: "Counted" })).toBeVisible();
 });

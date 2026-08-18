@@ -111,11 +111,17 @@ class OrderListCenter(Base):
 
 # ------------------------------------------------- BWHSE→Floor transfer flow
 class TransferRequestStatus(str, enum.Enum):
+    """Status KEYS are stable storage; the labels the app shows moved on
+    2026-08-17 with the delivery-form rework (frontend TRANSFER_LABELS):
+    working_on_it reads "Seen by warehouse", sent reads "Staged". Renaming
+    the keys would rewrite every transition table, test and stored row for
+    no user-visible gain — don't."""
+
     REQUESTED = "requested"  # placed; Odoo draft rendered immediately
-    WORKING = "working_on_it"  # warehouse has eyes on it
-    SENT = "sent"  # warehouse done; stock physically at staging
-    COUNTING = "counting"  # count transfer prepared; floor scans in Odoo barcode
-    DONE = "done"  # count transfer validated in Odoo (or closed manually)
+    WORKING = "working_on_it"  # warehouse has acted on it in Odoo ("seen")
+    SENT = "sent"  # warehouse pulled it; stock sits in Staging2 / on a delivery
+    COUNTING = "counting"  # legacy/direct path: this request has its own count
+    DONE = "done"  # its delivery landed on the floor (or closed manually)
     CANCELLED = "cancelled"
 
 
@@ -224,17 +230,31 @@ class TransferEvent(Base):
 
 
 class PalletTransfer(Base, TimestampMixin):
-    """One consolidated staging2 → floor-staging move (the warehouse's real
-    process: retarget transfers into III/Staging2, accumulate, send ONE
-    pallet). The app renders it as a draft picking from the staging2 page's
-    'Send all' button; a human validates in Odoo. Validation is the signal
-    that goods reached floor staging — SENT requests get their count
-    transfers prepared then."""
+    """One consolidated staging2 → floor-staging move — a DELIVERY, in the
+    UI's words: the pallet that carries several requests' goods to the floor
+    at once.
+
+    Three ways one comes into being, all landing in this table:
+
+      * the warehouse makes the transfer in Odoo (the normal path since
+        2026-08-17) and DECLARES it on the app's delivery form — the form
+        writes `declared_by_id`, the request links and the discrepancy
+        reasons;
+      * the /staging2 'Send all' button renders it as a draft picking
+        (ILAPP-PLT- reference) for a human to validate;
+      * the app discovers a validated staging2 → floor-staging picking
+        nobody declared (`poll_manual_pallets`) — recorded so it can't be
+        processed twice, and flagged as needing its details.
+
+    Validation in Odoo is the signal that goods reached floor staging: the
+    linked requests close as done against this delivery, and ONE count
+    transfer (floor staging → floor) is prepared for the whole pallet."""
 
     __tablename__ = "pallet_transfers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    status: Mapped[str] = mapped_column(String(20), default="open")  # open|validated|cancelled
+    # open|validated|counting|counted|cancelled
+    status: Mapped[str] = mapped_column(String(20), default="open")
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     picking_status: Mapped[str] = mapped_column(
@@ -246,11 +266,104 @@ class PalletTransfer(Base, TimestampMixin):
     odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
     odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
 
-    # what rode the pallet, frozen at render: [{product_id, sku, name, qty}]
+    # what rode the pallet, frozen when it was rendered or declared:
+    # [{product_id, sku, name, qty}]
     lines: Mapped[list] = mapped_column(JSONVariant, default=list)
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # poll throttle for the validation listener
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ---- the delivery form (who said what rode this pallet) ----
+    note: Mapped[str] = mapped_column(Text, default="")
+    declared_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    declared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ---- ONE count transfer per delivery (floor staging → floor) ----
+    count_status: Mapped[str] = mapped_column(
+        String(12), default=OdooWriteOutcome.NONE.value
+    )
+    count_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-CNT-…
+    count_error: Mapped[str] = mapped_column(Text, default="")
+    count_picking_id: Mapped[int | None] = mapped_column(Integer)
+    count_picking_name: Mapped[str] = mapped_column(String(80), default="")
+    count_picking_url: Mapped[str] = mapped_column(String(500), default="")
+    count_barcode_url: Mapped[str] = mapped_column(String(500), default="")
+    count_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    request_links: Mapped[list[PalletRequestLink]] = relationship(
+        back_populates="pallet",
+        cascade="all, delete-orphan",
+        order_by="PalletRequestLink.id",
+    )
+    discrepancies: Mapped[list[PalletDiscrepancy]] = relationship(
+        back_populates="pallet",
+        cascade="all, delete-orphan",
+        order_by="PalletDiscrepancy.id",
+    )
+
+    @property
+    def display_name(self) -> str:
+        return self.odoo_picking_name or self.picking_reference or f"delivery #{self.id}"
+
+    @property
+    def is_declared(self) -> bool:
+        """Someone told the app what rode it. An undeclared delivery can't
+        close anybody's request — the app refuses to guess."""
+        return self.declared_at is not None
+
+
+class PalletRequestLink(Base):
+    """Which transfer requests rode one delivery — the warehouse's answer to
+    "which transfers are included in this bulk transfer?"."""
+
+    __tablename__ = "pallet_requests"
+    __table_args__ = (
+        UniqueConstraint("pallet_id", "request_id", name="uq_pallet_request"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pallet_id: Mapped[int] = mapped_column(ForeignKey("pallet_transfers.id"), index=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("transfer_requests.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    pallet: Mapped[PalletTransfer] = relationship(back_populates="request_links")
+    request: Mapped[TransferRequest] = relationship()
+
+
+class DiscrepancyReason(str, enum.Enum):
+    """Why what's on the pallet differs from what was asked for. The
+    warehouse picks any that apply; OTHER needs a note (enforced at the
+    router), and a note is welcome on any of them."""
+
+    NO_STOCK = "no_stock"  # "We don't have enough stock"
+    FULL_CASE = "full_case"  # "Sending a full case"
+    ANOTHER_TRANSFER = "another_transfer"  # "I'll include it in another transfer"
+    OTHER = "other"
+
+
+class PalletDiscrepancy(Base):
+    """One product on a delivery whose quantity differs from what the linked
+    requests asked for, with the warehouse's reason. Recorded per PRODUCT,
+    not per request line: a pallet carries one pile of each item and the
+    warehouse thinks about it that way. Requests that asked for the product
+    are derivable from the links."""
+
+    __tablename__ = "pallet_discrepancies"
+    __table_args__ = (
+        UniqueConstraint("pallet_id", "product_id", name="uq_pallet_discrepancy_product"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pallet_id: Mapped[int] = mapped_column(ForeignKey("pallet_transfers.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    qty_requested: Mapped[float] = mapped_column(Float)  # summed over linked requests
+    qty_sent: Mapped[float] = mapped_column(Float)  # what's on the pallet
+    reasons: Mapped[list] = mapped_column(JSONVariant, default=list)  # DiscrepancyReason values
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    pallet: Mapped[PalletTransfer] = relationship(back_populates="discrepancies")
+    product: Mapped[Product] = relationship()
 
 
 # --------------------------------------------------------- adjustments queue
@@ -271,6 +384,11 @@ class Adjustment(Base):
         ForeignKey("transfer_requests.id"), index=True
     )
     line_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_request_lines.id"))
+    # a delivery's own count reconciles the whole pallet, so its adjustments
+    # hang off the delivery instead of one request (request_id stays NULL)
+    pallet_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pallet_transfers.id"), index=True
+    )
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     qty_expected: Mapped[float] = mapped_column(Float)  # what warehouse sent
     qty_counted: Mapped[float] = mapped_column(Float)  # what the count validated
