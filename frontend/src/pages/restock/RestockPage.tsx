@@ -319,7 +319,11 @@ function CheckRow({
   });
 
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)" style={leavingStyle(swipe.leaving)}>
+    <li
+      data-name-press
+      className="relative overflow-hidden rounded-(--radius-lg)"
+      style={leavingStyle(swipe.leaving)}
+    >
       <SwipeBackdrop side="right" label="Not today" dx={swipe.dx} tone="tertiary" />
       <SwipeBackdrop side="left" label="Request more" dx={swipe.dx} morph={swipe.morph} />
       <button

@@ -1,31 +1,39 @@
-/* Long-press a truncated name to scroll the rest of it past.
+/* Long-press a row to scroll a name too long to fit.
 
    Noah, 2026-08-18: shelf names run long ("Shikakai & Jatamansi Certified
    Organic Strengthening Shampoo - 30ml (Bloom)") and a phone row shows the
-   first half. Press and hold; the name travels out and back, once, then stops.
-   No layout shift, no dialog, nothing to dismiss.
+   first half. Press and hold anywhere on the CARD; the name travels out and
+   back, once, then stops. No layout shift, no dialog, nothing to dismiss.
 
-   The structure matters and cost a rewrite to get right. IDLE is a single
-   `truncate` span (overflow hidden + ellipsis + nowrap) — that's what draws the
-   "…". RUNNING swaps to a clipping outer with an `inline-block w-max` inner:
-   the inner is allowed to be wider than the row, so translating it actually
-   reveals text. The first version clipped the overflow on the moving element
-   itself, which slides the ellipsis along and reveals nothing.
+   The press target is the card, not the text (Noah's follow-up: "can it be the
+   whole card?"). The card marks itself with `data-name-press` and this
+   component finds it with `closest()`, attaching NATIVE listeners to it —
+   which is what lets the gesture coexist with the React handlers those rows
+   already carry (the restock row is a `role="checkbox"` button wearing
+   useSwipeRow's pointer handlers; spreading a second set would clobber the
+   first). Without the attribute it falls back to the text itself, so a row
+   that hasn't opted in still behaves.
 
-   Three other things this is careful about:
-     * it only reacts when the text ACTUALLY overflows, measured on press (a
-       rotation, a font swap or a longer sibling changes the answer);
-     * a small finger drift while reading is not a cancel, but a real scroll is;
-     * `prefers-reduced-motion` gets nothing — the title tooltip still works. */
+   Three things that cost a rewrite each:
+     * IDLE is one `truncate` span — that's what draws the "…". RUNNING swaps
+       to a clipping outer plus an `inline-block w-max` inner, because clipping
+       the overflow on the element you translate slides the ellipsis along and
+       reveals nothing.
+     * iOS Safari answers a long press on text by starting a SELECTION and
+       taking the gesture, which fires pointercancel and kills the hold before
+       it fires. The `.scrolling-name` / `[data-name-press]` rule in tokens.css
+       suppresses that, on coarse pointers only.
+     * the card is usually tappable, so the click after a press would tick the
+       item off. One click is eaten in the capture phase.
+*/
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const HOLD_MS = 350;
-/** finger drift allowed before we call it a scroll rather than a hold */
+/** finger drift allowed before we call it a scroll or a swipe, not a hold */
 const DRIFT = 8;
 /** travel speed in px/sec — readable, not a ticker tape. Measured against the
- *  worst real name in the catalog ("Shikakai & Jatamansi Certified Organic
- *  Strengthening Shampoo - 30ml (Bloom)", 359px hidden on a 375px screen):
- *  at 70px/s that was a ten-second round trip nobody would wait out. */
+ *  worst real name in the catalog (359px hidden on a 375px screen): at 70px/s
+ *  that was a ten-second round trip nobody would wait out. */
 const SPEED = 130;
 /** and a hard ceiling, so no name can hold the row hostage */
 const MAX_MS = 6000;
@@ -33,20 +41,79 @@ const MAX_MS = 6000;
 export function ScrollingText({ text, className = "" }: { text: string; className?: string }) {
   const box = useRef<HTMLSpanElement>(null);
   const inner = useRef<HTMLSpanElement>(null);
-  const timer = useRef<number | null>(null);
-  const press = useRef<{ x: number; y: number } | null>(null);
   const [overflow, setOverflow] = useState(0);
 
-  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+  /* The gesture, wired to the card. Native listeners, refs for the in-flight
+     state — a re-render mid-press must not restart the timer. */
+  useEffect(() => {
+    const label = box.current;
+    if (!label) return;
+    const target: HTMLElement = label.closest<HTMLElement>("[data-name-press]") ?? label;
 
-  const cancel = () => {
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = null;
-    press.current = null;
-  };
+    let timer: number | null = null;
+    let from: { x: number; y: number } | null = null;
 
-  // once we've switched to the scrolling layout, the inner span exists and can
-  // be animated — hence layout effect, not a callback on the press
+    const clear = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      from = null;
+    };
+
+    /* The card is usually tappable, so the click that follows a long press
+       would toggle it. Swallow exactly one, in the capture phase, and disarm
+       on a timer in case no click arrives (a cancelled touch) so the trap
+       can't eat someone's next real tap. Same discipline as
+       SwipeRow.swallowClick. */
+    const swallowNextClick = () => {
+      const kill = (e: MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      document.addEventListener("click", kill, { capture: true, once: true });
+      window.setTimeout(() => document.removeEventListener("click", kill, { capture: true }), 700);
+    };
+
+    const fire = () => {
+      timer = null;
+      const el = box.current;
+      if (!el) return;
+      const hidden = el.scrollWidth - el.clientWidth;
+      if (hidden <= 1) return; // nothing hidden, nothing to reveal
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      swallowNextClick();
+      setOverflow(hidden);
+    };
+
+    const down = (e: PointerEvent) => {
+      from = { x: e.clientX, y: e.clientY };
+      timer = window.setTimeout(fire, HOLD_MS);
+    };
+    const move = (e: PointerEvent) => {
+      if (!from) return;
+      if (Math.abs(e.clientX - from.x) > DRIFT || Math.abs(e.clientY - from.y) > DRIFT) clear();
+    };
+    // a long press on a phone otherwise raises the selection menu over the
+    // thing we just started scrolling
+    const menu = (e: Event) => {
+      if (overflow) e.preventDefault();
+    };
+
+    target.addEventListener("pointerdown", down);
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", clear);
+    target.addEventListener("pointercancel", clear);
+    target.addEventListener("contextmenu", menu);
+    return () => {
+      clear();
+      target.removeEventListener("pointerdown", down);
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", clear);
+      target.removeEventListener("pointercancel", clear);
+      target.removeEventListener("contextmenu", menu);
+    };
+  }, [overflow]);
+
+  // once the scrolling layout is mounted the inner span exists and can move
   useLayoutEffect(() => {
     const el = inner.current;
     if (!overflow || !el) return;
@@ -66,66 +133,12 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
     return () => anim.cancel();
   }, [overflow]);
 
-  /* These rows are usually INSIDE something tappable — the restock row is a
-     `role="checkbox"` button — so the click that follows a long press would
-     tick the item off. Swallow exactly one click in the capture phase, and
-     disarm on a timer in case no click ever arrives (a cancelled touch), so
-     the trap can't eat someone's next real tap. Same discipline as
-     SwipeRow.swallowClick. */
-  const swallowNextClick = () => {
-    const kill = (e: MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-    };
-    document.addEventListener("click", kill, { capture: true, once: true });
-    window.setTimeout(
-      () => document.removeEventListener("click", kill, { capture: true }),
-      700,
-    );
-  };
-
-  const start = () => {
-    const el = box.current;
-    if (!el) return;
-    const hidden = el.scrollWidth - el.clientWidth;
-    if (hidden <= 1) return; // nothing hidden, nothing to reveal
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    swallowNextClick();
-    setOverflow(hidden);
-  };
-
-  const handlers = {
-    onPointerDown: (e: React.PointerEvent) => {
-      press.current = { x: e.clientX, y: e.clientY };
-      timer.current = window.setTimeout(() => {
-        timer.current = null;
-        start();
-      }, HOLD_MS);
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (!press.current) return;
-      if (
-        Math.abs(e.clientX - press.current.x) > DRIFT ||
-        Math.abs(e.clientY - press.current.y) > DRIFT
-      )
-        cancel();
-    },
-    onPointerUp: cancel,
-    onPointerCancel: cancel,
-    // a long press otherwise raises the text-selection menu over the thing we
-    // just started scrolling
-    onContextMenu: (e: React.MouseEvent) => {
-      if (overflow) e.preventDefault();
-    },
-  };
-
   if (overflow) {
     return (
       <span
         ref={box}
         title={text}
         className={`scrolling-name block overflow-hidden whitespace-nowrap ${className}`}
-        {...handlers}
       >
         <span ref={inner} className="inline-block w-max whitespace-nowrap">
           {text}
@@ -134,7 +147,7 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
     );
   }
   return (
-    <span ref={box} title={text} className={`scrolling-name block truncate ${className}`} {...handlers}>
+    <span ref={box} title={text} className={`scrolling-name block truncate ${className}`}>
       {text}
     </span>
   );

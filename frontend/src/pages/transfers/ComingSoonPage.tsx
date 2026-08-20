@@ -63,6 +63,7 @@ export function ComingSoonPage() {
         <ul className="stagger-children flex flex-col gap-2 pb-8">
           {visible.map((item) => (
             <li
+              data-name-press
               key={item.product_id}
               className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5"
             >

@@ -48,7 +48,7 @@ function Row({
   onTheWay?: React.ReactNode;
 }) {
   return (
-    <li>
+    <li data-name-press>
       <button
         type="button"
         onClick={onAdd}

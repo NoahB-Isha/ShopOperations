@@ -523,11 +523,14 @@ body {
        answers a long press on text by starting a SELECTION — magnifier,
        handles, "Copy" callout — and hands the browser the gesture, which
        fires pointercancel and kills the hold timer before it ever fires.
-       Suppressing selection is the only way to get the press. Scoped to
+       Suppressing selection is the only way to get the press, and it covers
+       the whole press target ([data-name-press]) since the gesture lives on
+       the card. Scoped to
        coarse pointers on purpose: on a desk, selecting a product name to
        copy it is worth more than a marquee nobody needs there (a mouse
        press-and-hold still scrolls it). */
-    .scrolling-name {
+    .scrolling-name,
+    [data-name-press] {
       -webkit-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;

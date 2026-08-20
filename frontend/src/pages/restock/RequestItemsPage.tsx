@@ -112,6 +112,7 @@ export function RequestItemsPage() {
           <ul>
             {lines.map((line) => (
               <li
+                data-name-press
                 key={line.product_id}
                 className="flex items-center justify-between gap-2 border-b border-outline-variant/50
                   px-4 py-3 last:border-b-0"

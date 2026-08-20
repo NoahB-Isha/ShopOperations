@@ -84,6 +84,7 @@ function RequestRow({
   const swipe = useSwipeRow({ onLeft: onDismiss, onRight: onAdd, morphOnRight: true });
   return (
     <li
+      data-name-press
       className="relative overflow-hidden rounded-(--radius-lg)"
       style={leavingStyle(swipe.leaving)}
     >
@@ -152,6 +153,7 @@ function SuggestionRow({
   const swipe = useSwipeRow({ onLeft: onSnooze, onRight: onAdd, morphOnRight: true });
   return (
     <li
+      data-name-press
       className="relative overflow-hidden rounded-(--radius-lg)"
       style={leavingStyle(swipe.leaving)}
     >

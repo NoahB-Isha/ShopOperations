@@ -163,6 +163,7 @@ export function NewTransferPanel() {
               const isSelected = selection.selected.has(line.product_id);
               return (
                 <li
+                  data-name-press
                   key={line.product_id}
                   onMouseDown={(e) => e.shiftKey && e.preventDefault()}
                   onClick={(e) => {

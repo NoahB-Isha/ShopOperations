@@ -1386,7 +1386,16 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   `role="checkbox"` button), so the click after a long press ticked the item
   off — `swallowNextClick()` eats one click in the capture phase and disarms
   on a 700ms timer in case no click arrives, the same discipline as
-  SwipeRow.swallowClick.
+  SwipeRow.swallowClick. **The press target is the whole CARD, not the text**
+  (Noah's follow-up): the card marks itself `data-name-press` and
+  ScrollingText finds it with `closest()`, attaching NATIVE listeners —
+  which is what lets the gesture coexist with the React pointer handlers those
+  rows already carry (the restock row is a `role="checkbox"` button wearing
+  useSwipeRow's handlers; spreading a second set would clobber the first).
+  Missing attribute = falls back to the text itself, so an un-opted row still
+  works. The no-select rule covers `[data-name-press]` too, or a press on the
+  card's OTHER text would start an iOS selection. Verified by pressing the
+  big "bring out" number: marquee runs, checkbox doesn't toggle.
   **5. Warehouse scan FAB** — the bottom bar's big FAB is role-chosen: the
   Warehouse Team gets Scan (their most common phone task), everyone else keeps
   Search, and Search returns to a normal slot for them. Never two FABs.

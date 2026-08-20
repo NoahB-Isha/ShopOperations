@@ -148,7 +148,7 @@ function OosRow({
   const m = item.mark;
   const swipe = useSwipeRow({ onRight: onAdd, morphOnRight: true });
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)">
+    <li data-name-press className="relative overflow-hidden rounded-(--radius-lg)">
       <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <div
         {...swipe.handlers}
@@ -328,7 +328,7 @@ type Scope = (typeof SCOPES)[number]["key"];
 /** Read-only row for the org / warehouse scopes (snapshot lists). */
 function ScopeRow({ item }: { item: AvailabilityItemOut }) {
   return (
-    <li className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5">
+    <li data-name-press className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <ScrollingText text={item.name} className="text-[15px] font-medium" />
