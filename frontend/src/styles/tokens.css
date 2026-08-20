@@ -519,6 +519,19 @@ body {
     textarea {
       font-size: 1rem;
     }
+    /* Long-press-to-scroll a truncated name (ScrollingText). iOS Safari
+       answers a long press on text by starting a SELECTION — magnifier,
+       handles, "Copy" callout — and hands the browser the gesture, which
+       fires pointercancel and kills the hold timer before it ever fires.
+       Suppressing selection is the only way to get the press. Scoped to
+       coarse pointers on purpose: on a desk, selecting a product name to
+       copy it is worth more than a marquee nobody needs there (a mouse
+       press-and-hold still scrolls it). */
+    .scrolling-name {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
   }
   .m3-control:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-on-surface) 4%, var(--color-field));

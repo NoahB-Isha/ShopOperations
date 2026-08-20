@@ -1375,6 +1375,18 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   the element you translate slides the ellipsis along and reveals nothing (the
   first version's bug). 130px/s, 6s ceiling — 70px/s made the worst real name
   a ten-second round trip. Reduced-motion gets nothing but the tooltip.
+  **iOS follow-up (same day): it didn't work on an iPhone at all** — Safari
+  answers a long press on text by starting a SELECTION (magnifier, handles,
+  "Copy" callout) and takes the gesture, which fires `pointercancel` and kills
+  the hold timer before it can fire. Fix is the `.scrolling-name` rule in
+  tokens.css: `user-select: none` + `-webkit-touch-callout: none`, scoped to
+  `@media (pointer: coarse)` so a desk user can still select a product name to
+  copy it (a mouse press-and-hold still scrolls). Second half of the fix:
+  these names sit INSIDE tappable rows (the restock row is a
+  `role="checkbox"` button), so the click after a long press ticked the item
+  off — `swallowNextClick()` eats one click in the capture phase and disarms
+  on a 700ms timer in case no click arrives, the same discipline as
+  SwipeRow.swallowClick.
   **5. Warehouse scan FAB** — the bottom bar's big FAB is role-chosen: the
   Warehouse Team gets Scan (their most common phone task), everyone else keeps
   Search, and Search returns to a normal slot for them. Never two FABs.

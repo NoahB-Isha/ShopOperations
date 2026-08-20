@@ -66,12 +66,31 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
     return () => anim.cancel();
   }, [overflow]);
 
+  /* These rows are usually INSIDE something tappable — the restock row is a
+     `role="checkbox"` button — so the click that follows a long press would
+     tick the item off. Swallow exactly one click in the capture phase, and
+     disarm on a timer in case no click ever arrives (a cancelled touch), so
+     the trap can't eat someone's next real tap. Same discipline as
+     SwipeRow.swallowClick. */
+  const swallowNextClick = () => {
+    const kill = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    document.addEventListener("click", kill, { capture: true, once: true });
+    window.setTimeout(
+      () => document.removeEventListener("click", kill, { capture: true }),
+      700,
+    );
+  };
+
   const start = () => {
     const el = box.current;
     if (!el) return;
     const hidden = el.scrollWidth - el.clientWidth;
     if (hidden <= 1) return; // nothing hidden, nothing to reveal
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    swallowNextClick();
     setOverflow(hidden);
   };
 
@@ -105,7 +124,7 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
       <span
         ref={box}
         title={text}
-        className={`block overflow-hidden whitespace-nowrap ${className}`}
+        className={`scrolling-name block overflow-hidden whitespace-nowrap ${className}`}
         {...handlers}
       >
         <span ref={inner} className="inline-block w-max whitespace-nowrap">
@@ -115,7 +134,7 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
     );
   }
   return (
-    <span ref={box} title={text} className={`block truncate ${className}`} {...handlers}>
+    <span ref={box} title={text} className={`scrolling-name block truncate ${className}`} {...handlers}>
       {text}
     </span>
   );
