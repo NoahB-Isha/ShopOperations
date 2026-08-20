@@ -18,6 +18,7 @@ import {
   EmptyState,
   Field,
   PageHeader,
+  ScrollingText,
   Spinner,
   Textarea,
   useToast,
@@ -116,7 +117,7 @@ export function RequestItemsPage() {
                   px-4 py-3 last:border-b-0"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{line.name}</div>
+                  <ScrollingText text={line.name} className="text-sm font-medium" />
                   <div className="flex flex-wrap items-center gap-x-2 text-[12px] tabular-nums text-on-surface-variant">
                     <span className="font-mono">{productCode(line.barcode, line.sku)}</span>
                     <span>

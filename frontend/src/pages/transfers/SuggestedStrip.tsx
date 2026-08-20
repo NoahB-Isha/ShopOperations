@@ -23,7 +23,7 @@ import {
   useRestock,
 } from "../../api/hooks";
 import type { FloorRequestOut, RestockBackItem } from "../../api/types";
-import { Badge, Card, useToast } from "../../design";
+import { Badge, Card, ScrollingText, useToast } from "../../design";
 import { addToDraft, useDraftLines } from "../../transferDraft";
 import { OnTheWayChip, fmtQty, productCode, useOnTheWay } from "../shared/OpsBits";
 import { splitSlots } from "./suggestedRows";
@@ -56,7 +56,7 @@ function Row({
           border-outline-variant/50 px-4 py-2.5 text-left last:border-b-0"
       >
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{name}</span>
+          <ScrollingText text={name} className="text-sm font-medium" />
           <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{code}</span>
             <span>{detail}</span>

@@ -9,6 +9,7 @@ export type { Column } from "./DataTable";
 export { Dialog, Drawer } from "./Dialog";
 export { EmptyState } from "./EmptyState";
 export { Field, Input, Select, Textarea, Toggle } from "./Field";
+export { ScrollingText } from "./ScrollingText";
 export { Spinner } from "./Spinner";
 export type { ActionBox } from "./SwipeRow";
 export {

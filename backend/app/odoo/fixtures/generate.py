@@ -209,6 +209,17 @@ def generate_fixtures(
             qid += 1
             quants.append(_quant(qid, p, 20, "III/Stock/SHIP", float(ship_rng.randint(5, 400))))
 
+    # A quant on the VIRTUAL customer location, big enough to sort to the top
+    # of any "where is this item?" list. Live has these — Partner
+    # Locations/Customers held 3,255 units of one incense (stock already sold,
+    # not a place anything sits) — and /products/{id}/locations must filter
+    # them out by usage. Its own rng stream, like SHIP, so the seeded data
+    # above is untouched. Deliberately on the FIRST product so the endpoint's
+    # test always has one to ignore.
+    if products:
+        qid += 1
+        quants.append(_quant(qid, products[0], 15, "Partner Locations/Customers", 3255.0))
+
     # ------------------------------------------------------------- sales
     # Orders shaped like production: many small orders per month per config,
     # ~96% with a customer on file (a loyal core reorders month after month —

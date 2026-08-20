@@ -28,6 +28,7 @@ import {
   Input,
   MorphBall,
   PageHeader,
+  ScrollingText,
   Spinner,
   SwipeBackdrop,
   Textarea,
@@ -157,7 +158,7 @@ function OosRow({
       >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-medium">{item.name}</div>
+          <ScrollingText text={item.name} className="text-[15px] font-medium" />
           <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{productCode(item.barcode, item.sku)}</span> · floor {fmtQty(item.floor_qty)} · whse{" "}
             {fmtQty(item.bwhse_qty)} · {item.incoming_label}
@@ -330,7 +331,7 @@ function ScopeRow({ item }: { item: AvailabilityItemOut }) {
     <li className="rounded-(--radius-lg) bg-surface-container-low px-4 py-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-medium">{item.name}</div>
+          <ScrollingText text={item.name} className="text-[15px] font-medium" />
           <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{productCode(item.barcode, item.sku)}</span> · floor{" "}
             {fmtQty(item.floor_qty)} · whse {fmtQty(item.bwhse_qty)}

@@ -7,7 +7,7 @@ import { usePersistedState } from "../../persist";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
-import { Badge, EmptyState, Input, PageHeader, Spinner } from "../../design";
+import { Badge, EmptyState, Input, PageHeader, ScrollingText, Spinner } from "../../design";
 import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
 import { matchesSearch } from "../../search";
 import { useSillyLabel } from "../../silly";
@@ -68,7 +68,7 @@ export function ComingSoonPage() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-medium">{item.name}</div>
+                  <ScrollingText text={item.name} className="text-[15px] font-medium" />
                   <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
                     <span className="font-mono">{productCode(item.barcode, item.sku)}</span> · floor{" "}
                     {fmtQty(item.floor_qty)} · whse {fmtQty(item.bwhse_qty)}{" "}

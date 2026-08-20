@@ -25,6 +25,7 @@ import {
   Button,
   EmptyState,
   PageHeader,
+  ScrollingText,
   Spinner,
   SwipeBackdrop,
   leavingStyle,
@@ -95,7 +96,7 @@ function RequestRow({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-medium">{req.name}</div>
+            <ScrollingText text={req.name} className="text-[15px] font-medium" />
             <div className="mt-0.5 text-[12px] tabular-nums text-on-surface-variant">
               <span className="font-mono">{productCode(req.barcode, req.sku)}</span> · floor{" "}
               {fmtQty(req.floor_qty)} · whse {fmtQty(req.bwhse_qty)}{" "}
@@ -167,7 +168,7 @@ function SuggestionRow({
           bg-surface-container-low px-4 py-3.5"
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-medium">{item.name}</span>
+          <ScrollingText text={item.name} className="text-[15px] font-medium" />
           <span className="mt-0.5 block text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{productCode(item.barcode, item.sku)}</span> ·{" "}
             {item.days_of_cover === null ? (

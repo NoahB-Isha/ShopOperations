@@ -5,7 +5,7 @@
    back-stock suggestions now live on the Inventory Flow Manager's Suggested
    items page, under "Database Suggestions", next to what the floor team
    actually asked for. This page is one list again. */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   useCheckRestock,
   useResetFloorRestock,
@@ -21,9 +21,10 @@ import {
   ContextMenu,
   Dialog,
   EmptyState,
-  PageHeader,
-  Spinner,
   MorphBall,
+  PageHeader,
+  ScrollingText,
+  Spinner,
   SwipeBackdrop,
   leavingStyle,
   useContextMenu,
@@ -182,11 +183,34 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
       />
     );
   }
+  /* The list arrives grouped by aisle and ranked by sales (backend
+     restock/grouping.py: best-selling group first, best sellers inside it), so
+     all this does is draw a heading where the group changes. Never re-sort
+     here — the order encodes sales figures the client doesn't have. */
+  const groupSizes = new Map<string, number>();
+  const groupSold = new Map<string, number>();
+  for (const item of items) {
+    const label = item.group || "Other";
+    groupSizes.set(label, (groupSizes.get(label) ?? 0) + 1);
+    groupSold.set(label, item.group_popularity);
+  }
+
   return (
     <ul className="stagger-children flex flex-col gap-2 pb-24">
-      {items.map((item) => (
+      {items.map((item, i) => (
+        <Fragment key={item.line_id}>
+        {(i === 0 || (items[i - 1].group || "Other") !== (item.group || "Other")) && (
+          <li className="mt-4 flex items-baseline justify-between gap-2 px-1 first:mt-0">
+            <h3 className="title-m text-on-surface">{item.group || "Other"}</h3>
+            <span className="tabular-nums text-[11.5px] text-on-surface-variant">
+              {groupSizes.get(item.group || "Other")} item
+              {groupSizes.get(item.group || "Other") === 1 ? "" : "s"}
+              {(groupSold.get(item.group || "Other") ?? 0) > 0 &&
+                ` · ${fmtQty(groupSold.get(item.group || "Other") ?? 0)} sold`}
+            </span>
+          </li>
+        )}
         <CheckRow
-          key={item.line_id}
           checked={item.checked}
           onToggle={(checked) =>
             check.mutate(
@@ -228,9 +252,16 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
               {addedAgo(item.flagged_on)}
               {" · "}
               floor {fmtQty(item.floor_qty)} <LowCountHint qty={item.floor_qty} />
+              {item.popularity > 0 && (
+                <span title="Units sold on the shop floor in the last 90 days — what puts this near the top of its group.">
+                  {" · "}
+                  {fmtQty(item.popularity)} sold
+                </span>
+              )}
             </>
           }
         />
+        </Fragment>
       ))}
       <ContextMenu menu={menu.menu} onClose={menu.close} />
     </ul>
@@ -327,11 +358,11 @@ function CheckRow({
           </svg>
         </span>
         <span className="min-w-0 flex-1">
-          <span
-            className={`block truncate text-[15px] font-medium ${checked ? "line-through" : ""}`}
-          >
-            {title}
-          </span>
+          {/* long-press to scroll a name too long for the row (ScrollingText) */}
+          <ScrollingText
+            text={title}
+            className={`text-[15px] font-medium ${checked ? "line-through" : ""}`}
+          />
           <span className="mt-0.5 block text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{sku}</span> · {sub}
           </span>

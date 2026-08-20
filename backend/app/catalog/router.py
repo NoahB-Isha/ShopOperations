@@ -12,6 +12,9 @@ from ..auth.deps import AuthedUser, get_current_user, require_roles
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import (
+    ODOO_FOLDED_LOCATION_NAMES,
+    OdooLocation,
+    OdooWriteOutcome,
     Product,
     ProductSource,
     ProductTag,
@@ -24,7 +27,10 @@ from ..models import (
     TagName,
     utcnow,
 )
+from ..odoo.connection import get_connection
+from ..odoo.errors import OdooError
 from ..odoo.urls import odoo_record_url
+from ..oos.adjust import AdjustTooLarge, floor_qty_of, reconcile_floor_count
 from ..ratelimit import rate_limit
 from .search import product_search_clause
 
@@ -482,6 +488,255 @@ class StockHistoryOut(BaseModel):
 def _history_point(day: date, buckets: dict[str, float], source: str) -> StockHistoryPoint:
     vals = {k: float(buckets.get(k, 0) or 0) for k in HISTORY_LOCATION_KEYS}
     return StockHistoryPoint(day=day, total=sum(vals.values()), source=source, **vals)
+
+
+# Odoo location usages that describe somewhere stock physically IS. Transit
+# counts: goods between two of our own places are real and worth seeing.
+PHYSICAL_USAGES = {"internal", "transit"}
+
+
+class ItemLocationOut(BaseModel):
+    """One place an item physically sits, as Odoo names it."""
+
+    location: str  # complete_name, e.g. III/Stock/BWHSE/A/1/1/1
+    short: str  # the tail the warehouse actually says out loud: "A/1/1/1"
+    area: str  # which synced bucket it rolls up into (bwhse/floor/staging/…)
+    qty: float
+
+
+class ItemLocationsOut(BaseModel):
+    product_id: int
+    name: str
+    barcode: str
+    source: str  # live | snapshot | unavailable | untracked
+    note: str
+    total: float
+    locations: list[ItemLocationOut]
+    # the four rolled-up numbers the rest of the app shows, for comparison
+    buckets: dict[str, float]
+
+
+class FloorCountIn(BaseModel):
+    # A count, not a delta. Bounded and finite: NaN slipped past `<= 0` guards
+    # before (see the security round), and allow_inf_nan=False is the fix.
+    counted_qty: float = Field(ge=0, le=1_000_000, allow_inf_nan=False)
+    note: str = ""
+
+
+class FloorCountOut(BaseModel):
+    product_id: int
+    floor_qty_before: float
+    counted_qty: float
+    delta: float
+    direction: str  # add | reduce | none
+    status: str  # created | simulated | failed | none
+    reference: str
+    picking_name: str
+    url: str
+    error: str
+    note: str
+
+
+@router.post("/{product_id}/floor-count", response_model=FloorCountOut)
+def set_floor_count(
+    product_id: int,
+    body: FloorCountIn,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
+) -> FloorCountOut:
+    """The Inventory Flow Manager counted the shelf: make Odoo say that.
+
+    Same machinery as the OOS board's "back in stock" (oos/adjust.py) and the
+    same promise — this renders a DRAFT adjustment for a human to validate in
+    Odoo, and the UI shows the link to it. The app never validates stock moves.
+    Counts that match Odoo write nothing at all."""
+    p = db.get(Product, product_id)
+    if p is None:
+        raise HTTPException(404, "Product not found.")
+    if not p.is_stock_tracked or not p.odoo_product_id:
+        raise HTTPException(
+            422, f"'{p.name}' isn't tracked in Odoo, so there's no floor quantity to correct."
+        )
+    before = floor_qty_of(db, product_id)
+    try:
+        outcome = reconcile_floor_count(
+            db, settings, p,
+            floor_qty=before,
+            counted_qty=body.counted_qty,
+            actor_user_id=authed.id,
+            note=(
+                f"Floor count — counted {body.counted_qty:g}, Odoo showed {before:g}"
+                + (f" — {body.note.strip()}" if body.note.strip() else "")
+                + f" — {p.global_sku} {p.name}"
+            ),
+            reference_kind="FLR",
+        )
+    except AdjustTooLarge as e:
+        raise HTTPException(422, str(e)) from e
+    db.commit()
+    delta = round(body.counted_qty - before, 3)
+    if outcome.status == OdooWriteOutcome.CREATED.value:
+        note = (
+            f"Draft {outcome.picking_name} created in Odoo — validate it there and the floor "
+            "figure updates on the next stock sync."
+        )
+    elif outcome.status == OdooWriteOutcome.SIMULATED.value:
+        note = "Simulated — the adjustment feature flag is off, so nothing was written to Odoo."
+    elif outcome.status == OdooWriteOutcome.FAILED.value:
+        note = "Odoo refused the adjustment; nothing changed."
+    else:
+        note = "Odoo already shows that number — nothing to adjust."
+    return FloorCountOut(
+        product_id=p.id,
+        floor_qty_before=before,
+        counted_qty=body.counted_qty,
+        delta=delta,
+        direction=outcome.direction,
+        status=outcome.status,
+        reference=outcome.reference,
+        picking_name=outcome.picking_name,
+        url=outcome.url,
+        error=outcome.error,
+        note=note,
+    )
+
+
+@router.get("/{product_id}/locations", response_model=ItemLocationsOut)
+def item_locations(
+    product_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _: AuthedUser = Depends(require_roles(Role.WAREHOUSE, Role.SHOPPE_FLOOR, Role.FLOOR_ROTATING)),
+) -> ItemLocationsOut:
+    """Every location holding this item, bin by bin.
+
+    The stock sync deliberately collapses hundreds of BWHSE bins
+    (III/Stock/BWHSE/A/1/1/1) into one `bwhse` number, which is the right
+    answer for every list in the app and the wrong answer for the person who
+    has to go and FIND the thing. So this reads quants live, on demand, for
+    ONE product — the same trade the centers map makes for its click panel.
+
+    Honest when it can't: a failed Odoo read falls back to the synced buckets
+    and says so, rather than pretending the item is nowhere."""
+    p = db.get(Product, product_id)
+    if p is None:
+        raise HTTPException(404, "Product not found.")
+    buckets = {
+        key: float(qty)
+        for key, qty in db.execute(
+            select(StockLevel.location_key, StockLevel.qty).where(
+                StockLevel.product_id == product_id
+            )
+        )
+    }
+    if not (p.is_stock_tracked and p.source == ProductSource.ODOO.value and p.odoo_product_id):
+        return ItemLocationsOut(
+            product_id=p.id, name=p.name, barcode=p.barcode or "",
+            source="untracked",
+            note="This item isn't tracked in Odoo, so it has no locations to read.",
+            total=0.0, locations=[], buckets=buckets,
+        )
+
+    try:
+        conn = get_connection(settings, read_only=True)
+        quants = conn.search_read(
+            "stock.quant",
+            [["product_id", "=", p.odoo_product_id], ["quantity", "!=", 0]],
+            ["location_id", "quantity"],
+        )
+        # Quants also exist for Odoo's VIRTUAL locations — Partner
+        # Locations/Customers held 3,255 of one incense on live, which is stock
+        # already sold, not a place anything sits. Read each location's usage
+        # and keep only the physical ones. Done as a second read rather than a
+        # dotted domain so the recorded-fixture simulator exercises the same
+        # path; a location the read doesn't cover is treated as physical, since
+        # dropping real stock is the worse error.
+        location_ids: list[int] = sorted(
+            {
+                int(field[0]) if isinstance(field, list) and field else int(field)
+                for field in (q.get("location_id") for q in quants)
+                if isinstance(field, int) or (isinstance(field, list) and field)
+            }
+        )
+        usages = {
+            int(row["id"]): str(row.get("usage") or "")
+            for row in conn.search_read(
+                "stock.location", [["id", "in", location_ids]], ["usage"]
+            )
+        }
+    except OdooError as e:
+        return ItemLocationsOut(
+            product_id=p.id, name=p.name, barcode=p.barcode or "",
+            source="unavailable",
+            note=f"Odoo didn't answer ({e}) — showing the last sync's totals instead.",
+            total=round(sum(buckets.values()), 3), locations=[], buckets=buckets,
+        )
+
+    # Which synced area each path rolls up into, so a bin reads as "warehouse"
+    # rather than as an orphan. Longest path first: BWHSE/… must not match a
+    # shorter root that happens to be a prefix of it.
+    roots = sorted(
+        db.scalars(select(OdooLocation)).all(),
+        key=lambda loc: len(loc.complete_name or ""),
+        reverse=True,
+    )
+
+    # SHIP is not a synced root — it FOLDS into bwhse (see the 2026-08-04 fix),
+    # and reading it as arealess here would contradict every other number in
+    # the app, which counts those ~80k units as warehouse stock.
+    folded = sorted(
+        ODOO_FOLDED_LOCATION_NAMES.items(), key=lambda kv: len(kv[0]), reverse=True
+    )
+
+    def area_for(path: str) -> str:
+        for name, key in folded:
+            root = name.rstrip("/")
+            if path == root or path.startswith(root + "/"):
+                return key
+        for loc in roots:
+            root = (loc.complete_name or "").rstrip("/")
+            if root and (path == root or path.startswith(root + "/")):
+                return loc.key
+        return ""
+
+    rows: list[ItemLocationOut] = []
+    for q in quants:
+        field = q.get("location_id")
+        path = str(field[1]) if isinstance(field, list) and len(field) == 2 else ""
+        loc_id = field[0] if isinstance(field, list) else field
+        qty = float(q.get("quantity") or 0)
+        if not path:
+            continue
+        if not isinstance(loc_id, int):
+            continue
+        if usages.get(loc_id, "internal") not in PHYSICAL_USAGES:
+            continue  # customers, vendors, inventory loss, production: not places
+        area = area_for(path)
+        root = ""
+        for name, _key in folded:
+            if path == name.rstrip("/") or path.startswith(name.rstrip("/") + "/"):
+                root = name.rstrip("/")
+                break
+        if not root:
+            for loc in roots:
+                if loc.key == area:
+                    root = (loc.complete_name or "").rstrip("/")
+                    break
+        tail = path[len(root) + 1 :] if root and path.startswith(root + "/") else path
+        rows.append(
+            ItemLocationOut(location=path, short=tail or path.split("/")[-1], area=area, qty=qty)
+        )
+    # biggest pile first — that's the one worth walking to
+    rows.sort(key=lambda r: (-r.qty, r.location))
+    return ItemLocationsOut(
+        product_id=p.id, name=p.name, barcode=p.barcode or "",
+        source="live",
+        note="" if rows else "Odoo shows no stock for this item in any location.",
+        total=round(sum(r.qty for r in rows), 3),
+        locations=rows,
+        buckets=buckets,
+    )
 
 
 @router.get("/{product_id}/stock-history", response_model=StockHistoryOut)

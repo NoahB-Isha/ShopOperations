@@ -36,7 +36,9 @@ from ..models import (
     User,
     utcnow,
 )
+from ..ordering.service import get_app_setting, set_app_setting
 from ..sync.runner import claim_stale_refresh, refresh_domains_in_background
+from . import grouping
 from .engine import (
     BACK_LIST,
     FLOOR_LIST,
@@ -72,6 +74,12 @@ class FloorItemOut(BaseModel):
     bwhse_qty: float = 0.0
     checked: bool
     snoozed: bool = False
+    # Grouping + best-seller rank (see restock/grouping.py). `group` is the
+    # aisle label; the two popularity numbers are what the sort used, exposed
+    # so the UI can show "why is this first" without recomputing anything.
+    group: str = ""
+    popularity: float = 0.0
+    group_popularity: float = 0.0
 
 
 class BackItemOut(BaseModel):
@@ -86,6 +94,9 @@ class BackItemOut(BaseModel):
     days_of_cover: float | None
     suggested_qty: float
     checked: bool
+    group: str = ""
+    popularity: float = 0.0
+    group_popularity: float = 0.0
 
 
 class RestockMetaOut(BaseModel):
@@ -167,6 +178,14 @@ def get_restock(
     pids = {i.product_id for i in floor_items} | {i.product_id for i in back_items}
     products = _product_map(db, pids)
     stock = _stock_map(db, {i.product_id for i in floor_items})
+    # One pass for both lists: which aisle each item belongs to, and how well
+    # it sells on THIS floor. The admin's prefix overrides live in app_settings.
+    grouped = grouping.assign(
+        products,
+        grouping.popularity(db, pids),
+        get_app_setting(db, grouping.SETTING_KEY),
+    )
+    blank = grouping.Grouped(group=grouping.FALLBACK_GROUP, popularity=0.0, group_popularity=0.0)
 
     floor_out = []
     for item in floor_items:
@@ -187,6 +206,9 @@ def get_restock(
                 floor_qty=s.get("floor", 0.0),
                 bwhse_qty=s.get("bwhse", 0.0),
                 checked=item.checked,
+                group=grouped.get(item.product_id, blank).group,
+                popularity=grouped.get(item.product_id, blank).popularity,
+                group_popularity=grouped.get(item.product_id, blank).group_popularity,
             )
         )
 
@@ -208,8 +230,16 @@ def get_restock(
                 days_of_cover=back_item.days_of_cover,
                 suggested_qty=back_item.suggested_qty,
                 checked=back_item.checked,
+                group=grouped.get(back_item.product_id, blank).group,
+                popularity=grouped.get(back_item.product_id, blank).popularity,
+                group_popularity=grouped.get(back_item.product_id, blank).group_popularity,
             )
         )
+
+    # Best-selling groups first, best sellers within them (grouping.sort_key).
+    # The BACK list is deliberately NOT re-sorted: its worst-cover-first order
+    # is what the Suggested items page and the transfer form's strip rely on.
+    floor_out.sort(key=lambda r: grouping.sort_key(grouped.get(r.product_id, blank), r.name))
 
     sales_state = db.get(SyncState, "sales")
     fold_state = db.get(RestockFoldState, 1)
@@ -252,6 +282,68 @@ class ResetOut(BaseModel):
     lines_cleared: int
     accumulators_zeroed: int
     meta: RestockMetaOut
+
+
+class GroupsOut(BaseModel):
+    """What names the aisles, and what an admin has changed."""
+
+    defaults: dict[str, str]
+    overrides: dict[str, str]
+    effective: dict[str, str]
+    never_group: list[str]
+    popularity_days: int
+
+
+class GroupsIn(BaseModel):
+    # prefix -> label. A blank label stops grouping by that prefix.
+    overrides: dict[str, str]
+
+
+@router.get("/groups", response_model=GroupsOut)
+def get_groups(
+    db: Session = Depends(get_db),
+    _: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> GroupsOut:
+    """The prefix→aisle table. Editable because the shop will coin a prefix
+    long before anyone ships a release."""
+    overrides = get_app_setting(db, grouping.SETTING_KEY)
+    return GroupsOut(
+        defaults=grouping.PREFIX_GROUPS,
+        overrides={k: str(v) for k, v in overrides.items() if isinstance(k, str)},
+        effective=grouping.merged_groups(overrides),
+        never_group=sorted(grouping.NEVER_GROUP),
+        popularity_days=grouping.POPULARITY_DAYS,
+    )
+
+
+@router.put("/groups", response_model=GroupsOut)
+def put_groups(
+    body: GroupsIn,
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> GroupsOut:
+    """Replace the overrides. Prefixes in NEVER_GROUP are dropped — CA names a
+    shipping origin, not a type, and mapping it would put unrelated items in
+    one aisle."""
+    clean = {
+        k.strip().upper(): v.strip()
+        for k, v in body.overrides.items()
+        if isinstance(k, str) and isinstance(v, str) and k.strip()
+    }
+    refused = sorted(set(clean) & grouping.NEVER_GROUP)
+    for prefix in refused:
+        clean.pop(prefix, None)
+    if refused:
+        raise HTTPException(
+            422,
+            f"{', '.join(refused)} can't name a group: a two-letter prefix followed by ten "
+            "digits is an India import reference, so it says where an item shipped from, not "
+            "what it is.",
+        )
+    user = db.get(User, authed.id)
+    set_app_setting(db, grouping.SETTING_KEY, clean, actor=user)
+    db.commit()
+    return get_groups(db, authed)
 
 
 @router.post("/floor/reset", response_model=ResetOut)

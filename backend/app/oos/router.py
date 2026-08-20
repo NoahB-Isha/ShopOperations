@@ -37,6 +37,7 @@ from ..odoo.connection import get_connection
 from ..odoo.errors import OdooError, OdooWriteError
 from ..odoo.operations import new_reference
 from ..odoo.writer import OdooWriter
+from .adjust import NO_CHANGE, AdjustTooLarge, reconcile_floor_count
 
 # Floor + rotating volunteers own the board and its actions; warehouse (and
 # admin) can view the list — the page's Everywhere/Warehouse scopes matter to
@@ -403,54 +404,32 @@ def back_in_stock(
 
     adjustment: AdjustmentOut | None = None
     if body.counted_qty is not None and product is not None:
-        delta = round(float(body.counted_qty) - floor_qty, 3)
-        # Odoo's own number is unbounded (a bad sync or a fat-fingered count in
-        # Odoo can make it enormous), so the DIFFERENCE gets its own ceiling —
-        # an adjustment this large is a data problem, not a shelf count.
-        if abs(delta) > 100_000:
-            raise HTTPException(
-                422,
-                f"That count ({float(body.counted_qty):g}) differs from Odoo's floor "
-                f"quantity ({floor_qty:g}) by {abs(delta):g} — too large to adjust from "
-                "here. Fix the quantity in Odoo instead.",
+        # one copy of the delta/ceiling/writer dance lives in oos/adjust.py,
+        # shared with the floor-count edit on the product drawer
+        try:
+            outcome = reconcile_floor_count(
+                db, settings, product,
+                floor_qty=floor_qty,
+                counted_qty=float(body.counted_qty),
+                actor_user_id=authed.id,
+                note=(
+                    f"Back in stock — counted {body.counted_qty:g}, Odoo showed "
+                    f"{floor_qty:g} — {product.global_sku} {product.name}"
+                ),
+                reference_kind="OOS",
             )
-        if delta != 0 and product.is_stock_tracked and product.odoo_product_id:
-            writer = OdooWriter(db, settings, actor_user_id=authed.id)
-            direction = "add" if delta > 0 else "reduce"
-            op = (
-                writer.create_inventory_addition
-                if delta > 0
-                else writer.create_inventory_reduction
+        except AdjustTooLarge as e:
+            raise HTTPException(422, str(e)) from e
+        if outcome is not NO_CHANGE:
+            adjustment = AdjustmentOut(
+                direction=outcome.direction,
+                qty=outcome.qty,
+                status=outcome.status,
+                reference=outcome.reference,
+                picking_name=outcome.picking_name,
+                url=outcome.url,
+                error=outcome.error,
             )
-            reference = new_reference("OOS")
-            note = (
-                f"Back in stock — counted {body.counted_qty:g}, Odoo showed "
-                f"{floor_qty:g} — {product.global_sku} {product.name}"
-            )[:120]
-            try:
-                result = op(
-                    product_id=product.id, qty=abs(delta), note=note, reference=reference
-                )
-            except OdooWriteError as e:
-                adjustment = AdjustmentOut(
-                    direction=direction, qty=abs(delta),
-                    status=OdooWriteOutcome.FAILED.value,
-                    reference=reference, picking_name="", url="", error=str(e),
-                )
-            else:
-                adjustment = AdjustmentOut(
-                    direction=direction,
-                    qty=abs(delta),
-                    status=(
-                        OdooWriteOutcome.SIMULATED.value
-                        if result.dry_run
-                        else OdooWriteOutcome.CREATED.value
-                    ),
-                    reference=result.reference,
-                    picking_name=result.record_name,
-                    url=result.deep_link,
-                    error="",
-                )
 
     _remove_mark_and_draft(db, settings, mark, authed.id)
     db.commit()

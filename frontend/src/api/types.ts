@@ -437,6 +437,13 @@ export interface RestockFloorItem {
   bwhse_qty: number;
   checked: boolean;
   snoozed: boolean;
+  /** Aisle label from the barcode prefix (IN → Incense), falling back to the
+   *  Odoo category. See backend restock/grouping.py — CA never names a group. */
+  group: string;
+  /** units sold on the shop floor in the popularity window */
+  popularity: number;
+  /** the whole group's units, which is what orders the groups */
+  group_popularity: number;
 }
 
 export interface RestockBackItem {
@@ -451,6 +458,9 @@ export interface RestockBackItem {
   days_of_cover: number | null;
   suggested_qty: number;
   checked: boolean;
+  group: string;
+  popularity: number;
+  group_popularity: number;
 }
 
 /** A Floor Team ask — a person's "we need more of this", waiting for the
@@ -1294,5 +1304,38 @@ export interface ResetFlowOut {
   }[];
   kept: string[];
   discover_from: string;
+  note: string;
+}
+
+/** All the places one item physically sits (live Odoo quant read). */
+export interface ItemLocation {
+  location: string;
+  short: string;
+  area: string;
+  qty: number;
+}
+
+export interface ItemLocations {
+  product_id: number;
+  name: string;
+  barcode: string;
+  source: "live" | "snapshot" | "unavailable" | "untracked";
+  note: string;
+  total: number;
+  locations: ItemLocation[];
+  buckets: Record<string, number>;
+}
+
+export interface FloorCountOut {
+  product_id: number;
+  floor_qty_before: number;
+  counted_qty: number;
+  delta: number;
+  direction: "add" | "reduce" | "none";
+  status: "created" | "simulated" | "failed" | "none";
+  reference: string;
+  picking_name: string;
+  url: string;
+  error: string;
   note: string;
 }

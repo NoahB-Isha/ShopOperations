@@ -67,6 +67,11 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         {"id": 23, "complete_name": "III/CityCenter/Ghost Town", "usage": "internal"},
         # the reduction operation type's default destination (virtual loss)
         {"id": 31, "complete_name": "Virtual Locations/USA-III: Inventory adjustment", "usage": "inventory"},
+        # Odoo keeps quants on VIRTUAL locations too. On live, Partner
+        # Locations/Customers held 3,255 units of one incense — stock already
+        # sold, not a place anything sits — so /products/{id}/locations has to
+        # filter by usage. This is what makes that test a real control.
+        {"id": 32, "complete_name": "Partner Locations/Customers", "usage": "customer"},
     ]
     picking_types = [
         {"id": 1, "name": "III: Receipts", "code": "incoming", "default_location_src_id": False, "default_location_dest_id": False},
@@ -95,6 +100,9 @@ def build_test_fixtures(out_dir: Path, now: datetime | None = None) -> dict:
         # (like live sesame oil) whose ONLY warehouse stock sits in SHIP
         _q(11, 201, "Copper Water Bottle — 950ml", 17, "III/Stock/SHIP", 25),
         _q(12, 206, "Bloom Ghee", 17, "III/Stock/SHIP", 18),
+        # sold and gone: big enough to sort to the top of a locations list if
+        # anyone ever drops the usage filter
+        _q(13, 201, "Copper Water Bottle — 950ml", 32, "Partner Locations/Customers", 3255),
     ]
 
     pos_orders = [

@@ -593,3 +593,67 @@ def test_unchecked_lines_age_out_instead_of_repeating_forever(db, settings_env):
         select(RestockLine).where(RestockLine.product_id == a.id, RestockLine.expired_at.is_(None))
     ).all()
     assert [ln.qty for ln in lines] == [9.0]  # not 6 + 9 grown onto the stale row
+
+
+# ---------------------------------------------- grouping + best-seller order
+def test_grouping_names_aisles_by_barcode_prefix_but_never_by_CA():
+    """Noah 2026-08-18: IN → Incense. CA must NOT name a group — a two-letter
+    prefix plus ten digits is an India import reference (CA0023000009), so it
+    says where a thing shipped from, not what it is; those items fall back to
+    their Odoo category."""
+    from app.models import Product
+    from app.restock import grouping
+
+    groups = grouping.merged_groups(None)
+    incense = Product(barcode="IN135", name="Incense-Stick-Water-10", category="Isha Life USA / Home")
+    india = Product(barcode="CA0023000009", name="Copper Bottle", category="Isha Life USA / Home")
+    ca_short = Product(barcode="CA226", name="Mulmul Skirt", category="Clothing & Accessories")
+    unmapped = Product(barcode="ZZ9", name="Mystery", category="Isha Life USA / Snacks")
+    bare = Product(barcode="", name="Spring Water", category="")
+
+    assert grouping.group_for(incense, groups) == "Incense"
+    # the India reference and a short CA code both refuse the prefix and fall
+    # back to the category — never a "CA" aisle
+    assert grouping.group_for(india, groups) == "Home"
+    assert grouping.group_for(ca_short, groups) == "Clothing & Accessories"
+    assert grouping.group_for(unmapped, groups) == "Snacks"
+    assert grouping.group_for(bare, groups) == grouping.FALLBACK_GROUP
+
+
+def test_overrides_can_add_and_remove_a_prefix_but_not_CA():
+    from app.restock import grouping
+
+    merged = grouping.merged_groups({"ZZ": "Zebra", "IN": "", "ca": "Nope", 7: "bad"})
+    assert merged["ZZ"] == "Zebra"
+    assert "IN" not in merged  # blank label = stop grouping by it
+    assert "CA" not in merged  # refused, whatever case it arrives in
+
+
+def test_best_sellers_lead_their_group_and_the_biggest_group_leads():
+    """Both halves of the ask: rank items inside a group, and rank the groups."""
+    from app.models import Product
+    from app.restock import grouping
+
+    products = {
+        1: Product(barcode="IN1", name="Incense A", category="Home"),
+        2: Product(barcode="IN2", name="Incense B", category="Home"),
+        3: Product(barcode="BC1", name="Soap", category="Body Care"),
+    }
+    # Body Care's single item outsells either incense, but Incense as a GROUP
+    # moves more units, so the incense aisle comes first.
+    sold = {1: 30.0, 2: 25.0, 3: 40.0}
+    assigned = grouping.assign(products, sold)
+    assert assigned[1].group == "Incense" and assigned[3].group == "Body Care"
+    assert assigned[1].group_popularity == 55.0
+    order = sorted(products, key=lambda pid: grouping.sort_key(assigned[pid], products[pid].name))
+    assert order == [1, 2, 3]
+
+
+def test_ties_fall_back_to_name_so_a_fresh_install_is_stable():
+    from app.models import Product
+    from app.restock import grouping
+
+    products = {1: Product(barcode="IN1", name="Zeta"), 2: Product(barcode="IN2", name="Alpha")}
+    assigned = grouping.assign(products, {})
+    order = sorted(products, key=lambda pid: grouping.sort_key(assigned[pid], products[pid].name))
+    assert order == [2, 1]

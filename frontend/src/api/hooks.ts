@@ -562,6 +562,8 @@ import type {
   OrderCatalogOut,
   OrderContextCenter,
   ReasonPreviewOut,
+  FloorCountOut,
+  ItemLocations,
   ReleaseStaleOut,
   ResetFlowOut,
 } from "./types";
@@ -1286,6 +1288,36 @@ export function useResetTransferFlow() {
       qc.invalidateQueries({ queryKey: ["deliveries"] });
       qc.invalidateQueries({ queryKey: ["staging2"] });
       qc.invalidateQueries({ queryKey: ["adjustments"] });
+    },
+  });
+}
+
+/** Every location one item sits in — a LIVE Odoo read, so it's a query with a
+ *  short cache and no polling: the warehouse opens it, walks off, and doesn't
+ *  need it refetching in their pocket. */
+export function useItemLocations(productId: number | null) {
+  return useQuery({
+    queryKey: ["item-locations", productId],
+    queryFn: () => api<ItemLocations>(`/products/${productId}/locations`),
+    enabled: productId !== null,
+    staleTime: 60_000,
+  });
+}
+
+/** The floor counted a shelf: reconcile Odoo to it (draft only). */
+export function useSetFloorCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { productId: number; counted_qty: number; note?: string }) =>
+      api<FloorCountOut>(`/products/${v.productId}/floor-count`, {
+        method: "POST",
+        body: { counted_qty: v.counted_qty, note: v.note ?? "" },
+      }),
+    onSuccess: (_out, v) => {
+      qc.invalidateQueries({ queryKey: ["item-locations", v.productId] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["restock"] });
+      qc.invalidateQueries({ queryKey: ["oos"] });
     },
   });
 }

@@ -165,15 +165,22 @@ function BottomNav({
   onScan: () => void;
 }) {
   const s = useSillyLabel();
+  const { roles } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   // Roles without an inventory search (Order Reviewer, Order Requester) get no
   // FAB — there is nothing for it to open.
-  const search = items.find((i) => i.path === SEARCH_PATH);
-  const rest = items.filter((i) => i.path !== SEARCH_PATH);
+  // Which big FAB this role gets. The Warehouse Team's most common phone task
+  // is scanning an item, not searching for one (Noah, 2026-08-18), so for them
+  // the FAB IS the scanner and Search Inventory goes back to being a slot.
+  // Everyone else keeps search as the FAB. Never two FABs: a second one would
+  // eat a slot and neither would read as primary.
+  const scanIsFab = roles.has("warehouse") && !roles.has("admin");
+  const search = scanIsFab ? undefined : items.find((i) => i.path === SEARCH_PATH);
+  const rest = items.filter((i) => search === undefined || i.path !== SEARCH_PATH);
   // Scan is PINNED: it was asked for as a menu item, so it keeps its slot
   // rather than being the first thing the overflow swallows. The FAB's spacer
   // counts as a slot because it takes the same width.
-  const rowCells = BOTTOM_SLOTS - (search ? 1 : 0);
+  const rowCells = BOTTOM_SLOTS - (search || scanIsFab ? 1 : 0);
   const overflowing = rest.length + 1 > rowCells;
   const keep = overflowing ? rowCells - 2 : rest.length; // leave room for Scan (+ More)
   const primary = rest.slice(0, keep);
@@ -185,7 +192,9 @@ function BottomNav({
   const cells: React.ReactNode[] = primary.map((item) => (
     <BottomNavLink key={item.path} item={item} dotted={dotted} />
   ));
-  cells.push(<BottomAction key="scan" label={s("Scan")} icon={Icons.scan} onClick={onScan} />);
+  if (!scanIsFab) {
+    cells.push(<BottomAction key="scan" label={s("Scan")} icon={Icons.scan} onClick={onScan} />);
+  }
   if (overflowing) {
     cells.push(
       <BottomAction
@@ -232,6 +241,7 @@ function BottomNav({
       >
         {cells.map((cell) => cell)}
         {search && <SearchFab item={search} />}
+        {scanIsFab && <ScanFab onClick={onScan} />}
       </nav>
     </>
   );
@@ -269,6 +279,31 @@ function SearchFab({ item }: { item: NavItem }) {
         </>
       )}
     </NavLink>
+  );
+}
+
+/** The docked scan FAB — the Warehouse Team's primary phone action.
+ *
+ *  Same shape, same brand orange and same `on-primary` as the search FAB (a
+ *  role should not have to learn a second visual language), but it runs the
+ *  scanner instead of navigating, so there is no active state to show. */
+function ScanFab({ onClick }: { onClick: () => void }) {
+  const s = useSillyLabel();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={s("Scan")}
+      title={s("Scan")}
+      className="absolute -top-5 left-1/2 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full
+        bg-primary text-on-primary shadow-(--shadow-e3)
+        transition-transform duration-300 ease-(--ease-spring)
+        hover:-translate-y-0.5 hover:scale-105 active:translate-y-0 active:scale-95"
+    >
+      <span className="scale-150" aria-hidden>
+        {Icons.scan}
+      </span>
+    </button>
   );
 }
 

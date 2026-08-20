@@ -21,6 +21,7 @@ import {
   ContextMenu,
   EmptyState,
   Field,
+  ScrollingText,
   Textarea,
   isInteractiveTarget,
   useContextMenu,
@@ -174,7 +175,7 @@ export function NewTransferPanel() {
                   aria-selected={isSelected}
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{line.name}</div>
+                    <ScrollingText text={line.name} className="text-sm font-medium" />
                     <div className="flex flex-wrap items-center gap-x-2 text-[12px] tabular-nums text-on-surface-variant">
                       <span className="font-mono">{productCode(line.barcode, line.sku)}</span>
                       {line.case_size > 1 && (

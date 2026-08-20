@@ -1335,3 +1335,52 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   sheet (its red ask-dot follows it there via `overflowDotted`). Restock stays
   first, so `homeForRoles(shoppe_floor)` is unchanged; the desktop sidebar
   reorders to match. floor_rotating is untouched (Request items is their job).
+- Pre-launch round (2026-08-18, Noah's list of six):
+  **1. Restock groups by TYPE** — `app/restock/grouping.py` maps a BARCODE
+  prefix to an aisle (IN → Incense; verified live: 61 items, every one an
+  Incense-Stick-*), because the Odoo category is too coarse to walk a shop by
+  ("Home" holds incense, candle holders and bath towels). **CA never names a
+  group** (Noah) — a two-letter prefix plus ten digits is an India import
+  reference (`CA0023000009`), so it says where a thing shipped from, not what
+  it is; `NEVER_GROUP` enforces it and the PUT endpoint 422s on it. EX/CX/WC/ME
+  are deliberately unmapped for the same reason (verified spread across
+  unrelated categories); unmapped prefixes fall back to the Odoo category, then
+  "Other". Defaults live in `PREFIX_GROUPS`, overridable via the
+  `restock_groups` AppSetting (GET/PUT /restock/groups, admin; blank label =
+  stop grouping that prefix) because the shop coins a prefix long before anyone
+  ships a release. **2. Best sellers first** — `popularity()` sums
+  `sales_daily` units over 90 days on SHOPPE_CHANNELS only (a city-center hit
+  must not reorder the shop's shelves); `sort_key` = group total desc, then
+  item units desc, then name, so a fresh install with no sales is still
+  stable. Rows carry `group`/`popularity`/`group_popularity`; the FLOOR list is
+  sorted server-side and the page only draws a heading where the group changes
+  — the BACK list keeps its worst-cover-first order untouched, because
+  /suggested-items and the transfer strip depend on it. **3. Every location an
+  item sits in** — `GET /products/{id}/locations` (warehouse+floor) reads
+  quants LIVE for one product: the stock sync rightly collapses hundreds of
+  BWHSE bins into one number, which is the wrong answer for whoever has to go
+  FIND the thing. Rolls each bin up into its synced area by longest-path-first
+  prefix match, biggest pile first, honest `source` when Odoo is silent (falls
+  back to the synced buckets, never "nowhere"). **Filters by location
+  `usage`**: live had 3,255 units of one incense at Partner
+  Locations/Customers — stock already sold, not a place — so only
+  internal+transit count; done as a second read, not a dotted domain, so the
+  simulator exercises it. Test fixtures gained location 32 + quant 13 for
+  exactly that, and the test targets odoo product 201 BECAUSE "the first
+  product with an odoo id" made the assertion vacuous (verified by removing the
+  filter). **4. Long-press a truncated name** — `design/ScrollingText.tsx`
+  (restock, OOS, suggested items, coming soon, transfer draft, request items).
+  IDLE is one `truncate` span (that's what draws the "…"); RUNNING swaps to a
+  clipping outer + `inline-block w-max` inner, because clipping the overflow on
+  the element you translate slides the ellipsis along and reveals nothing (the
+  first version's bug). 130px/s, 6s ceiling — 70px/s made the worst real name
+  a ten-second round trip. Reduced-motion gets nothing but the tooltip.
+  **5. Warehouse scan FAB** — the bottom bar's big FAB is role-chosen: the
+  Warehouse Team gets Scan (their most common phone task), everyone else keeps
+  Search, and Search returns to a normal slot for them. Never two FABs.
+  **6. Floor count edit** — `POST /products/{id}/floor-count` (shoppe_floor):
+  counted qty in, DRAFT adjustment out, link shown; equal counts write nothing.
+  The delta/ceiling/writer dance moved to `app/oos/adjust.py` and is now shared
+  with the OOS board's "back in stock" — one copy, two callers. Both sit in the
+  product drawer behind disclosures ("Where it is", "Floor count"), so neither
+  costs an Odoo round-trip until asked for.
