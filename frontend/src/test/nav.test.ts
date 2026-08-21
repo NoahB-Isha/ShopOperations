@@ -11,6 +11,8 @@ test("each role sees its own nav", () => {
   // transfers, coming soon, out of stock, adjustments) kept their routes.
   expect(navForRoles(new Set(["warehouse"])).map((i) => i.label)).toEqual([
     "Send to floor",
+    // counting is a job they do on the floor of their own warehouse
+    "Inventory counting",
     "Search Inventory",
   ]);
   expect(homeForRoles(new Set(["warehouse"]))).toBe("/staging2");
@@ -39,8 +41,10 @@ test("the Floor Team asks where the manager decides", () => {
   const floor = navForRoles(new Set(["shoppe_floor"])).map((i) => i.path);
   const rotating = navForRoles(new Set(["floor_rotating"])).map((i) => i.path);
   // same toolkit either way…
+  // same toolkit apart from: the manager decides on /suggested-items and
+  // reviews counts, the Floor Team raises asks instead
   expect(rotating.filter((p) => p !== "/request-items")).toEqual(
-    floor.filter((p) => p !== "/suggested-items"),
+    floor.filter((p) => p !== "/suggested-items" && p !== "/count-review"),
   );
   // …but the Floor Team raises asks, and only the manager sees the board of
   // them (with the app's own suggestions underneath)

@@ -31,6 +31,9 @@ class Role(str, enum.Enum):
         zone_coordinator → Order Reviewer
         center_orderer   → Order Requester
 
+    inventory_wrangler is the one ADD-ON in the list: it is held ALONGSIDE a
+    real user type and only grants the count review queue (see app/counting).
+
     The separate dept_liaison / dept_orderer roles were FOLDED IN on
     2026-08-13: a departments reviewer is simply an Order Reviewer whose
     review zone is "III Departments", and a departments requester is an Order
@@ -48,6 +51,11 @@ class Role(str, enum.Enum):
     FLOOR_ROTATING = "floor_rotating"
     ZONE_COORDINATOR = "zone_coordinator"
     CENTER_ORDERER = "center_orderer"
+    # Inventory Wrangler (2026-08-19) is an ADD-ON, not a seventh user type:
+    # it grants access to the inventory count review queue on top of whatever
+    # someone already is. Nobody holds it alone — a user has their real role
+    # plus this one, which is exactly what RoleAssignment already models.
+    INVENTORY_WRANGLER = "inventory_wrangler"
 
 
 # Roles whose row-scope is a review zone / a center.

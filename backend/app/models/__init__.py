@@ -18,6 +18,15 @@ from .center_orders import (
     CenterOrderStatus,
     ReasonabilityLevel,
 )
+from .counting import (
+    CountEventKind,
+    CountItemStatus,
+    CountStatus,
+    InventoryCount,
+    InventoryCountEntry,
+    InventoryCountEvent,
+    InventoryCountItem,
+)
 from .notices import Notice, NoticeRead
 from .notify import (
     ChannelOutcome,
@@ -210,6 +219,13 @@ __all__ = [
     "SalesOrdersMonthly",
     "StockSnapshot",
     "StockSnapshotDay",
+    "CountEventKind",
+    "CountItemStatus",
+    "CountStatus",
+    "InventoryCount",
+    "InventoryCountEntry",
+    "InventoryCountEvent",
+    "InventoryCountItem",
     "CENTER_SCOPED_ROLES",
     "SEE_EVERYTHING_ROLES",
     "ZONE_SCOPED_ROLES",

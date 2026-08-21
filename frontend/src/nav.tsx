@@ -117,6 +117,7 @@ const byRole: Record<string, NavItem[]> = {
   // nothing has to be rebuilt to bring one back.
   warehouse: [
     { path: "/staging2", label: "Send to floor", short: "To floor", icon: Icons.box },
+    { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Order matters twice over: the first item is the landing page
@@ -128,6 +129,8 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
+    { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
+    { path: "/count-review", label: "Count review", short: "Review", icon: Icons.clipboard },
     { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
@@ -139,6 +142,7 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/request-items", label: "Request items", short: "Request", icon: Icons.bag },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
+    { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
     { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
@@ -152,6 +156,11 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/my-centers", label: "My centers", short: "Centers", icon: Icons.mapPin },
     { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
+  ],
+  // Inventory Wrangler — an ADD-ON, not a user type. It contributes exactly
+  // one destination, unioned onto whatever the person already is.
+  inventory_wrangler: [
+    { path: "/count-review", label: "Count review", short: "Review", icon: Icons.clipboard },
   ],
   // Order Requester
   center_orderer: [

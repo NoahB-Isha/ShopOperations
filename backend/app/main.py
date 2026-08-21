@@ -16,6 +16,7 @@ from .catalog.router import router as catalog_router
 from .center_orders.router import router as center_orders_router
 from .centers.router import router as centers_router
 from .config import get_settings
+from .counting.router import router as counting_router
 from .floor_requests.router import router as floor_requests_router
 from .health import router as health_router
 from .notices.router import router as notices_router
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
         notices_router,
         transfers_router,
         adjustments_router,
+        counting_router,
         availability_router,
         bot_router,
         timemachine_router,

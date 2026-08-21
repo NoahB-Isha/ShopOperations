@@ -1339,3 +1339,103 @@ export interface FloorCountOut {
   error: string;
   note: string;
 }
+
+// ---------------------------------------------------------- inventory counting
+export interface CountLocationOut {
+  key: string;
+  label: string;
+  odoo_id: number | null;
+  note: string;
+}
+
+export interface CountLocationsOut {
+  locations: CountLocationOut[];
+  default: string;
+  can_review: boolean;
+}
+
+export interface CountEntryOut {
+  attempt: number;
+  counted_qty: number;
+  odoo_qty: number;
+  odoo_qty_source: string;
+  delta: number;
+  counted_by: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface CountItemEventOut {
+  kind: string;
+  note: string;
+  actor: string;
+  created_at: string;
+}
+
+export type CountItemStatus = "pending" | "recount_requested" | "approved" | "rejected";
+
+export interface CountItemOut {
+  id: number;
+  count_id: number;
+  product_id: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  status: CountItemStatus;
+  location_key: string;
+  counted_by: string;
+  recount_assignee: string;
+  recount_assignee_id: number | null;
+  reviewed_by: string;
+  reviewed_at: string | null;
+  attempts: number;
+  counted_qty: number | null;
+  odoo_qty: number | null;
+  delta: number | null;
+  applied_qty: number | null;
+  picking_status: string;
+  picking_name: string;
+  picking_url: string;
+  picking_error: string;
+  entries: CountEntryOut[];
+  events: CountItemEventOut[];
+  submitted_at: string;
+}
+
+export type CountStatus =
+  | "pending"
+  | "partially_reviewed"
+  | "recount_required"
+  | "completed";
+
+export interface CountOut {
+  id: number;
+  display_name: string;
+  location_key: string;
+  location_label: string;
+  status: CountStatus;
+  counted_by: string;
+  note: string;
+  submitted_at: string;
+  items: CountItemOut[];
+  events: CountItemEventOut[];
+}
+
+export interface CountSummaryOut {
+  id: number;
+  display_name: string;
+  location_key: string;
+  location_label: string;
+  status: CountStatus;
+  counted_by: string;
+  submitted_at: string;
+  item_count: number;
+  pending_items: number;
+  recount_items: number;
+}
+
+export interface CountAssigneeOut {
+  id: number;
+  name: string;
+  roles: string[];
+}

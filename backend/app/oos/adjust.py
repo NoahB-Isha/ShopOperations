@@ -67,12 +67,17 @@ def reconcile_floor_count(
     actor_user_id: int | None,
     note: str,
     reference_kind: str = "ADJ",
+    location_odoo_id: int | None = None,
 ) -> AdjustResult:
     """Render the draft that moves Odoo's floor figure to `counted_qty`.
 
     Higher than Odoo → an addition; lower → a reduction; equal → nothing at
     all (NO_CHANGE), because a zero-quantity picking is noise for whoever has
-    to review it."""
+    to review it.
+
+    `location_odoo_id` names the shelf. It defaults to the FLOOR — what the OOS
+    board and the drawer's floor-count edit both mean — and the inventory count
+    flow passes the counted location, which can be the warehouse or SHIP."""
     delta = round(float(counted_qty) - float(floor_qty), 3)
     if abs(delta) > MAX_DELTA:
         raise AdjustTooLarge(
@@ -88,7 +93,13 @@ def reconcile_floor_count(
     op = writer.create_inventory_addition if delta > 0 else writer.create_inventory_reduction
     reference = new_reference(reference_kind)
     try:
-        result = op(product_id=product.id, qty=abs(delta), note=note[:120], reference=reference)
+        result = op(
+            product_id=product.id,
+            qty=abs(delta),
+            note=note[:120],
+            reference=reference,
+            location_odoo_id=location_odoo_id,
+        )
     except OdooWriteError as e:
         return AdjustResult(
             direction=direction,

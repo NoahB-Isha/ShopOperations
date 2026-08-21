@@ -1417,3 +1417,50 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   with the OOS board's "back in stock" — one copy, two callers. Both sit in the
   product drawer behind disclosures ("Where it is", "Floor count"), so neither
   costs an Odoo round-trip until asked for.
+- Inventory counting (2026-08-19, Noah's spec — build on it, never around):
+  `app/counting/` = count → submit → review → recount → apply, plus the
+  `/inventory-count` and `/count-review` pages. **The spec's hardest rule
+  shapes the schema: never overwrite a previous count.** So a counted product
+  is three tables — `inventory_counts` (a submission: one location, one
+  moment) → `inventory_count_items` (one product, the unit of review, UNIQUE
+  per submission so "add it again" means "change the quantity") →
+  `inventory_count_entries` (ONE act of counting; attempt 1 is the original,
+  2+ are recounts, append-only). `odoo_qty` lives on the ENTRY, not the item,
+  because a recount days later compares against whatever Odoo says then and
+  the reviewer needs both numbers as they were; `odoo_qty_source` records
+  live-vs-snapshot honestly. `inventory_count_events` is the review trail.
+  Migration `f5c1a8e37d92` (four new tables, nothing altered).
+  **Roles**: `Role.INVENTORY_WRANGLER` is an ADD-ON, not a seventh user type —
+  held alongside a real role, granting only the review queue, which is exactly
+  what RoleAssignment already models (nav.tsx gives it a one-item menu that
+  unions onto whatever the person already is). Counting = shoppe_floor +
+  floor_rotating + warehouse + admin; reviewing = shoppe_floor +
+  inventory_wrangler + admin (`locations.COUNTER_ROLES` / `REVIEWER_ROLES`).
+  **Locations** (`counting/locations.py`): the four synced roots PLUS
+  **SHIP**, which deliberately has no OdooLocation row (it folds into bwhse)
+  and so is resolved by complete_name — it's the Warehouse Team's default
+  counting spot per the spec, floor for everyone else. The Odoo quantity is a
+  LIVE quant read over the location's SUBTREE (BWHSE is hundreds of bins, and
+  StockLevel has no `ship` key at all), falling back to the synced totals with
+  `source="snapshot"` rather than to silence. **The server re-reads that
+  number at submit** and freezes it on the entry — a browser is not a
+  trustworthy source for the evidence a reviewer judges against.
+  **Status is never set directly**: `flow.roll_up` derives a submission's
+  state from its items so mixed outcomes (7 approved / 1 rejected / 2 out for
+  recount) tell the truth, and an outstanding recount wins the label because
+  it names what the submission is waiting on. `flow.queue_rank` puts recounts
+  above first counts. Bulk actions skip anything already decided — an
+  individual decision outranks a group one. Reasons are mandatory on
+  reject/recount (`flow.check_reason`), server-side.
+  **Odoo**: approving runs the SAME `oos/adjust.reconcile_floor_count` core as
+  the OOS board and the drawer's floor-count edit, so there's one copy of the
+  delta/ceiling/writer dance; it gained a `location_odoo_id` (and so did the
+  writer's two adjustment ops, defaulting to floor = the old behaviour) because
+  a count can be taken at SHIP or in the warehouse. Draft only, link recorded
+  on the item. `apply_to_odoo` catches WriterValidationError and records
+  `picking_status=failed` instead of 422-ing: an approval is a DECISION and must
+  not be lost because a location is unmapped or a flag is off. Verified live on
+  the SHIP shelf (Odoo 9 → counted 12 → recount 10, history intact, queue
+  re-ranked); the approve path is covered against the simulator only, because
+  the adjustment flags are ON on the shared stack and approving writes a real
+  draft.

@@ -562,6 +562,11 @@ import type {
   OrderCatalogOut,
   OrderContextCenter,
   ReasonPreviewOut,
+  CountAssigneeOut,
+  CountItemOut,
+  CountLocationsOut,
+  CountOut,
+  CountSummaryOut,
   FloorCountOut,
   ItemLocations,
   ReleaseStaleOut,
@@ -1321,6 +1326,127 @@ export function useSetFloorCount() {
     },
   });
 }
+
+// ------------------------------------------------------ inventory counting
+export function useCountLocations() {
+  return useQuery({
+    queryKey: ["count-locations"],
+    queryFn: () => api<CountLocationsOut>("/counts/locations"),
+    staleTime: 300_000, // locations don't move
+  });
+}
+
+/** What Odoo says is at the chosen location, for the products on screen. A
+ *  MUTATION, not a query: it's a live read whose answer changes as the counter
+ *  adds products, and it takes a body. */
+export function useStockAt() {
+  return useMutation({
+    mutationFn: (v: { location_key: string; product_ids: number[] }) =>
+      api<{ location_key: string; source: string; quantities: Record<string, number> }>(
+        "/counts/stock-at",
+        { method: "POST", body: v },
+      ),
+  });
+}
+
+export function useSubmitCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      location_key: string;
+      note?: string;
+      items: { product_id: number; counted_qty: number }[];
+    }) => api<CountOut>("/counts", { method: "POST", body: v }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["counts"] });
+      qc.invalidateQueries({ queryKey: ["count-queue"] });
+    },
+  });
+}
+
+export function useCounts(opts: { mine?: boolean; openOnly?: boolean } = {}) {
+  const q = new URLSearchParams();
+  if (opts.mine) q.set("mine", "true");
+  if (opts.openOnly) q.set("open_only", "true");
+  return useQuery({
+    queryKey: ["counts", opts.mine ?? false, opts.openOnly ?? false],
+    queryFn: () => api<CountSummaryOut[]>(`/counts?${q.toString()}`),
+  });
+}
+
+export function useCount(id: number | null) {
+  return useQuery({
+    queryKey: ["count", id],
+    queryFn: () => api<CountOut>(`/counts/${id}`),
+    enabled: id !== null,
+  });
+}
+
+/** The review queue — recounts first (the backend ranks it). */
+export function useCountQueue(enabled = true) {
+  return useQuery({
+    queryKey: ["count-queue"],
+    queryFn: () => api<CountItemOut[]>("/counts/queue"),
+    enabled,
+    refetchInterval: BOARD_POLL_MS,
+  });
+}
+
+/** Recounts assigned to me. */
+export function useMyRecounts(enabled = true) {
+  return useQuery({
+    queryKey: ["my-recounts"],
+    queryFn: () => api<CountItemOut[]>("/counts/my-recounts"),
+    enabled,
+    refetchInterval: BOARD_POLL_MS,
+  });
+}
+
+export function useCountAssignees(enabled = true) {
+  return useQuery({
+    queryKey: ["count-assignees"],
+    queryFn: () => api<CountAssigneeOut[]>("/counts/assignees"),
+    enabled,
+    staleTime: 300_000,
+  });
+}
+
+function useCountMutation<T>(path: (v: T) => string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: T & { note?: string; assignee_id?: number | null; counted_qty?: number }) =>
+      api<CountOut>(path(v), {
+        method: "POST",
+        body: {
+          ...(v.note !== undefined ? { note: v.note } : {}),
+          ...(v.assignee_id !== undefined ? { assignee_id: v.assignee_id } : {}),
+          ...(v.counted_qty !== undefined ? { counted_qty: v.counted_qty } : {}),
+        },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["count-queue"] });
+      qc.invalidateQueries({ queryKey: ["my-recounts"] });
+      qc.invalidateQueries({ queryKey: ["counts"] });
+      qc.invalidateQueries({ queryKey: ["count"] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
+export const useApproveCountItem = () =>
+  useCountMutation<{ itemId: number }>((v) => `/counts/items/${v.itemId}/approve`);
+export const useRejectCountItem = () =>
+  useCountMutation<{ itemId: number }>((v) => `/counts/items/${v.itemId}/reject`);
+export const useRequestRecount = () =>
+  useCountMutation<{ itemId: number }>((v) => `/counts/items/${v.itemId}/request-recount`);
+export const useSubmitRecount = () =>
+  useCountMutation<{ itemId: number }>((v) => `/counts/items/${v.itemId}/recount`);
+export const useApproveWholeCount = () =>
+  useCountMutation<{ countId: number }>((v) => `/counts/${v.countId}/approve`);
+export const useRejectWholeCount = () =>
+  useCountMutation<{ countId: number }>((v) => `/counts/${v.countId}/reject`);
+export const useRecountWholeCount = () =>
+  useCountMutation<{ countId: number }>((v) => `/counts/${v.countId}/request-recount`);
 
 export function useRebuildSalesHistory() {
   const qc = useQueryClient();

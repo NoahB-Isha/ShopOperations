@@ -30,6 +30,8 @@ import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RequestItemsPage } from "./pages/restock/RequestItemsPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { SuggestedItemsPage } from "./pages/restock/SuggestedItemsPage";
+import { CountReviewPage } from "./pages/counting/CountReviewPage";
+import { InventoryCountPage } from "./pages/counting/InventoryCountPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
 import { TransfersPage } from "./pages/transfers/TransfersPage";
@@ -213,6 +215,22 @@ export default function App() {
               <Route path="/suggested-items" element={
                 <Protected title="Suggested items" roles={["shoppe_floor"]}>
                   <SuggestedItemsPage />
+                </Protected>
+              } />
+              {/* Counting: anyone who stands in front of a shelf can count;
+                  reviewing is the Inventory Flow Manager plus anyone carrying
+                  the Inventory Wrangler add-on. */}
+              <Route path="/inventory-count" element={
+                <Protected
+                  title="Inventory counting"
+                  roles={["shoppe_floor", "floor_rotating", "warehouse"]}
+                >
+                  <InventoryCountPage />
+                </Protected>
+              } />
+              <Route path="/count-review" element={
+                <Protected title="Count review" roles={["shoppe_floor", "inventory_wrangler"]}>
+                  <CountReviewPage />
                 </Protected>
               } />
               {/* one page, two tabs: /new (the draft) and /past (the board).

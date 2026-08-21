@@ -46,6 +46,11 @@ export function useSillyMode(): boolean {
  *  health chip, inbox). Failure/warning states and data stay serious —
  *  never add entries for error text, confirm buttons, or table content. */
 export const SILLY_LABELS: Record<string, string> = {
+  // counting the shelves, and the person who decides you counted right
+  "Inventory counting": "Bean counting",
+  Counting: "Beans",
+  "Count review": "The verdict",
+  Review: "Verdict",
   // admin
   Status: "Vibe check",
   "Dev Tools": "The engine room",

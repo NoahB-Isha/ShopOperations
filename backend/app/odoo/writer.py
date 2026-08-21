@@ -410,6 +410,7 @@ class OdooWriter:
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,
+        location_odoo_id: int | None = None,
     ) -> WriteResult:
         """Create a DRAFT picking on the inventory-reduction operation type
         ("USA-III: Inventory Adj Reduction") removing `qty` of one product
@@ -426,6 +427,7 @@ class OdooWriter:
             reference=reference,
             dry_run=dry_run,
             ignore_feature_flag=ignore_feature_flag,
+            location_odoo_id=location_odoo_id,
         )
 
     def create_inventory_addition(
@@ -437,6 +439,7 @@ class OdooWriter:
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,
+        location_odoo_id: int | None = None,
     ) -> WriteResult:
         """Create a DRAFT picking on the inventory-addition operation type
         ("USA-III: Inventory Adj  Adding Qty") putting `qty` of one product
@@ -453,6 +456,7 @@ class OdooWriter:
             reference=reference,
             dry_run=dry_run,
             ignore_feature_flag=ignore_feature_flag,
+            location_odoo_id=location_odoo_id,
         )
 
     def _create_adjustment_draft(
@@ -468,9 +472,16 @@ class OdooWriter:
         reference: str | None,
         dry_run: bool,
         ignore_feature_flag: bool,
+        location_odoo_id: int | None = None,
     ) -> WriteResult:
         """The shared core of both inventory adjustments — identical
-        discipline, opposite directions."""
+        discipline, opposite directions.
+
+        `location_odoo_id` is the shelf being corrected. It defaults to the
+        FLOOR, which is what the OOS board and the floor-count edit mean; the
+        inventory-counting flow passes the counted location explicitly, because
+        a count can be taken in the warehouse or at SHIP (which has no synced
+        location row of its own — see counting/locations.py)."""
         started = time.monotonic()
 
         # NaN fails EVERY comparison, so `qty <= 0` let it through onto a real
@@ -484,7 +495,7 @@ class OdooWriter:
             raise WriterValidationError(
                 f"'{product.name}' is not stock-tracked in Odoo — nothing to adjust."
             )
-        floor = self._resolve_location("floor")
+        place_id = location_odoo_id or self._resolve_location("floor").odoo_id
         line = TransferLine(
             product_odoo_id=product.odoo_product_id,
             description=f"{product.global_sku} {product.name}"[:120],
@@ -497,9 +508,9 @@ class OdooWriter:
         src_id: int | None
         dest_id: int | None
         if need == "dest":
-            src_id, dest_id = floor.odoo_id, loc_id
+            src_id, dest_id = place_id, loc_id
         else:
-            src_id, dest_id = loc_id, floor.odoo_id
+            src_id, dest_id = loc_id, place_id
         payload = build_inventory_adjustment_payload(
             picking_type_id=type_id,
             source_location_id=src_id,
