@@ -41,7 +41,7 @@ from . import service, tracking
 from .analogy import suggest_analog
 from .emailer import EMAIL_SETTING_KEY, gate_reason
 from .export import export_rows, rows_to_csv, rows_to_xlsx
-from .rules import OrderingRules
+from .rules import OrderingRules, coverage_of, coverage_overrides
 from .service import OrderingError
 
 router = APIRouter(
@@ -1039,6 +1039,65 @@ def put_rules(
     service.set_app_setting(db, service.RULES_SETTING_KEY, overrides, authed.user)
     db.commit()
     return get_rules(db)
+
+
+class CoverageOut(BaseModel):
+    """The one number a buyer actually thinks in: months of cover to order."""
+
+    months: float | None  # None = targets differ per category, no single figure
+    default_target_moh: float
+    category_target_moh: dict[str, float]
+    # the protective limits coverage deliberately doesn't move
+    expiry_max_target_moh: float
+    air_only_min_moh: float
+    bulk_cycle_target_moh: float
+    sea_lead_months: int
+    air_lead_months: int
+
+
+class CoverageIn(BaseModel):
+    # a year is 12; the workbook's own figure is 8. Bounded because a target
+    # this side of a typo ("120") would order a decade of stock.
+    months: float = Field(gt=0, le=36, allow_inf_nan=False)
+
+
+def _coverage_out(rules: OrderingRules) -> CoverageOut:
+    return CoverageOut(
+        months=coverage_of(rules),
+        default_target_moh=rules.default_target_moh,
+        category_target_moh=dict(rules.category_target_moh),
+        expiry_max_target_moh=rules.expiry_max_target_moh,
+        air_only_min_moh=rules.air_only_min_moh,
+        bulk_cycle_target_moh=rules.bulk_cycle_target_moh,
+        sea_lead_months=rules.sea_lead_months,
+        air_lead_months=rules.air_lead_months,
+    )
+
+
+@router.get("/coverage", response_model=CoverageOut)
+def get_coverage(db: Session = Depends(get_db)) -> CoverageOut:
+    return _coverage_out(service.load_rules(db))
+
+
+@router.put("/coverage", response_model=CoverageOut)
+def put_coverage(
+    body: CoverageIn,
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(require_roles(Role.ADMIN)),
+) -> CoverageOut:
+    """Order N months of cover, everywhere.
+
+    Writes the coverage keys into the `ordering_rules` override and leaves
+    every other tuned value alone, so switching from a quarter's ordering to a
+    year is one number rather than fourteen — see rules.coverage_overrides for
+    what it deliberately doesn't touch (expiry caps, air-only minimums, lead
+    times)."""
+    existing = service.get_app_setting(db, service.RULES_SETTING_KEY)
+    merged = {**existing, **coverage_overrides(body.months)}
+    OrderingRules().merged(merged)  # the validator
+    service.set_app_setting(db, service.RULES_SETTING_KEY, merged, authed.user)
+    db.commit()
+    return _coverage_out(service.load_rules(db))
 
 
 @router.get("/email-settings", response_model=EmailSettingsIn)

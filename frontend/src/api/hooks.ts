@@ -569,6 +569,7 @@ import type {
   CountSummaryOut,
   FloorCountOut,
   ItemLocations,
+  OrderingCoverageOut,
   ReleaseStaleOut,
   ResetFlowOut,
 } from "./types";
@@ -1447,6 +1448,27 @@ export const useRejectWholeCount = () =>
   useCountMutation<{ countId: number }>((v) => `/counts/${v.countId}/reject`);
 export const useRecountWholeCount = () =>
   useCountMutation<{ countId: number }>((v) => `/counts/${v.countId}/request-recount`);
+
+export function useOrderingCoverage() {
+  return useQuery({
+    queryKey: ["ordering-coverage"],
+    queryFn: () => api<OrderingCoverageOut>("/ordering/coverage"),
+  });
+}
+
+/** Set the months of cover for EVERY category at once — see the backend's
+ *  rules.coverage_overrides for why one number isn't enough on its own. */
+export function useSaveOrderingCoverage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (months: number) =>
+      api<OrderingCoverageOut>("/ordering/coverage", { method: "PUT", body: { months } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ordering-coverage"] });
+      qc.invalidateQueries({ queryKey: ["ordering-rules"] });
+    },
+  });
+}
 
 export function useRebuildSalesHistory() {
   const qc = useQueryClient();

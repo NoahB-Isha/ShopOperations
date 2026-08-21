@@ -11,9 +11,11 @@ import {
   useDismissAnalogy,
   useIndiaProductList,
   useOrderingEmailSettings,
+  useOrderingCoverage,
   useOrderingRules,
   usePurchaseOrders,
   useSaveOrderingEmailSettings,
+  useSaveOrderingCoverage,
   useSaveOrderingRules,
   useUploadIndiaProductList,
   useVendors,
@@ -710,6 +712,76 @@ function QuickOrder({ vendor }: { vendor: VendorOut }) {
 
 /* ------------------------------------------------- settings + analogies */
 
+/** How much stock an order buys, in months of cover.
+ *
+ *  This is its own control rather than a line in the JSON blob because "order
+ *  a year instead of a quarter" is NOT one number in the rules: every category
+ *  carries its own target and the category map is read BEFORE the default, so
+ *  setting `default_target_moh` alone leaves them all where they were —
+ *  silently. The backend writes the whole set (rules.coverage_overrides) and
+ *  deliberately leaves the protective limits below alone. */
+function CoverageField() {
+  const coverage = useOrderingCoverage();
+  const save = useSaveOrderingCoverage();
+  const toast = useToast();
+  const [value, setValue] = useState<string | null>(null);
+  const current = coverage.data;
+  const shown = value ?? (current?.months != null ? String(current.months) : "");
+  const months = Number(shown);
+  const dirty = shown !== "" && Number.isFinite(months) && months !== current?.months;
+
+  return (
+    <Field
+      label="Months of cover to order"
+      help="What one order buys: 8 is the workbook's quarterly figure, 12 is a year. Applies to every category at once."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="number"
+          min={1}
+          max={36}
+          step={1}
+          value={shown}
+          placeholder={current?.months == null ? "mixed" : " "}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-24"
+        />
+        <Button
+          size="sm"
+          disabled={!dirty}
+          loading={save.isPending}
+          onClick={() =>
+            save.mutate(months, {
+              onSuccess: (out) => {
+                setValue(null);
+                toast.success(`Orders now target ${out.months} months of cover.`);
+              },
+              onError: (e) => toast.error(e.message),
+            })
+          }
+        >
+          Apply to all categories
+        </Button>
+        {current?.months == null && (
+          <span className="text-[12px] text-gold">
+            targets differ per category right now — setting this levels them
+          </span>
+        )}
+      </div>
+      {current && (
+        <p className="mt-1.5 text-[12px] leading-4 text-on-surface-variant">
+          Unchanged by this: expiry-sensitive items stay capped at{" "}
+          <b>{current.expiry_max_target_moh}</b> months (a year of Bloom expires before it
+          sells), air-only items (Bhoomi/gold/silver) stay at <b>{current.air_only_min_moh}</b>,
+          bulk-cycle items (camphor, toothpaste) are already{" "}
+          <b>{current.bulk_cycle_target_moh}</b>. Lead times ({current.sea_lead_months} months
+          sea, {current.air_lead_months} air) say when a container lands, not how much to buy.
+        </p>
+      )}
+    </Field>
+  );
+}
+
 function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
   const emailSettings = useOrderingEmailSettings();
@@ -758,6 +830,7 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       }
     >
       <div className="grid gap-4">
+        <CoverageField />
         <div>
           <div className="label-m mb-1.5 text-on-surface-variant">India order scope</div>
           <ProductListStrip />

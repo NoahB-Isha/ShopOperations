@@ -1464,3 +1464,26 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   re-ranked); the approve path is covered against the simulator only, because
   the adjustment flags are ON on the shared stack and approving writes a real
   draft.
+- Months of cover is one control now (2026-08-20, Noah: the first real
+  shipment orders A YEAR, not a quarter): `rules.coverage_overrides(months)` +
+  `GET/PUT /ordering/coverage` (admin) + a "Months of cover to order" field at
+  the top of the purchasing settings dialog. **The trap it exists for**:
+  `target_moh_for` reads `category_target_moh` BEFORE `default_target_moh`,
+  and every one of the 14 categories has an entry, so setting the default
+  alone leaves them all at 8 — silently under-ordering. The helper writes the
+  default AND every category; `coverage_of()` returns None when targets
+  genuinely differ so the UI says "mixed" instead of lying with one number.
+  DELIBERATELY untouched: `expiry_max_target_moh` (6 — a year of Bloom expires
+  first; the engine applies the cap after the target so those items self-
+  limit), `air_only_min_moh` (6 — gold/silver/Bhoomi fly, that's a cash call),
+  `bulk_cycle_target_moh` (already 12, and the engine takes the max anyway),
+  and the lead times/horizon, which say WHEN a container lands, not how much
+  to buy — raising the horizon changes no quantity, since the sea leg is
+  always measured at the lead-time month. Defaults in code are UNCHANGED so
+  `test_workbook_parity` stays green (verified); the year lives in the
+  `ordering_rules` AppSetting. Measured on live candidates (480 SKUs, scoped
+  by the uploaded product list): 8 months → 322 lines / 108,091 sea units /
+  ~$1.04M; 12 months → 359 lines / 174,006 sea units / ~$1.55M, air unchanged
+  at 22,169 (the air leg is the near-term floor, not the cover target). Items
+  sitting just above the old target jump hardest (Sesame-Oil 1.58gal 51 →
+  655), which is the target step working as designed, not a bug.

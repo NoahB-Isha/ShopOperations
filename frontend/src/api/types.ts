@@ -1439,3 +1439,15 @@ export interface CountAssigneeOut {
   name: string;
   roles: string[];
 }
+
+/** Months of cover to order — the one number a buyer thinks in. */
+export interface OrderingCoverageOut {
+  months: number | null; // null = targets differ per category
+  default_target_moh: number;
+  category_target_moh: Record<string, number>;
+  expiry_max_target_moh: number;
+  air_only_min_moh: number;
+  bulk_cycle_target_moh: number;
+  sea_lead_months: number;
+  air_lead_months: number;
+}

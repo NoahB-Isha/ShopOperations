@@ -84,6 +84,49 @@ BULK_CYCLE_TAGS = ("camphor", "toothpaste")
 EXPIRY_TAGS = ("bloom", "expires")
 
 
+def coverage_overrides(months: float, base: OrderingRules | None = None) -> dict[str, Any]:
+    """Build the override dict that orders `months` of cover for everything.
+
+    This exists because "set the target to a year" is NOT one number. Every
+    category carries its own entry in CATEGORY_TARGET_MOH, and
+    `target_moh_for` reads the category map BEFORE `default_target_moh` — so
+    setting only the default changes almost nothing, silently (the categories
+    stay where they were). A buyer editing JSON by hand would have to
+    enumerate all of them and would eventually miss one.
+
+    What it deliberately does NOT touch:
+
+      * `expiry_max_target_moh` — Bloom and anything tagged `expires` stay
+        capped, because a year of face wash expires before it sells. The
+        engine applies that cap after the target, so those items keep their
+        shorter cover automatically.
+      * `air_only_min_moh` — Bhoomi/Gold/Silver ship by AIR. A year of gold on
+        a plane is a cash decision, not a coverage decision.
+      * `bulk_cycle_target_moh` — camphor and toothpaste are already ordered a
+        year at a time, and the engine takes max(target, bulk) anyway.
+      * `horizon` / lead times — those say WHEN a container lands (month 6),
+        not how much cover to buy on arrival. Raising them changes no
+        quantity; the sea leg is always measured at the lead-time month.
+    """
+    rules = base or OrderingRules()
+    target = float(months)
+    return {
+        "default_target_moh": target,
+        # every known category, so nothing is left behind at the old figure
+        "category_target_moh": dict.fromkeys(rules.category_target_moh, target),
+    }
+
+
+def coverage_of(rules: OrderingRules) -> float | None:
+    """The single "months of cover" figure, when every category agrees on one.
+    None means the targets have been tuned per category and no single number
+    describes them — the UI then shows the table rather than lying with one
+    number."""
+    values = {float(v) for v in rules.category_target_moh.values()}
+    values.add(float(rules.default_target_moh))
+    return values.pop() if len(values) == 1 else None
+
+
 def normalize_category(category: str | None) -> str:
     """'Isha Life USA / Body Care' and 'BODY CARE' -> 'BODY CARE'."""
     if not category:

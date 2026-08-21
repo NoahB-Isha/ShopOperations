@@ -261,3 +261,76 @@ def test_rules_merged_overrides():
 def test_rules_merged_bad_values_never_raise():
     rules = OrderingRules().merged({"default_target_moh": "not-a-number"})
     assert rules.default_target_moh == 8.0
+
+
+def _cov_snap(*, category: str, monthly: float, moh: float, **product_kwargs):
+    """A snapshot with NO per-SKU target override, so the category/default
+    target is what decides — which is the whole point of the coverage tests."""
+    p = ProductInput(
+        global_sku="COV", category=category, cost=2.0, retail_price=5.0, **product_kwargs
+    )
+    return SkuSnapshot(
+        product=p,
+        on_hand=moh * monthly,
+        avg_monthly_sales=monthly,
+        incoming_units_by_month=[0.0] * 6,
+        forecast=None,
+    )
+
+
+# ------------------------------------------------------ coverage (a year's worth)
+def test_coverage_moves_every_category_not_just_the_default():
+    """Noah 2026-08-20: the first real shipment orders a YEAR, not a quarter.
+
+    The trap this guards: `target_moh_for` reads the category map BEFORE
+    `default_target_moh`, and every category has an entry — so setting the
+    default alone would leave all of them at 8 and quietly under-order."""
+    from app.ordering.rules import OrderingRules, coverage_of, coverage_overrides
+
+    base = OrderingRules()
+    assert coverage_of(base) is None  # ACCESSORY is 6 while the rest are 8
+
+    year = OrderingRules().merged(coverage_overrides(12))
+    assert coverage_of(year) == 12
+    assert year.target_moh_for("Isha Life USA / Body Care") == 12
+    assert year.target_moh_for("ACCESSORY") == 12  # the 6.0 outlier moved too
+    assert year.target_moh_for("Something Unlisted") == 12
+
+    # setting only the default is exactly the mistake — proof it isn't enough
+    naive = OrderingRules().merged({"default_target_moh": 12})
+    assert naive.target_moh_for("Isha Life USA / Body Care") == 8
+
+
+def test_coverage_leaves_the_protective_limits_alone():
+    """A year of cover must not become a year of face wash or a year of gold
+    in the air."""
+    from app.ordering.rules import OrderingRules, coverage_overrides
+
+    year = OrderingRules().merged(coverage_overrides(12))
+    assert year.expiry_max_target_moh == 6.0  # Bloom / expires still capped
+    assert year.air_only_min_moh == 6.0  # Bhoomi / gold / silver unchanged
+    assert year.sea_lead_months == 6 and year.horizon == 6  # WHEN, not how much
+
+
+def test_a_year_of_cover_orders_more_but_expiry_items_hold_at_six():
+    """End to end through the engine on one snapshot each way."""
+    from app.ordering.engine import suggest_one
+    from app.ordering.rules import OrderingRules, coverage_overrides
+
+    quarter = OrderingRules()
+    year = OrderingRules().merged(coverage_overrides(12))
+
+    plain = _cov_snap(category="INCENSE", monthly=10, moh=10)
+    q = suggest_one(plain, quarter)
+    y = suggest_one(plain, year)
+    assert y.target_moh == 12 and q.target_moh == 8
+    assert y.suggested_sea_qty > q.suggested_sea_qty  # a year's cover is a bigger container
+    # the extra is exactly the extra months of cover, in units
+    assert round(y.suggested_sea_qty - q.suggested_sea_qty, 3) == round((12 - 8) * plain.avg_monthly_sales, 3)
+
+    bloom = _cov_snap(category="BLOOM", monthly=10, moh=10, expiry_sensitive=True)
+    assert suggest_one(bloom, year).target_moh == 6.0  # cap wins over coverage
+    assert (
+        suggest_one(bloom, year).suggested_sea_qty
+        == suggest_one(bloom, quarter).suggested_sea_qty
+    )
