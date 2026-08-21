@@ -1396,6 +1396,18 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   works. The no-select rule covers `[data-name-press]` too, or a press on the
   card's OTHER text would start an iOS selection. Verified by pressing the
   big "bring out" number: marquee runs, checkbox doesn't toggle.
+  **iPod ticker (2026-08-19, Noah: "all the way across like how iPods used
+  to")**: the name no longer eases out and back — it travels fully off to the
+  left while a SECOND copy follows it in from the right, linear, two loops,
+  then the row goes quiet. Two copies + `TICKER_GAP` + a translate of exactly
+  `firstCopy.offsetWidth + gap` is what makes the wrap invisible (copy two
+  lands where copy one started); verified 301 + 48 = 349px of travel. Extended
+  to the item card everywhere it appears: the SEARCH page's phone list
+  (CatalogPage), place-order cart + search rows, and the Staging 2 list, on top
+  of the six restock/transfer lists. Debugging note: a card already RUNNING no
+  longer matches a `scrollWidth - clientWidth > 40` probe (the inner is
+  `w-max`), so a "it stopped working" reading may just be probing a different
+  card — check every `.scrolling-name` for the two-copy layout instead.
   **5. Warehouse scan FAB** — the bottom bar's big FAB is role-chosen: the
   Warehouse Team gets Scan (their most common phone task), everyone else keeps
   Search, and Search returns to a normal slot for them. Never two FABs.

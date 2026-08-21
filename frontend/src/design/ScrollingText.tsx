@@ -35,8 +35,12 @@ const DRIFT = 8;
  *  worst real name in the catalog (359px hidden on a 375px screen): at 70px/s
  *  that was a ten-second round trip nobody would wait out. */
 const SPEED = 130;
-/** and a hard ceiling, so no name can hold the row hostage */
-const MAX_MS = 6000;
+/** breathing room between the two ticker copies, so the name doesn't run
+ *  straight into itself */
+const TICKER_GAP = 48;
+/** how many times the name comes round before the row goes quiet again — one
+ *  full pass reads as a glitch, three is a fidget */
+const TICKER_LOOPS = 2;
 
 export function ScrollingText({ text, className = "" }: { text: string; className?: string }) {
   const box = useRef<HTMLSpanElement>(null);
@@ -113,19 +117,24 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
     };
   }, [overflow]);
 
-  // once the scrolling layout is mounted the inner span exists and can move
+  /* iPod ticker (Noah, 2026-08-19: "all the way across like how iPods used
+     to"): the name travels fully off to the left while a second copy follows
+     it in from the right, so the whole name passes through rather than easing
+     out and back. Two copies + a gap + a LINEAR loop is what makes the seam
+     invisible; the distance is one copy plus the gap, so when the animation
+     wraps, copy two sits exactly where copy one started. */
   useLayoutEffect(() => {
     const el = inner.current;
     if (!overflow || !el) return;
-    const oneWay = Math.min(MAX_MS / 2, Math.max(600, (overflow / SPEED) * 1000));
+    const first = el.firstElementChild as HTMLElement | null;
+    const distance = first ? first.offsetWidth + TICKER_GAP : overflow;
     const anim = el.animate(
-      [
-        { transform: "translateX(0)" },
-        { transform: `translateX(-${overflow}px)`, offset: 0.45 },
-        { transform: `translateX(-${overflow}px)`, offset: 0.55 },
-        { transform: "translateX(0)" },
-      ],
-      { duration: oneWay * 2, easing: "ease-in-out" },
+      [{ transform: "translateX(0)" }, { transform: `translateX(-${distance}px)` }],
+      {
+        duration: Math.max(900, (distance / SPEED) * 1000),
+        easing: "linear",
+        iterations: TICKER_LOOPS,
+      },
     );
     const done = () => setOverflow(0); // back to the plain truncated row
     anim.addEventListener("finish", done);
@@ -140,8 +149,12 @@ export function ScrollingText({ text, className = "" }: { text: string; classNam
         title={text}
         className={`scrolling-name block overflow-hidden whitespace-nowrap ${className}`}
       >
-        <span ref={inner} className="inline-block w-max whitespace-nowrap">
-          {text}
+        <span ref={inner} className="inline-flex w-max whitespace-nowrap">
+          <span className="shrink-0">{text}</span>
+          {/* the copy that follows it in, so there is no empty gap mid-cycle */}
+          <span aria-hidden className="shrink-0" style={{ paddingLeft: TICKER_GAP }}>
+            {text}
+          </span>
         </span>
       </span>
     );

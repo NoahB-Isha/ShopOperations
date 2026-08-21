@@ -20,6 +20,7 @@ import {
   Dialog,
   EmptyState,
   PageHeader,
+  ScrollingText,
   Spinner,
   useToast,
 } from "../../design";
@@ -232,10 +233,11 @@ export function Staging2Page() {
             {items.map((item) => (
               <li
                 key={item.product_id}
+                data-name-press
                 className="flex items-center justify-between gap-3 rounded-(--radius-lg) bg-surface-container-low px-4 py-3"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-medium">{item.name}</div>
+                  <ScrollingText text={item.name} className="text-[15px] font-medium" />
                   <div className="mt-0.5 font-mono text-[12px] text-on-surface-variant">
                     {productCode(item.barcode, item.sku)}
                   </div>

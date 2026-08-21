@@ -24,6 +24,7 @@ import {
   Dialog,
   EmptyState,
   Input,
+  ScrollingText,
   Spinner,
   Textarea,
   isInteractiveTarget,
@@ -67,6 +68,7 @@ function ItemRow({
   const inCart = qty > 0;
   return (
     <li
+      data-name-press
       onMouseDown={(e) => e.shiftKey && e.preventDefault()}
       onClick={(e) => {
         if (!isInteractiveTarget(e)) onSelect(e);
@@ -77,7 +79,7 @@ function ItemRow({
         transition-colors ${selected ? "bg-secondary-container/50" : inCart ? "bg-primary-container/40" : ""}`}
     >
       <div className="min-w-0">
-        <div className="truncate text-[14px] font-medium text-on-surface">{item.name}</div>
+        <ScrollingText text={item.name} className="text-[14px] font-medium text-on-surface" />
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-on-surface-variant">
           <span className="font-semibold tabular-nums">{money(item.retail_price)}</span>
           <span className="font-mono">{productCode(item.barcode, item.sku)}</span>
@@ -216,10 +218,14 @@ function ReviewSheet({
         {lines.map(({ item, qty }) => {
           const badges = check?.lines?.[String(item.product_id)] ?? [];
           return (
-            <li key={item.product_id} className="rounded-(--radius-md) bg-surface-container px-3 py-2">
+            <li
+              key={item.product_id}
+              data-name-press
+              className="rounded-(--radius-md) bg-surface-container px-3 py-2"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[14px] font-medium">{item.name}</div>
+                  <ScrollingText text={item.name} className="text-[14px] font-medium" />
                   <div className="text-[12px] text-on-surface-variant">
                     {money(item.retail_price)} each
                   </div>

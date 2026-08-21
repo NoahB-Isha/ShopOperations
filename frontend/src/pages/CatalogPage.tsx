@@ -15,9 +15,10 @@ import {
   Fab,
   Field,
   Input,
+  MorphBall,
   PageHeader,
   Pagination,
-  MorphBall,
+  ScrollingText,
   Select,
   SwipeBackdrop,
   toneForLabel,
@@ -745,7 +746,7 @@ function CatalogPhoneRow({
   const floor = product.stock?.floor ?? 0;
   const bwhse = product.stock?.bwhse ?? 0;
   return (
-    <li className="relative overflow-hidden rounded-(--radius-lg)">
+    <li data-name-press className="relative overflow-hidden rounded-(--radius-lg)">
       <SwipeBackdrop side="left" label="Add to transfer" dx={swipe.dx} morph={swipe.morph} />
       <button
         type="button"
@@ -759,7 +760,7 @@ function CatalogPhoneRow({
           bg-surface-container-low px-4 py-3.5 text-left"
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-medium">{product.name}</span>
+          <ScrollingText text={product.name} className="text-[15px] font-medium" />
           <span className="mt-0.5 block text-[12px] tabular-nums text-on-surface-variant">
             <span className="font-mono">{productCode(product.barcode, product.global_sku)}</span>
             {product.is_stock_tracked ? (
