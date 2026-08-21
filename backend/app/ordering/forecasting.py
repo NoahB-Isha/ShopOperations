@@ -61,12 +61,20 @@ class MonthlySalesSeries:
 class Forecast:
     monthly: list[float]  # expected units for each future month
     method: str  # METHOD_* above
-    baseline: float  # workbook flat average (units / month)
+    baseline: float  # workbook flat average (units / month) — TRAILING rate
     confidence: str  # "high" | "medium" | "low"
     n_history_months: int
     low_data: bool
     uncertainty_pct: float  # rough +/- band as a fraction
     diverges_from_baseline: bool
+    # The deseasonalised rate demand is expected to run at going FORWARD, used
+    # to price months of cover. The baseline is what demand DID; this is what
+    # it is expected to do, and buying cover at the trailing rate when the two
+    # disagree is what finding 01 was about. 0.0 falls back to the baseline.
+    forward_level: float = 0.0
+    # Standard deviation of monthly units over the useable months — the input
+    # to safety stock. 0.0 means "not enough history to say".
+    demand_sd: float = 0.0
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -106,7 +114,7 @@ def _linear_trend(xs: list[float], ys: list[float]) -> tuple[float, float]:
 
 
 def _seasonal_indices(
-    pts: list[MonthPoint], slope: float, intercept: float
+    pts: list[MonthPoint], slope: float, intercept: float, shrink_k: float = 0.0
 ) -> dict[int, float]:
     """Multiplicative seasonal index per calendar month = mean(actual/level),
     normalised so the indices average ~1 across the months present."""
@@ -115,7 +123,20 @@ def _seasonal_indices(
         level = slope * p.ord + intercept
         if level > 0:
             ratios.setdefault(p.month, []).append(p.units / level)
-    idx = {m: (sum(v) / len(v)) for m, v in ratios.items() if v}
+    idx = {}
+    for m, v in ratios.items():
+        if not v:
+            continue
+        raw = sum(v) / len(v)
+        # SHRINK toward 1.0 by how much evidence there is. Seasonality switches
+        # on at 24 months of history, which is exactly TWO Januaries — a raw
+        # index is then the mean of two ratios, and one odd month becomes a
+        # permanent seasonal claim. lambda = k_obs / (k_obs + shrink_k), so two
+        # observations move half way to the raw index and ten move most of it.
+        # Over a 12-month order an over-confident index compounds instead of
+        # washing out, which is why this matters more than it used to.
+        lam = len(v) / (len(v) + shrink_k) if shrink_k > 0 else 1.0
+        idx[m] = 1.0 + lam * (raw - 1.0)
     if idx:
         avg = sum(idx.values()) / len(idx)
         if avg > 0:
@@ -170,6 +191,8 @@ def forecast_demand(
         confidence = "low"
         low_data = True
         cv = 0.0
+        sd = statistics.pstdev([p.units for p in pts]) if n > 1 else 0.0
+        forward_level = baseline
         notes.append(f"only {n} month(s) of history -> flat average")
     else:
         xs = [float(p.ord) for p in pts]
@@ -181,13 +204,21 @@ def forecast_demand(
         cv = (sd / mean) if mean else 0.0
 
         if n >= rules.min_months_for_seasonal:
-            seasonal = _seasonal_indices(pts, slope, intercept)
+            seasonal = _seasonal_indices(pts, slope, intercept, rules.seasonal_shrink_k)
             method = METHOD_SEASONAL
             monthly = []
             for yy, mm in future_months:
                 level = slope * (yy * 12 + mm - 1) + intercept
                 monthly.append(max(0.0, level * seasonal.get(mm, 1.0)))
             confidence = "high" if cv < 0.5 else "medium"
+            # the trend line at the MIDDLE of the horizon, seasonality removed:
+            # indices normalise to ~1 across a full cycle, so the level is the
+            # rate that prices a year of cover, not the seasonal mean of
+            # whichever months the horizon happens to cover
+            mid = future_months[len(future_months) // 2] if future_months else None
+            forward_level = (
+                max(0.0, slope * (mid[0] * 12 + mid[1] - 1) + intercept) if mid else baseline
+            )
         else:
             window = pts[-min(6, n):]
             level0 = sum(p.units for p in window) / len(window)
@@ -198,6 +229,9 @@ def forecast_demand(
                 for yy, mm in future_months
             ]
             confidence = "medium" if n >= rules.min_months_for_trend else "low"
+            forward_level = (
+                sum(monthly) / len(monthly) if monthly else baseline
+            )  # no seasonality in this method: the mean IS the level
         low_data = n < rules.min_months_for_trend
 
     # Uncertainty band: grows with CV, shrinks with history.
@@ -213,6 +247,8 @@ def forecast_demand(
 
     return Forecast(
         monthly=[round(v, 4) for v in monthly],
+        forward_level=round(forward_level, 4),
+        demand_sd=round(sd, 4),
         method=method,
         baseline=round(baseline, 4),
         confidence=confidence,

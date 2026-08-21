@@ -1487,3 +1487,34 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   at 22,169 (the air leg is the near-term floor, not the cover target). Items
   sitting just above the old target jump hardest (Sesame-Oil 1.58gal 51 →
   655), which is the target step working as designed, not a bug.
+- Ordering math fixes (2026-08-20, findings 01/02/04/06 of the "Months of
+  Cover" review; Noah deferred 03): **finding 01 was an APP bug, not a workbook
+  one** — the workbook has a single flat rate, so cover and conversion agree by
+  definition; the app added a forecast that changes the depletion rate but kept
+  the workbook's trailing-baseline conversion, so a rising forecast depleted
+  faster while the order still bought baseline-sized months (measured 23% short
+  on a +30% forecast). Fix: `Forecast.forward_level` (deseasonalised expected
+  rate — trend line at the MIDDLE of the horizon for the seasonal method, the
+  forecast mean for trend, baseline for flat) prices months of cover as
+  `cover_rate`, replacing `avg` in the sea/air conversions. Parity holds
+  because every fixture passes `forecast=None` → cover_rate IS avg
+  (`test_a_flat_forecast_is_still_exactly_the_workbook` locks that). The
+  `baseline_*` columns stay on the workbook's own terms — flat demand, trailing
+  rate, no safety — because their whole job is to be COMPARED on the review
+  screen. **Live effect was DOWNWARD**: 174,006 → 168,562 sea units
+  (~$1.55M → ~$1.44M) at 12 months, i.e. this catalogue's forward level sits
+  below its trailing average, so the fix is "the right amount", not "more".
+  **Finding 02**: `safety_z` (0 = OFF, the workbook's behaviour and what keeps
+  parity meaningful) + `safety_max_moh` (6) add
+  `z × sd/avg × √(sea_lead + target)` months on top of the target, needing
+  `Forecast.demand_sd`. Measured at 12 months: z=1.28 → +$353k, z=1.65 →
+  +$430k. **Finding 04 was OVERSTATED in the review and is corrected there**: a
+  brand-new product was ALREADY flagged `new_product`. The real gap was an item
+  that sat in stock for months and sold none — now `FLAG_NO_DEMAND`, which on
+  the live pool currently catches ZERO items (the candidate pool is
+  sell-through filtered) while 13 items carry `new_product`. **Finding 06**:
+  `_seasonal_indices` shrinks toward 1.0 by `k_obs/(k_obs + seasonal_shrink_k)`
+  (default 2.0), because at 24 months an index is the mean of TWO observations
+  and an over-confident one compounds across a year-long order. Findings 05
+  (the max(0,…) clamp hides shortfall depth) and 07-10 are still open by
+  choice — see the artifact.

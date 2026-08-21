@@ -144,6 +144,11 @@ class ForecastRules:
     low_confidence_months: int = 6  # below this -> flat baseline
     divergence_flag_pct: float = 0.30  # forecast vs baseline gap to flag
     analogy_graduation_months: int = 6  # real history that retires an analogy
+    # Seasonal indices are shrunk toward 1.0 by k_obs / (k_obs + this). At 24
+    # months of history each index rests on TWO observations, so 2.0 moves them
+    # half way to the raw figure — deliberately timid, because an over-confident
+    # index compounds across a year-long order (finding 06).
+    seasonal_shrink_k: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -164,6 +169,15 @@ class OrderingRules:
     bulk_cycle_target_moh: float = BULK_CYCLE_TARGET_MOH
     expiry_max_target_moh: float = EXPIRY_MAX_TARGET_MOH
     domestic_moq_trigger_moh: float = DOMESTIC_MOQ_TRIGGER_MOH
+    # Safety stock (finding 02). Cover is a flat months figure, so an item
+    # selling 100+-5 a month gets the same cover as one selling 100+-80. This
+    # adds z * sd * sqrt(lead + cover) months on top of the target, per SKU.
+    # DEFAULT 0 = off, which is the workbook's own behaviour and what keeps
+    # the parity test meaningful; a deployment turns it on.
+    #   1.28 ~ 90% service level, 1.65 ~ 95%, 2.05 ~ 98%
+    safety_z: float = 0.0
+    # and a ceiling, so a wildly erratic seller can't ask for a decade
+    safety_max_moh: float = 6.0
     category_target_moh: dict[str, float] = field(
         default_factory=lambda: dict(CATEGORY_TARGET_MOH)
     )

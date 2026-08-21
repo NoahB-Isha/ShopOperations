@@ -10,6 +10,7 @@ test_workbook_parity.py; these rows are the hand-audited core.
 
 from __future__ import annotations
 
+import pytest
 from app.ordering.engine import (
     FLAG_AIR_ONLY,
     FLAG_BULK_CYCLE,
@@ -334,3 +335,128 @@ def test_a_year_of_cover_orders_more_but_expiry_items_hold_at_six():
         suggest_one(bloom, year).suggested_sea_qty
         == suggest_one(bloom, quarter).suggested_sea_qty
     )
+
+
+# --------------------------------------------- findings 01/02/04/06 (2026-08-20)
+def _fc(monthly, baseline, *, sd=0.0, level=0.0):
+    from app.ordering.forecasting import Forecast
+
+    return Forecast(
+        monthly=list(monthly),
+        method="test",
+        baseline=baseline,
+        confidence="high",
+        n_history_months=24,
+        low_data=False,
+        uncertainty_pct=0.1,
+        diverges_from_baseline=True,
+        forward_level=level or (sum(monthly) / len(monthly)),
+        demand_sd=sd,
+    )
+
+
+def test_cover_is_priced_at_the_forward_rate_not_the_trailing_one():
+    """Finding 01. The projection consumed stock at the forecast rate while the
+    order bought baseline-sized months, so a rising forecast under-ordered by
+    exactly the ratio it was warning about. Measured at 23% before the fix."""
+    rules = OrderingRules()  # INCENSE target 8
+    avg, fast = 10.0, 13.0
+    snap = SkuSnapshot(
+        product=ProductInput(global_sku="X", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=0.0,
+        avg_monthly_sales=avg,
+        incoming_units_by_month=[0.0] * 6,
+        forecast=_fc([fast] * 6, avg),
+    )
+    s = suggest_one(snap, rules)
+    assert s.suggested_sea_qty == pytest.approx(8 * fast)  # 104, not 80
+    # the baseline column still shows the workbook's own answer, for comparison
+    assert s.baseline_sea_round == 8 * int(avg)
+
+
+def test_a_flat_forecast_is_still_exactly_the_workbook():
+    """The fix must be invisible when the forecast agrees with history — that
+    is what keeps the parity test meaningful."""
+    rules = OrderingRules()
+    avg = 10.0
+    snap = SkuSnapshot(
+        product=ProductInput(global_sku="X", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=30.0,
+        avg_monthly_sales=avg,
+        incoming_units_by_month=[0.0] * 6,
+        forecast=_fc([avg] * 6, avg),
+    )
+    s = suggest_one(snap, rules)
+    assert s.suggested_sea_round == s.baseline_sea_round
+
+
+def test_safety_stock_is_off_by_default_and_scales_with_volatility():
+    """Finding 02. Two items, same mean, very different swing."""
+    steady = SkuSnapshot(
+        product=ProductInput(global_sku="S", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=0.0, avg_monthly_sales=10.0, incoming_units_by_month=[0.0] * 6,
+        forecast=_fc([10.0] * 6, 10.0, sd=1.0),
+    )
+    erratic = SkuSnapshot(
+        product=ProductInput(global_sku="E", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=0.0, avg_monthly_sales=10.0, incoming_units_by_month=[0.0] * 6,
+        forecast=_fc([10.0] * 6, 10.0, sd=8.0),
+    )
+    off = OrderingRules()
+    assert off.safety_z == 0.0
+    assert suggest_one(steady, off).suggested_sea_qty == suggest_one(erratic, off).suggested_sea_qty
+
+    on = OrderingRules().merged({"safety_z": 1.28})
+    q_steady = suggest_one(steady, on).suggested_sea_qty
+    q_erratic = suggest_one(erratic, on).suggested_sea_qty
+    assert q_erratic > q_steady > suggest_one(steady, off).suggested_sea_qty
+    # and it is bounded, so one wild seller can't ask for a decade
+    wild = SkuSnapshot(
+        product=ProductInput(global_sku="W", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=0.0, avg_monthly_sales=10.0, incoming_units_by_month=[0.0] * 6,
+        forecast=_fc([10.0] * 6, 10.0, sd=500.0),
+    )
+    assert suggest_one(wild, on).target_moh <= 8.0  # target itself is untouched
+    capped = suggest_one(wild, on).suggested_sea_qty / 10.0
+    assert capped <= 8.0 + on.safety_max_moh + 0.001
+
+
+def test_an_item_that_sold_nothing_while_in_stock_is_flagged():
+    """Finding 04, corrected: a brand-new product was already flagged. What
+    wasn't is an item that sat in stock for months and sold none — it can only
+    ever suggest zero, and on an annual cycle that silence costs a year."""
+    from app.ordering.engine import FLAG_NEW_PRODUCT, FLAG_NO_DEMAND
+
+    rules = OrderingRules()
+    dead = SkuSnapshot(
+        product=ProductInput(global_sku="D", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=40.0, avg_monthly_sales=0.0, incoming_units_by_month=[0.0] * 6,
+        forecast=None, months_active=9,
+    )
+    s = suggest_one(dead, rules)
+    assert s.suggested_sea_qty == 0
+    assert FLAG_NO_DEMAND in s.flags
+    assert FLAG_NEW_PRODUCT not in s.flags  # it isn't new, it just doesn't sell
+
+    brand_new = SkuSnapshot(
+        product=ProductInput(global_sku="N", category="INCENSE", cost=1.0, retail_price=3.0),
+        on_hand=0.0, avg_monthly_sales=0.0, incoming_units_by_month=[0.0] * 6,
+        forecast=None, months_active=0,
+    )
+    assert FLAG_NEW_PRODUCT in suggest_one(brand_new, rules).flags
+
+
+def test_seasonal_indices_are_shrunk_toward_one():
+    """Finding 06. At 24 months an index rests on two observations; a raw one
+    turns a single odd month into a permanent seasonal claim."""
+    from app.ordering.forecasting import MonthPoint, _seasonal_indices
+
+    # two years, December triple-strength, everything else flat at 10
+    pts = []
+    for year in (2024, 2025):
+        for month in range(1, 13):
+            pts.append(MonthPoint(year=year, month=month, units=30.0 if month == 12 else 10.0))
+    raw = _seasonal_indices(pts, slope=0.0, intercept=11.67, shrink_k=0.0)
+    shrunk = _seasonal_indices(pts, slope=0.0, intercept=11.67, shrink_k=2.0)
+    assert raw[12] > shrunk[12] > 1.0  # still seasonal, just less certain of it
+    assert shrunk[6] > raw[6]  # and the quiet months are pulled up to match

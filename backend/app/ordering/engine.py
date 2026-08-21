@@ -45,6 +45,11 @@ FLAG_ANALOGY = "analogy"
 FLAG_DOMESTIC = "domestic"
 FLAG_LOW_COUNT = "low_count"  # tiny on-hand — Odoo counts this small are often wrong
 FLAG_NEW_PRODUCT = "new_product"  # no history, no analogy — engine can't suggest
+# Sold NOTHING while it was in stock. Every quantity is a multiple of avg, so
+# this item can only ever suggest zero — and unlike a new product it wasn't
+# flagged at all before (finding 04). On an annual cycle a missed item is
+# missed for a year, so it says so instead of quietly reading zero.
+FLAG_NO_DEMAND = "no_demand"
 
 
 def ceil_to_case(qty: float, case: int) -> int:
@@ -193,6 +198,43 @@ def suggest_one(snap: SkuSnapshot, rules: OrderingRules) -> Suggestion:
     proj_m4 = proj[ai] if proj else current_moh
     proj_m6 = proj[si] if proj else current_moh
 
+    # THE RATE THAT PRICES A MONTH OF COVER.
+    #
+    # The projection above consumes stock at the FORECAST rate, but the target
+    # is a number of months, and months have to be turned back into units by
+    # some rate. Using the trailing baseline (`avg`) — which is what the
+    # workbook does, correctly, because a flat average is its only rate — meant
+    # a rising forecast depleted faster while the order still bought
+    # baseline-sized months, under-ordering by exactly the ratio the forecast
+    # was warning about (measured: 23% on a +30% forecast). This is an app bug
+    # at the seam between the added forecast and the inherited conversion, not
+    # a workbook one.
+    #
+    # `forward_level` is the deseasonalised rate demand is expected to run at,
+    # so it prices a year of cover without being skewed by which half of the
+    # year the horizon happens to cover. No forecast (the workbook's own path,
+    # and every parity fixture) => it IS the baseline, so nothing changes.
+    cover_rate = avg
+    if snap.forecast and snap.forecast.forward_level > 0:
+        cover_rate = snap.forecast.forward_level
+
+    # ---- safety stock (finding 02) --------------------------------------
+    # Cover is otherwise a flat months figure, so a steady seller and an
+    # erratic one get identical protection. z * sd * sqrt(lead + cover) is the
+    # standard periodic-review term, expressed in months so it can be added to
+    # the target. Off by default (safety_z = 0) — that is the workbook's
+    # behaviour and what keeps the parity test meaningful.
+    safety_moh = 0.0
+    if rules.safety_z > 0 and avg > 0 and snap.forecast and snap.forecast.demand_sd > 0:
+        sd_moh = snap.forecast.demand_sd / avg
+        exposure = math.sqrt(max(0.0, rules.sea_lead_months + target))
+        safety_moh = min(rules.safety_max_moh, rules.safety_z * sd_moh * exposure)
+        if safety_moh > 0:
+            notes.append(
+                f"safety stock: +{safety_moh:.1f} months for demand that swings "
+                f"+/-{snap.forecast.demand_sd:.0f}/mo (z={rules.safety_z:g})"
+            )
+
     # ---- baseline (workbook flat) projection for comparison --------------
     base_proj = _project_moh(current_moh, [1.0] * horizon, incoming_moh)
     base_m4, base_m6 = base_proj[ai], base_proj[si]
@@ -225,7 +267,7 @@ def suggest_one(snap: SkuSnapshot, rules: OrderingRules) -> Suggestion:
             if inflight > 0:
                 effective_moh += inflight / avg
                 inflight_note = f" ({inflight:g} units already in transit counted)"
-        air_qty = max(0.0, min_moh - effective_moh) * avg
+        air_qty = max(0.0, min_moh - effective_moh) * cover_rate
         sea_qty = 0.0
         base_air_qty, base_sea_qty = air_qty, 0.0
         target = min_moh
@@ -238,10 +280,14 @@ def suggest_one(snap: SkuSnapshot, rules: OrderingRules) -> Suggestion:
             f"{min_moh:g}-month minimum{inflight_note}. Never ships by sea."
         )
     else:
-        # SEA: refill to target at month 6.
-        sea_qty = max(0.0, target - proj_m6) * avg
+        # SEA: refill to target (plus safety) at the month the container lands.
+        sea_target = target + safety_moh
+        sea_qty = max(0.0, sea_target - proj_m6) * cover_rate
         # AIR: cover a near-term floor breach at month 4.
-        air_qty = max(0.0, rules.air_nearterm_floor_moh - proj_m4) * avg
+        air_qty = max(0.0, rules.air_nearterm_floor_moh - proj_m4) * cover_rate
+        # The baseline pair stays on the workbook's own terms — flat demand,
+        # trailing rate, no safety — because it exists to be COMPARED with the
+        # smart number on the review screen.
         base_sea_qty = max(0.0, target - base_m6) * avg
         base_air_qty = max(0.0, rules.air_nearterm_floor_moh - base_m4) * avg
         if p.sea_only and (air_qty > 0 or base_air_qty > 0):
@@ -302,6 +348,13 @@ def suggest_one(snap: SkuSnapshot, rules: OrderingRules) -> Suggestion:
     if snap.months_active == 0 and avg <= 0:
         flags.append(FLAG_NEW_PRODUCT)
         notes.append("new product: no sales history — assign an analogy or a monthly estimate")
+    elif avg <= 0:
+        flags.append(FLAG_NO_DEMAND)
+        notes.append(
+            f"in stock for {snap.months_active} month(s) and sold none — every quantity is a "
+            "multiple of the monthly rate, so this can only suggest zero. Decide it by hand "
+            "or leave it out this year."
+        )
 
     margin = p.retail_price - p.cost
     return Suggestion(
