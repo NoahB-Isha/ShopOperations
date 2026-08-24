@@ -147,6 +147,8 @@ export interface CenterOut {
   /** display names only — contact details live on the detail endpoint */
   reviewers: string[];
   requesters: string[];
+  /** the link this center's printable QR poster encodes */
+  order_url: string;
 }
 
 export interface CenterPerson {
@@ -176,6 +178,8 @@ export interface CenterDetailOut {
   /** ok = a live Odoo read; unmapped / unavailable explain themselves */
   stock_status: "ok" | "unmapped" | "unavailable";
   stock_note: string;
+  /** what the printable QR poster encodes — the order form, this center picked */
+  order_url: string;
 }
 
 export interface DomainSync {
@@ -640,6 +644,8 @@ export interface CenterOrderSummaryOut {
   reasonability_level: ReasonLevel;
   picking_status: "none" | "created" | "simulated" | "failed";
   odoo_picking_name: string;
+  /** can THIS user decide it — the approvals board shows nothing else */
+  can_decide: boolean;
 }
 
 export interface NotifyChannelOut {

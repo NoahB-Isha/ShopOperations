@@ -28,6 +28,11 @@ const ROLE_LABELS: Record<string, string> = {
   floor_rotating: "Floor Team",
   zone_coordinator: "Order Reviewer",
   center_orderer: "Order Requester",
+  // Add-ons: held ALONGSIDE one of the six above, each granting one job.
+  // They were API-only until 2026-08-22 — a permission nobody can grant from
+  // the app is a permission nobody uses.
+  dept_order_approver: "＋ Approve dept orders",
+  inventory_wrangler: "＋ Approve counts",
 };
 
 const ROLE_HINTS: Record<string, string> = {
@@ -36,6 +41,9 @@ const ROLE_HINTS: Record<string, string> = {
   floor_rotating: "The floor toolkit without creating transfers.",
   zone_coordinator: "Approves the orders from one review zone's centers.",
   center_orderer: "Places orders for one center.",
+  dept_order_approver:
+    "Add-on: approves III Departments' orders. Give it to a shop team member on top of their real role.",
+  inventory_wrangler: "Add-on: reviews submitted inventory counts.",
 };
 
 const ZONE_ROLES = new Set(["zone_coordinator"]);

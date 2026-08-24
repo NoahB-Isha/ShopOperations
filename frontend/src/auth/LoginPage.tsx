@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { AuthConfig, SessionOut } from "../api/types";
 import { Button, Card, Field, Input, useToast } from "../design";
 import { homeForRoles } from "../nav";
 import { ILMark } from "../shell/AppShell";
 import { useAuth } from "./AuthContext";
+import { rememberReturnTo, takeReturnTo } from "./returnTo";
 
 type Step = "identifier" | "code";
 
@@ -49,7 +50,16 @@ function clearOAuthParams() {
 export function LoginPage() {
   const { user, signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
+
+  // Where Protected sent us from — parked in sessionStorage NOW, because the
+  // OAuth hop leaves the document and router state doesn't survive that. This
+  // is what makes the QR poster land on the order form and not the home page.
+  useEffect(() => {
+    const from = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+    if (from?.pathname) rememberReturnTo(`${from.pathname}${from.search ?? ""}`);
+  }, [location.state]);
 
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [step, setStep] = useState<Step>("identifier");
@@ -125,7 +135,9 @@ export function LoginPage() {
   };
 
   useEffect(() => {
-    if (user) navigate(homeForRoles(new Set(user.roles.map((r) => r.role))), { replace: true });
+    if (!user) return;
+    const back = takeReturnTo();
+    navigate(back ?? homeForRoles(new Set(user.roles.map((r) => r.role))), { replace: true });
   }, [user, navigate]);
 
   useEffect(() => {

@@ -160,6 +160,12 @@ def seed_flags(db: Session) -> None:
             "Enable only after its canary passes.",
         ),
         (
+            "write_validate_inventory_adjustment",
+            "OdooWriter.validate_adjustment may POST approved inventory-count "
+            "adjustments (this one MOVES STOCK — every other write stops at a draft). "
+            "Off = the adjustment is created and left for a human to validate.",
+        ),
+        (
             "notify_whatsapp_live",
             "Order notifications may actually send over the WhatsApp bridge. "
             "Off = sends are recorded as simulated.",
@@ -855,6 +861,11 @@ def main() -> None:
         # zone is III Departments (the dept-specific roles merged 2026-08-13)
         liaison = get_or_create_user(db, f"liaison@{DEMO_DOMAIN}", "Demo Dept Reviewer")
         ensure_role(db, liaison, Role.ZONE_COORDINATOR, zone_id=dept_zone.id)
+        # …and the shop team member behind the counter can approve those
+        # orders too, through the add-on (2026-08-22). Held ALONGSIDE their
+        # real role — that pairing is the whole point of an add-on, so the
+        # demo has to show it.
+        ensure_role(db, floor, Role.DEPT_ORDER_APPROVER)
         kitchen = db.scalar(select(Center).where(Center.name == "Kitchen"))
         dept_orderer = get_or_create_user(db, f"kitchen@{DEMO_DOMAIN}", "Demo Kitchen Requester")
         if kitchen:

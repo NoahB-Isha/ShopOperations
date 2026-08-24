@@ -8,10 +8,12 @@ ride along on every center from the gazetteer in geo.py — and asks
 
 from __future__ import annotations
 
+import io
 import logging
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, HTTPException
+import segno
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -19,6 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..auth.deps import AuthedUser, get_current_user, require_roles, visible_center_ids
 from ..config import Settings, get_settings
 from ..db import get_db
+from ..downloads import download_response
 from ..models import (
     Center,
     CenterContact,
@@ -91,6 +94,9 @@ class CenterOut(BaseModel):
     # where contact details belong. Reviewers come from the center's ZONE.
     reviewers: list[str] = []
     requesters: list[str] = []
+    # The link the center's printable QR encodes. A URL, not a credential —
+    # see the /order-qr.png endpoint at the bottom of this module.
+    order_url: str = ""
 
 
 @router.get("/zones", response_model=list[ZoneOut])
@@ -116,6 +122,7 @@ def list_centers(
     include_inactive: bool = True,
     q: str = "",
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(get_current_user),
 ) -> list[CenterOut]:
     query = select(Center).options(selectinload(Center.contacts), selectinload(Center.zone))
@@ -139,6 +146,7 @@ def list_centers(
             c,
             sales.get(c.id),
             labels,
+            settings,
             reviewers=sorted(people.by_zone.get(c.zone_id or -1, set())),
             requesters=sorted(people.by_center.get(c.id, set())),
         )
@@ -181,6 +189,7 @@ def _center_out(
     c: Center,
     sales: CenterSales | None,
     months: tuple[str, str],
+    settings: Settings,
     reviewers: list[str] | None = None,
     requesters: list[str] | None = None,
 ) -> CenterOut:
@@ -216,6 +225,7 @@ def _center_out(
         sales_prev_month=months[1],
         reviewers=reviewers or [],
         requesters=requesters or [],
+        order_url=order_form_url(settings, c),
     )
 
 
@@ -252,6 +262,10 @@ class CenterDetailOut(BaseModel):
     # Honest about where the shelf figure came from, or why there isn't one.
     stock_status: str  # "ok" | "unmapped" | "unavailable"
     stock_note: str = ""
+    # Deep link the printable QR encodes — the order form, this center already
+    # picked. Public in the sense that a poster is public: it grants nothing on
+    # its own, it just saves the walk through the menu after signing in.
+    order_url: str = ""
 
 
 def _person(user: User, note: str = "") -> PersonOut:
@@ -374,6 +388,48 @@ def center_detail(
         stock_total=round(sum(line.qty for line in stock), 2),
         stock_status=status,
         stock_note=note,
+        order_url=order_form_url(settings, center),
+    )
+
+
+# ------------------------------------------------------------- printable QR
+def order_form_url(settings: Settings, center: Center) -> str:
+    """The URL the center's QR poster encodes."""
+    # /place-order is the form's route (App.tsx); /order/:id is an order's
+    # detail page, which is NOT where a poster should land anyone.
+    return f"{settings.app_public_url.rstrip('/')}/place-order?center={center.id}"
+
+
+@router.get(
+    "/centers/{center_id}/order-qr.png",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    response_class=Response,
+)
+def center_order_qr(
+    center_id: int,
+    scale: int = 10,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """A printable QR for this center's order form.
+
+    The code carries a URL and nothing else — no token, no session, no
+    credential. Someone who scans it and isn't signed in lands on the normal
+    Google sign-in and comes straight back here, which is why the poster can
+    live on a wall: photographing it gets you a link to a login page.
+    """
+    center = db.get(Center, center_id)
+    if center is None:
+        raise HTTPException(404, "Center not found.")
+
+    buf = io.BytesIO()
+    # error correction "M" survives a taped-up, scuffed poster; the quiet zone
+    # is the border a scanner needs to find the code at all.
+    segno.make(order_form_url(settings, center), error="m").save(
+        buf, kind="png", scale=max(1, min(scale, 40)), border=4, dark="#1a1a1a"
+    )
+    return download_response(
+        buf.getvalue(), f"{center.name} order form QR.png", "image/png"
     )
 
 
@@ -414,6 +470,7 @@ def update_center(
     center_id: int,
     body: CenterPatchIn,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> CenterOut:
     """Edit a center and its roster in place.
 
@@ -473,4 +530,4 @@ def update_center(
     today = utcnow().date()
     sales = sales_by_center(db, today).get(center.id)
     (ly, lm), (py, pm) = comparison_months(today)
-    return _center_out(center, sales, (f"{ly:04d}-{lm:02d}", f"{py:04d}-{pm:02d}"))
+    return _center_out(center, sales, (f"{ly:04d}-{lm:02d}", f"{py:04d}-{pm:02d}"), settings)

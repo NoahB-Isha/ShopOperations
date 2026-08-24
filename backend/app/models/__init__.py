@@ -111,6 +111,7 @@ from .snapshots import (
     SyncState,
 )
 from .users import (
+    ADD_ON_ROLES,
     CENTER_SCOPED_ROLES,
     SEE_EVERYTHING_ROLES,
     ZONE_SCOPED_ROLES,
@@ -226,6 +227,7 @@ __all__ = [
     "InventoryCountEntry",
     "InventoryCountEvent",
     "InventoryCountItem",
+    "ADD_ON_ROLES",
     "CENTER_SCOPED_ROLES",
     "SEE_EVERYTHING_ROLES",
     "ZONE_SCOPED_ROLES",

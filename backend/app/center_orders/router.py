@@ -31,6 +31,7 @@ from ..models import (
     Role,
     User,
     Zone,
+    ZoneKind,
     utcnow,
 )
 from ..notify import service as notify
@@ -47,7 +48,11 @@ from .flow import InvalidTransition, NotAllowedError, check_transition
 from .reasonability import assess_order
 
 S = CenterOrderStatus
-PARTICIPANTS = (Role.CENTER_ORDERER, Role.ZONE_COORDINATOR)
+# Who may reach this router at all. The dept-order add-on is here because its
+# holder's own role (Inventory Flow Manager, Floor Team…) has no business with
+# center orders otherwise — what they can actually see and decide is narrowed
+# per request by visible_center_ids and _is_coordinator_of.
+PARTICIPANTS = (Role.CENTER_ORDERER, Role.ZONE_COORDINATOR, Role.DEPT_ORDER_APPROVER)
 
 router = APIRouter(
     prefix="/center-orders",
@@ -209,6 +214,11 @@ class OrderSummaryOut(BaseModel):
     reasonability_level: str
     picking_status: str
     odoo_picking_name: str
+    # Can THIS caller decide this order? An Inventory Flow Manager holding the
+    # dept-orders add-on can see every order (their own role sees everything)
+    # but may only decide a department's, so the approvals board filters on
+    # this instead of showing them a queue full of other people's work.
+    can_decide: bool = False
 
 
 class PreviewOut(BaseModel):
@@ -246,13 +256,23 @@ def _may_order_for(db: Session, authed: AuthedUser, center: Center) -> bool:
 
 
 def _is_coordinator_of(authed: AuthedUser, center: Center) -> bool:
+    """Whoever reviews THIS center's orders: the Order Reviewer of its review
+    zone, or — for a department — anyone holding the 'Approve dept orders'
+    add-on. The add-on carries no zone scope: it means departments, all of
+    them, and nothing else."""
     if authed.has_role(Role.ADMIN):
+        return True
+    if authed.has_role(Role.DEPT_ORDER_APPROVER) and is_departments(center):
         return True
     return (
         authed.has_role(Role.ZONE_COORDINATOR)
         and center.zone_id is not None
         and center.zone_id in authed.scoped_zone_ids
     )
+
+
+def is_departments(center: Center) -> bool:
+    return bool(center.zone and center.zone.kind == ZoneKind.DEPARTMENTS.value)
 
 
 def _get_order(db: Session, order_id: int) -> CenterOrder:
@@ -546,8 +566,8 @@ def place_order(
     settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(get_current_user),
 ) -> OrderOut:
-    """Place the order: PENDING, reasonability computed and stored, the zone's
-    coordinator(s) pinged over WhatsApp. Nothing touches Odoo until approval."""
+    """Place the order: PENDING, reasonability computed and stored, and whoever
+    reviews this center pinged. Nothing touches Odoo until approval."""
     center = _get_center(db, body.center_id)
     if not _may_order_for(db, authed, center):
         raise HTTPException(403, "You can't order for this center.")
@@ -672,6 +692,7 @@ def list_orders(
                 reasonability_level=o.reasonability_level,
                 picking_status=o.picking_status,
                 odoo_picking_name=o.odoo_picking_name,
+                can_decide=bool(center and _is_coordinator_of(authed, center)),
             )
         )
     return out

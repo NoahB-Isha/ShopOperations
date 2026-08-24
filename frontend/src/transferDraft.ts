@@ -59,19 +59,29 @@ export function setDraftLines(
   for (const fn of listeners) fn();
 }
 
-/** Add one item from somewhere else in the app (today: the restock list).
+/** The one ordering rule for a draft: the item you just added is at the TOP
+ *  (Noah, 2026-08-22). Pure, so both the page's own adds and everyone else's
+ *  go through the same behaviour.
+ *
  *  An item already on the draft gains the quantity rather than appearing
- *  twice — the API rejects duplicate products on one request. */
+ *  twice — the API rejects duplicate products on one request — and it moves
+ *  to the top too, because a merge you can't see reads as a tap that did
+ *  nothing. */
+export function withNewestFirst(prev: PickedLine[], line: PickedLine): PickedLine[] {
+  const existing = prev.find((l) => l.product_id === line.product_id);
+  if (!existing) return [line, ...prev];
+  return [
+    { ...existing, qty: existing.qty + line.qty },
+    ...prev.filter((l) => l.product_id !== line.product_id),
+  ];
+}
+
+/** Add one item from somewhere else in the app (the restock list, the OOS
+ *  board, the suggested strip). */
 export function addToDraft(line: PickedLine): "added" | "merged" {
-  const existing = lines.find((l) => l.product_id === line.product_id);
+  const existing = lines.some((l) => l.product_id === line.product_id);
   pulse += 1;
-  setDraftLines((prev) =>
-    existing
-      ? prev.map((l) =>
-          l.product_id === line.product_id ? { ...l, qty: l.qty + line.qty } : l,
-        )
-      : [...prev, line],
-  );
+  setDraftLines((prev) => withNewestFirst(prev, line));
   return existing ? "merged" : "added";
 }
 

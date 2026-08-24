@@ -267,7 +267,7 @@ function ReviewSheet({
             </div>
           )}
           <div className="mt-1 text-[11.5px] opacity-80">
-            Just a heads-up from the order checker — your coordinator decides.
+            Just a heads-up from the order checker — your reviewer decides.
           </div>
         </div>
       )}
@@ -299,7 +299,7 @@ function PlacedScreen({ order, onAgain }: { order: CenterOrderOut; onAgain: () =
           {order.totals.items} item(s) · {money(order.totals.value)}
         </div>
         <p className="max-w-70 text-[13px] text-on-surface-variant">
-          Your coordinator just got a WhatsApp ping. You'll get one the moment it's approved.
+          Your reviewer just got a ping. You'll get one the moment it's approved.
         </p>
         <div className="mt-2 flex gap-2">
           <Button variant="secondary" onClick={() => navigate(`/order/${order.id}`)}>
@@ -321,14 +321,20 @@ export function PlaceOrderPage() {
   const toast = useToast();
 
   const { data: centers, isLoading: loadingCenters } = useOrderContext();
+  // ?center=<id> is what the printed QR poster carries: scan it at the Shoppe
+  // counter and the form opens on that department. Only ever an OPENING pick —
+  // tapping another chip afterwards sticks, and an id the person can't order
+  // for is ignored (the server scopes it too).
+  const requestedCenterId = Number(new URLSearchParams(location.search).get("center")) || null;
   const [centerId, setCenterId] = useState<number | null>(prefill?.center_id ?? null);
   useEffect(() => {
     if (centerId === null && centers?.length) {
-      // prefer a center that actually has a catalog
+      const requested = centers.find((c) => c.id === requestedCenterId);
+      // otherwise prefer a center that actually has a catalog
       const withItems = centers.find((c) => c.item_count > 0);
-      setCenterId((withItems ?? centers[0]).id);
+      setCenterId((requested ?? withItems ?? centers[0]).id);
     }
-  }, [centers, centerId]);
+  }, [centers, centerId, requestedCenterId]);
 
   const { data: catalog, isLoading: loadingCatalog } = useOrderCatalog(centerId);
 

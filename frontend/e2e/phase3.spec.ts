@@ -89,9 +89,13 @@ test("a city orderer places on a phone in under a minute; coordinator approves; 
   await desktop.close();
 });
 
-test("a department orders water (non-Odoo) and it never touches Odoo", async ({ browser }) => {
+test("a department orders water (non-Odoo) and the shop team approves it", async ({ browser }) => {
   test.setTimeout(120_000);
 
+  // The department scans the QR on the counter, orders, and a SHOP TEAM
+  // member approves it — floor@ is an Inventory Flow Manager who also holds
+  // the "Approve dept orders" add-on, which is the pairing the role exists
+  // for. The QR's landing URL is exercised here too: /place-order?center=…
   const phone = await browser.newContext({ viewport: PHONE });
   const page = await phone.newPage();
   await login(page, "kitchen@demo.ishalife.test");
@@ -108,16 +112,16 @@ test("a department orders water (non-Odoo) and it never touches Odoo", async ({ 
   await phone.close();
 
   const desktop = await browser.newContext();
-  const lpage = await desktop.newPage();
-  await login(lpage, "liaison@demo.ishalife.test");
-  await lpage.goto(`/order/${orderId}`);
-  await lpage.getByTestId("approve-order").click();
-  await lpage.getByTestId("confirm-action").click();
+  const spage = await desktop.newPage();
+  await login(spage, "floor@demo.ishalife.test");
+  await spage.goto(`/order/${orderId}`);
+  await spage.getByTestId("approve-order").click();
+  await spage.getByTestId("confirm-action").click();
 
-  await expect(lpage.getByText("Approved", { exact: true }).first()).toBeVisible();
+  await expect(spage.getByText("Approved", { exact: true }).first()).toBeVisible();
   // the honest no-Odoo path: fulfilled from the floor, no picking, no link
-  await expect(lpage.getByText(/No Odoo transfer/i).first()).toBeVisible();
-  await expect(lpage.getByText(/Open .* in Odoo/)).toHaveCount(0);
+  await expect(spage.getByText(/No Odoo transfer/i).first()).toBeVisible();
+  await expect(spage.getByText(/Open .* in Odoo/)).toHaveCount(0);
   await desktop.close();
 });
 

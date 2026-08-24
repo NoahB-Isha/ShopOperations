@@ -15,7 +15,11 @@ from __future__ import annotations
 from ..models import CenterOrderStatus as S
 from ..models import Role
 
-COORDINATOR_ROLES = {Role.ZONE_COORDINATOR}
+# Who may decide an order at all. The add-on is in here because a department's
+# order is approved by whoever is behind the counter; WHICH orders each of them
+# may decide is the router's job (a dept approver reaches departments zones
+# only) — this table only says the move exists for the role.
+COORDINATOR_ROLES = {Role.ZONE_COORDINATOR, Role.DEPT_ORDER_APPROVER}
 
 # (from, to) -> roles that may perform the transition (admin always may).
 # ORDERER entries additionally require owning the order's center — the router

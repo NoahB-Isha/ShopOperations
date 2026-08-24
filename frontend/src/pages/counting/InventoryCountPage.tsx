@@ -247,8 +247,9 @@ export function InventoryCountPage() {
       toast.success(`${p.name} is already on this count — change its quantity instead.`);
       return;
     }
+    // newest at the TOP — on a phone the list runs off the bottom of the
+    // screen, and the row you just added is the one you're about to type into
     setLines([
-      ...lines,
       {
         product_id: p.product_id,
         sku: p.sku,
@@ -256,6 +257,7 @@ export function InventoryCountPage() {
         name: p.name,
         counted: null,
       },
+      ...lines,
     ]);
   };
 

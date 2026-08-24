@@ -13,8 +13,14 @@ READ_METHODS = {"search_read", "read", "read_group", "search", "search_count", "
 # The only write methods the app may EVER use, and only via OdooWriter.
 # copy/action_confirm/action_assign exist for ONE operation: preparing the
 # STAGING→FLOOR count transfer (duplicate, mark To Do, check availability).
-# They reserve stock but move none — validation stays human, always.
-WRITE_METHODS = {"create", "write", "unlink", "copy", "action_confirm", "action_assign"}
+# They reserve stock but move none.
+# button_validate POSTS stock, and exists for exactly ONE operation too:
+# validate_adjustment, which posts an inventory-count adjustment a reviewer
+# has already approved (Noah, 2026-08-22 — see DECISIONS.md). Every other
+# record the app writes still stops at a draft for a human.
+WRITE_METHODS = {
+    "create", "write", "unlink", "copy", "action_confirm", "action_assign", "button_validate",
+}
 
 
 class OdooConnection(Protocol):

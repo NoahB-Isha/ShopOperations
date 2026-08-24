@@ -132,6 +132,9 @@ class OdooWriteOutcome(str, enum.Enum):
     CREATED = "created"
     SIMULATED = "simulated"  # kill switch / feature flag / fixture mode
     FAILED = "failed"
+    # Created AND posted in Odoo. Only inventory-count adjustments reach this
+    # state — everything else the app writes stops at CREATED, by design.
+    VALIDATED = "validated"
 
 
 class TransferRequest(Base, TimestampMixin):

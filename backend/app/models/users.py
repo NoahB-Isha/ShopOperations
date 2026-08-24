@@ -31,8 +31,18 @@ class Role(str, enum.Enum):
         zone_coordinator → Order Reviewer
         center_orderer   → Order Requester
 
-    inventory_wrangler is the one ADD-ON in the list: it is held ALONGSIDE a
-    real user type and only grants the count review queue (see app/counting).
+    Two ADD-ONS sit alongside those six. Neither is a user type: each is held
+    IN ADDITION to a real role and grants exactly one job.
+
+        inventory_wrangler   → Approve counts     (the count review queue)
+        dept_order_approver  → Approve dept orders
+
+    dept_order_approver (2026-08-22) exists because III departments are served
+    by whoever is behind the counter: their orders need a shop team member to
+    look, but that person is an Inventory Flow Manager or Floor Team, not the
+    Order Reviewer of a review zone. The add-on grants approval over the
+    departments zones' orders and nothing else — no field zone, no catalogs,
+    no roster.
 
     The separate dept_liaison / dept_orderer roles were FOLDED IN on
     2026-08-13: a departments reviewer is simply an Order Reviewer whose
@@ -56,6 +66,16 @@ class Role(str, enum.Enum):
     # someone already is. Nobody holds it alone — a user has their real role
     # plus this one, which is exactly what RoleAssignment already models.
     INVENTORY_WRANGLER = "inventory_wrangler"
+    # Approve dept orders (2026-08-22) — the other ADD-ON. Held by a shop team
+    # member so somebody behind the counter can approve what a department is
+    # taking, without being made the Order Reviewer of a review zone.
+    DEPT_ORDER_APPROVER = "dept_order_approver"
+
+
+# The add-ons, in one place: a role someone holds ON TOP of a real user type.
+# They carry no row scope of their own — what they can reach is decided by the
+# job, not by a zone or center on the assignment.
+ADD_ON_ROLES = {Role.INVENTORY_WRANGLER, Role.DEPT_ORDER_APPROVER}
 
 
 # Roles whose row-scope is a review zone / a center.

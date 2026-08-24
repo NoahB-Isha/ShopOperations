@@ -194,3 +194,94 @@ def test_unlink_allows_app_records(db, live_env):
     result = writer.unlink_app_record("stock.picking", created.record_ids[0])
     assert result.success and not result.dry_run
     assert sim.search_count("stock.picking", [["id", "=", created.record_ids[0]]]) == 0
+
+
+# ------------------------------------------- posting an approved adjustment
+ADJ_FLAGS = ("write_create_inventory_addition", "write_validate_inventory_adjustment")
+
+
+def _ready_adjustment(db, settings, sim, product):
+    """An addition draft, as an approved count produces one."""
+    writer = OdooWriter(db, settings, conn=sim)
+    return writer.create_inventory_addition(
+        product_id=product.id, qty=4, note="counted 4 more", reference="ILAPP-CNT-TEST01"
+    )
+
+
+def test_validate_adjustment_posts_the_stock(db, live_env, monkeypatch):
+    sim, product = _prepared(db, live_env)
+    for flag in ADJ_FLAGS:
+        set_flag(db, flag, True)
+    draft = _ready_adjustment(db, live_env, sim, product)
+    picking_id = draft.record_ids[0]
+
+    writer = OdooWriter(db, live_env, conn=sim)
+    result = writer.validate_adjustment(
+        picking_odoo_id=picking_id, reference="ILAPP-CNT-TEST01"
+    )
+    assert result.success and not result.dry_run
+    state = sim.call_kw("stock.picking", "read", [[picking_id], ["state"]])[0]["state"]
+    assert state == "done"  # posted, not merely confirmed
+
+    # and it really moved: the floor gained the 4 units the counter found
+    floor = [
+        q
+        for q in sim.search_read("stock.quant", [], ["product_id", "location_id", "quantity"])
+        if q["location_id"][0] == 14 and q["product_id"][0] == product.odoo_product_id
+    ]
+    assert floor and sum(q["quantity"] for q in floor) > 0
+
+    # a second call is a no-op success, not a double post
+    again = writer.validate_adjustment(picking_odoo_id=picking_id)
+    assert again.success and "already validated" in again.message
+
+
+def test_validate_adjustment_refuses_a_picking_the_app_did_not_create(db, live_env):
+    sim, _ = _prepared(db, live_env)
+    for flag in ADJ_FLAGS:
+        set_flag(db, flag, True)
+    native = sim.search_read("stock.picking", [["name", "=", "WH/INT/NATIVE1"]], ["id", "origin"])
+    assert native, "fixture should ship a picking the app didn't write"
+
+    writer = OdooWriter(db, live_env, conn=sim)
+    with pytest.raises(WriterValidationError, match="isn't app-prefixed"):
+        writer.validate_adjustment(picking_odoo_id=native[0]["id"])
+
+
+def test_validate_adjustment_refuses_anything_that_is_not_an_adjustment(db, live_env):
+    """The load-bearing guard: ILAPP-CNT- is ALSO the floor's STAGING→FLOOR
+    count transfer, which a person validates by scanning the pallet. A
+    reference-only check would post stock nobody has counted yet."""
+    sim, product = _prepared(db, live_env)
+    for flag in (*ADJ_FLAGS, "write_create_internal_transfer"):
+        set_flag(db, flag, True)
+    transfer = OdooWriter(db, live_env, conn=sim).create_internal_transfer(
+        source_key="bwhse",
+        dest_odoo_location_id=14,
+        dest_label="floor",
+        lines=[{"product_id": product.id, "qty": 3}],
+        note="pallet",
+        reference="ILAPP-CNT-NOTANADJ",  # same prefix as a count adjustment
+    )
+
+    writer = OdooWriter(db, live_env, conn=sim)
+    with pytest.raises(WriterValidationError, match="not an inventory-adjustment"):
+        writer.validate_adjustment(picking_odoo_id=transfer.record_ids[0])
+    state = sim.call_kw("stock.picking", "read", [transfer.record_ids, ["state"]])[0]["state"]
+    assert state != "done"  # untouched
+
+
+def test_validate_adjustment_is_gated_by_its_own_flag(db, live_env):
+    sim, product = _prepared(db, live_env)
+    set_flag(db, "write_create_inventory_addition", True)
+    set_flag(db, "write_validate_inventory_adjustment", False)
+    draft = _ready_adjustment(db, live_env, sim, product)
+
+    writer = OdooWriter(db, live_env, conn=sim)
+    result = writer.validate_adjustment(picking_odoo_id=draft.record_ids[0])
+    assert result.dry_run and result.dry_run_reason == "feature_flag"
+    state = sim.call_kw("stock.picking", "read", [draft.record_ids, ["state"]])[0]["state"]
+    assert state != "done"  # the draft stands, exactly as before this feature
+    assert db.scalar(
+        select(OdooWriteAudit).where(OdooWriteAudit.operation == "validate_adjustment")
+    ), "a gated write still leaves an audit row"

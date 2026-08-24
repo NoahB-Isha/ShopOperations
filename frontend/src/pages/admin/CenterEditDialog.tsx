@@ -6,9 +6,10 @@
    bulk work, but it is something you bring TO the app, not its source of
    truth. */
 import { useEffect, useState } from "react";
+import { apiBlobUrl, apiDownload } from "../../api/client";
 import { useInviteUser, useUpdateCenter, useZones } from "../../api/hooks";
 import type { CenterOut, ContactOut } from "../../api/types";
-import { Button, Dialog, Field, Input, Select, Toggle, useToast } from "../../design";
+import { Button, Dialog, Field, Input, Select, Spinner, Toggle, useToast } from "../../design";
 import { Icons } from "../../nav";
 
 interface DraftContact extends ContactOut {
@@ -295,11 +296,100 @@ export function CenterEditDialog({
           </p>
         </section>
 
+        <OrderQrSection center={center} />
+
         <Field label="Notes">
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
       </div>
     </Dialog>
+  );
+}
+
+/** The printable poster. What makes it safe to tape to a counter is that the
+    code carries a URL and nothing else: scanning it without a session lands on
+    the normal sign-in, and comes straight back here afterwards. */
+function OrderQrSection({ center }: { center: CenterOut }) {
+  const toast = useToast();
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let url: string | null = null;
+    let cancelled = false;
+    setSrc(null);
+    setFailed(false);
+    void apiBlobUrl(`/centers/${center.id}/order-qr.png`)
+      .then((u) => {
+        url = u;
+        if (cancelled) URL.revokeObjectURL(u);
+        else setSrc(u);
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+      // an un-revoked object URL holds the image for the life of the document
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [center.id]);
+
+  return (
+    <section>
+      <SectionTitle
+        icon={Icons.scan}
+        title="Order form QR"
+        hint="Print it, tape it up, scan to order"
+      />
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="grid h-32 w-32 shrink-0 place-items-center rounded-(--radius-md) bg-white p-1.5">
+          {src ? (
+            <img src={src} alt={`QR code linking to ${center.name}'s order form`} className="h-full w-full" />
+          ) : failed ? (
+            <span className="px-2 text-center text-[11px] text-ink-faint">
+              Couldn't load the code
+            </span>
+          ) : (
+            <Spinner size={18} />
+          )}
+        </div>
+        <div className="min-w-56 flex-1">
+          <p className="text-[13px] leading-snug text-ink-soft">
+            The code is a link, not a login — anyone scanning it signs in as themselves first,
+            and lands on {center.name}'s order form.
+          </p>
+          <code className="mt-2 block overflow-x-auto rounded-(--radius-sm) bg-surface-container px-2 py-1.5 text-[12px] text-ink-soft">
+            {center.order_url}
+          </code>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Icons.download}
+              onClick={() =>
+                void apiDownload(
+                  `/centers/${center.id}/order-qr.png?scale=20`,
+                  `${center.name} order form QR.png`,
+                ).catch(() => toast.error("Couldn't download the code."))
+              }
+            >
+              Download PNG
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(center.order_url)
+                  .then(() => toast.success("Link copied."))
+                  .catch(() => toast.error("Couldn't copy the link."))
+              }
+            >
+              Copy link
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -30,8 +30,11 @@ from ..models import (
     NotificationKind,
     NotificationStatus,
     NotifyChannelState,
+    Role,
     RoleAssignment,
     User,
+    Zone,
+    ZoneKind,
     utcnow,
 )
 from ..models.users import ZONE_SCOPED_ROLES
@@ -153,17 +156,36 @@ def _recipients(db: Session, order: CenterOrder, kind: str) -> list[User]:
         if center is None or center.zone_id is None:
             return []
         role_values = [r.value for r in ZONE_SCOPED_ROLES]
-        users = db.scalars(
-            select(User)
-            .join(RoleAssignment, RoleAssignment.user_id == User.id)
-            .where(
-                RoleAssignment.zone_id == center.zone_id,
-                RoleAssignment.role.in_(role_values),
-                User.is_active.is_(True),
+        users = list(
+            db.scalars(
+                select(User)
+                .join(RoleAssignment, RoleAssignment.user_id == User.id)
+                .where(
+                    RoleAssignment.zone_id == center.zone_id,
+                    RoleAssignment.role.in_(role_values),
+                    User.is_active.is_(True),
+                )
+                .distinct()
             )
-            .distinct()
-        ).all()
-        return list(users)
+        )
+        # A department's order is approved by whoever holds the add-on — a
+        # shop team member with no zone on their assignment. Telling only the
+        # review zone's coordinator would ping the person who no longer does
+        # the job, and skip the person who does.
+        zone = db.get(Zone, center.zone_id)
+        if zone is not None and zone.kind == ZoneKind.DEPARTMENTS.value:
+            approvers = db.scalars(
+                select(User)
+                .join(RoleAssignment, RoleAssignment.user_id == User.id)
+                .where(
+                    RoleAssignment.role == Role.DEPT_ORDER_APPROVER.value,
+                    User.is_active.is_(True),
+                )
+                .distinct()
+            )
+            known = {u.id for u in users}
+            users.extend(u for u in approvers if u.id not in known)
+        return users
     creator = db.get(User, order.created_by_id) if order.created_by_id else None
     return [creator] if creator is not None and creator.is_active else []
 

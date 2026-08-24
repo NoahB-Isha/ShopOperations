@@ -291,9 +291,11 @@ function QueueItem({ item, onAsk }: { item: CountItemOut; onAsk: (a: Ask) => voi
                   onSuccess: (out) => {
                     const applied = out.items.find((i) => i.id === item.id);
                     toast.success(
-                      applied?.picking_name
-                        ? `Approved — draft ${applied.picking_name} is waiting in Odoo.`
-                        : "Approved.",
+                      !applied?.picking_name
+                        ? "Approved."
+                        : applied.picking_status === "validated"
+                          ? `Approved — ${applied.picking_name} posted in Odoo.`
+                          : `Approved — draft ${applied.picking_name} is waiting in Odoo.`,
                     );
                   },
                   onError: (e) => toast.error(e.message),

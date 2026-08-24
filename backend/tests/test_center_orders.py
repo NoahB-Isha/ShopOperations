@@ -21,6 +21,7 @@ from app.models import (
     OrderListZone,
     Role,
     StockLevel,
+    User,
     ZoneKind,
     utcnow,
 )
@@ -488,3 +489,88 @@ def test_approve_live_renders_draft_to_center_location_then_ships(
         select(Notification).where(Notification.kind == "order_shipped")
     ).all()
     assert len(shipped) == 1
+
+
+# -------------------------------- the "Approve dept orders" add-on role
+def _dept_approver(db, email="shopteam@test.io"):
+    """A shop team member who also holds the add-on — the real shape: a role
+    that does a job, plus the one extra permission."""
+    return mk_user(
+        db, email,
+        (Role.SHOPPE_FLOOR, None, None),
+        (Role.DEPT_ORDER_APPROVER, None, None),
+    )
+
+
+def test_the_add_on_approves_a_department_order(client, db):
+    s = _setup(db)
+    _dept_approver(db)
+    kitchen_h = login(client, "kitchen@test.io")
+    order = _place(client, kitchen_h, s["kitchen"].id,
+                   [{"product_id": s["water"].id, "qty": 3}]).json()
+    assert order["status"] == "pending"  # departments are reviewed, like everyone
+
+    approver = login(client, "shopteam@test.io")
+    seen = client.get(f"/api/v1/center-orders/{order['id']}", headers=approver).json()
+    assert seen["actions"]["can_approve"] is True
+    r = client.post(f"/api/v1/center-orders/{order['id']}/approve",
+                    json={"note": "took it off the shelf"}, headers=approver)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "approved"
+
+
+def test_the_add_on_reaches_departments_and_nothing_else(client, db):
+    """It grants one job. A field center's order is still its Order
+    Reviewer's, and the holder can't place orders for a department either."""
+    s = _setup(db)
+    # no SEE_EVERYTHING role here, or the scope question can't be asked
+    mk_user(db, "deptonly@test.io", (Role.DEPT_ORDER_APPROVER, None, None))
+    orderer = login(client, "orderer@test.io")
+    field_order = _place(client, orderer, s["austin"].id,
+                         [{"product_id": s["copper"].id, "qty": 2}]).json()
+    kitchen_h = login(client, "kitchen@test.io")
+    dept_order = _place(client, kitchen_h, s["kitchen"].id,
+                        [{"product_id": s["water"].id, "qty": 1}]).json()
+
+    approver = login(client, "deptonly@test.io")
+    # the departments order is visible and approvable…
+    visible = {o["id"] for o in client.get("/api/v1/center-orders", headers=approver).json()}
+    assert dept_order["id"] in visible and field_order["id"] not in visible
+    # …the field one is neither
+    assert client.get(f"/api/v1/center-orders/{field_order['id']}",
+                      headers=approver).status_code == 403
+    assert client.post(f"/api/v1/center-orders/{field_order['id']}/approve",
+                       json={}, headers=approver).status_code == 403
+    # and approving is not ordering
+    r = _place(client, approver, s["kitchen"].id, [{"product_id": s["water"].id, "qty": 1}])
+    assert r.status_code == 403
+
+
+def test_a_department_order_pings_the_add_on_holders(client, db):
+    """The liaison is no longer the one who approves these, so the ping has to
+    reach whoever does — otherwise the order waits for someone who isn't
+    looking."""
+    s = _setup(db)
+    _dept_approver(db)
+    kitchen_h = login(client, "kitchen@test.io")
+    _place(client, kitchen_h, s["kitchen"].id, [{"product_id": s["water"].id, "qty": 2}])
+
+    told = {
+        db.get(User, n.recipient_user_id).email
+        for n in db.scalars(select(Notification).where(Notification.kind == "order_placed"))
+    }
+    assert "shopteam@test.io" in told
+    assert "liaison@test.io" in told  # still the review zone's coordinator
+
+
+def test_a_field_order_never_pings_a_dept_approver(client, db):
+    s = _setup(db)
+    _dept_approver(db)
+    orderer = login(client, "orderer@test.io")
+    _place(client, orderer, s["austin"].id, [{"product_id": s["copper"].id, "qty": 2}])
+
+    told = {
+        db.get(User, n.recipient_user_id).email
+        for n in db.scalars(select(Notification).where(Notification.kind == "order_placed"))
+    }
+    assert told == {"coord@test.io"}

@@ -258,6 +258,64 @@ class OdooSimulator:
                 r["state"] = "assigned"
         return True
 
+    def _button_validate(self, model: str, ids: list[int]) -> bool:
+        """Post a picking: state done, and the quants actually move — an
+        adjustment that validated but changed no stock would let a broken
+        writer pass its test."""
+        if model != "stock.picking":
+            raise OdooError(f"Simulator only validates stock.picking, not {model}.")
+        for pick in self._rows(model):
+            if pick.get("id") not in ids:
+                continue
+            if pick.get("state") == "cancel":
+                raise OdooError(f"Picking {pick.get('name')} is cancelled.")
+            # raw m2o values, so any quant row this creates carries the same
+            # [id, name] shape the fixtures use (the stock sync reads names)
+            src = pick.get("location_id")
+            dest = pick.get("location_dest_id")
+            for move in self._rows("stock.move"):
+                if self._m2o_id(move.get("picking_id")) != pick["id"]:
+                    continue
+                qty = float(move.get("quantity") or move.get("product_uom_qty") or 0)
+                product = move.get("product_id")
+                self._move_quant(product, src, -qty)
+                self._move_quant(product, dest, qty)
+                move["state"] = "done"
+                move["quantity"] = qty
+                move["picked"] = True
+            pick["state"] = "done"
+        return True
+
+    def _move_quant(self, product: Any, location: Any, delta: float) -> None:
+        location_id = self._m2o_id(location)
+        if not location_id or not delta:
+            return
+        product_id = self._m2o_id(product)
+        for q in self._rows("stock.quant"):
+            if (
+                self._m2o_id(q.get("product_id")) == product_id
+                and self._m2o_id(q.get("location_id")) == location_id
+            ):
+                q["quantity"] = float(q.get("quantity") or 0) + delta
+                return
+        rows = self._rows("stock.quant")
+        rows.append(
+            {
+                "id": max((r.get("id") or 0) for r in rows) + 1 if rows else 1,
+                # Odoo hands many2ones back as [id, display] and the fixtures
+                # match; app-written pickings store bare ids, so normalize —
+                # a quant row of a different shape breaks the stock sync's
+                # name-based classification the moment a test syncs after this.
+                "product_id": self._m2o("product.product", product_id, "display_name"),
+                "location_id": self._m2o("stock.location", location_id, "complete_name"),
+                "quantity": delta,
+            }
+        )
+
+    def _m2o(self, model: str, rec_id: Any, name_field: str) -> list:
+        row = next((r for r in self._rows(model) if r.get("id") == rec_id), {})
+        return [rec_id, str(row.get(name_field) or row.get("name") or "")]
+
     def _unlink(self, model: str, ids: list[int]) -> bool:
         ids = ids if isinstance(ids, list) else [ids]
         self.tables[model] = [r for r in self._rows(model) if r.get("id") not in ids]

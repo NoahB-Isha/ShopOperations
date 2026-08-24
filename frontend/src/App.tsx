@@ -143,7 +143,10 @@ export default function App() {
                 </Protected>
               } />
               <Route path="/pending-orders" element={
-                <Protected title="Pending orders" roles={["zone_coordinator"]}>
+                <Protected
+                  title="Pending orders"
+                  roles={["zone_coordinator", "dept_order_approver"]}
+                >
                   <PendingOrdersPage />
                 </Protected>
               } />
@@ -170,7 +173,7 @@ export default function App() {
               <Route path="/order/:id" element={
                 <Protected
                   title="Order"
-                  roles={["center_orderer", "zone_coordinator"]}
+                  roles={["center_orderer", "zone_coordinator", "dept_order_approver"]}
                 >
                   <OrderDetailPage />
                 </Protected>

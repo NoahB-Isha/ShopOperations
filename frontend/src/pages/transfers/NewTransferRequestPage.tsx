@@ -12,7 +12,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { SuggestedStrip } from "./SuggestedStrip";
 import { usePersistedState } from "../../persist";
-import { burstedRecently, clearDraft, setDraftLines, useDraftLines } from "../../transferDraft";
+import {
+  burstedRecently,
+  clearDraft,
+  setDraftLines,
+  useDraftLines,
+  withNewestFirst,
+} from "../../transferDraft";
 import { useCreateTransferRequest } from "../../api/hooks";
 import type { TransferRequestOut } from "../../api/types";
 import {
@@ -91,7 +97,7 @@ export function NewTransferPanel() {
   const addLine = (line: PickedLine, viaEnter?: boolean) => {
     if (viaEnter) {
       pendingQtyFocus.current = line.product_id;
-      setLines((prev) => [...prev, line]);
+      setLines((prev) => withNewestFirst(prev, line));
     } else {
       setTapPick(line);
     }
@@ -274,7 +280,7 @@ export function NewTransferPanel() {
           initial={tapPick.case_size > 1 ? tapPick.case_size : 1}
           min={1}
           applyLabel="Add to request"
-          onApply={(qty) => setLines((prev) => [...prev, { ...tapPick, qty }])}
+          onApply={(qty) => setLines((prev) => withNewestFirst(prev, { ...tapPick, qty }))}
           onClose={() => {
             setTapPick(null);
             backToSearch();

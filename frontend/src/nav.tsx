@@ -157,6 +157,13 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/my-order-lists", label: "Catalogs", icon: Icons.scroll },
     { path: "/order-history", label: "History", icon: Icons.history },
   ],
+  // Approve dept orders — an ADD-ON held by a shop team member, so somebody
+  // behind the counter can review what a department is taking. Same one
+  // destination as the Order Reviewer's, and navForRoles dedupes by path if
+  // they happen to be both.
+  dept_order_approver: [
+    { path: "/pending-orders", label: "Pending orders", short: "Pending", icon: Icons.clipboard },
+  ],
   // Inventory Wrangler — an ADD-ON, not a user type. It contributes exactly
   // one destination, unioned onto whatever the person already is.
   inventory_wrangler: [

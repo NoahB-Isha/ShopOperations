@@ -12,7 +12,12 @@ export function PendingOrdersPage() {
   const navigate = useNavigate();
   const { isDepartments } = useAuth();
   const noun = isDepartments ? "department" : "center";
-  const { data: orders, isLoading } = useCenterOrders({ status: "pending" });
+  const { data: all, isLoading } = useCenterOrders({ status: "pending" });
+  // "Waiting on you" has to mean it. A shop team member holding the
+  // dept-orders add-on can SEE every pending order (their own role sees
+  // everything) but may only decide a department's — showing them the rest
+  // would be a queue of other people's work with no buttons on it.
+  const orders = all?.filter((o) => o.can_decide);
 
   return (
     <>

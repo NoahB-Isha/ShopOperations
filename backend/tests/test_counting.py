@@ -9,6 +9,7 @@ an approval touches Odoo.
 from __future__ import annotations
 
 from app.models import Product, Role, RoleAssignment, StockLevel, User
+from app.odoo.errors import OdooWriteError
 from sqlalchemy import select as sa_select
 
 from .util import login, mk_product, mk_user, set_flag
@@ -235,7 +236,11 @@ def test_recounts_outrank_first_counts_in_the_queue(client, db, settings_env):
 
 
 def test_approve_applies_the_count_to_odoo_as_a_draft(client, db, live_env, monkeypatch):
-    """Approval is the only path that writes, and it writes a DRAFT."""
+    """Approval is the only path that writes.
+
+    With `write_validate_inventory_adjustment` OFF — the shipped default —
+    it writes a DRAFT and stops, which is what every other write in the app
+    does. The twin test below covers the flag being on."""
     from app.odoo.simulator import OdooSimulator
     from app.sync.runner import run_domain
 
@@ -279,10 +284,117 @@ def test_approve_applies_the_count_to_odoo_as_a_draft(client, db, live_env, monk
     assert item["applied_qty"] == odoo_now + 6
     assert item["picking_status"] == "created"
     assert item["picking_name"] and item["picking_url"]
-    # a DRAFT: the app never validates a stock move
+    # a DRAFT: with the posting flag off, a human still validates it
     state = sim.search_read("stock.picking", [["name", "=", item["picking_name"]]], ["state"])
     assert state and state[0]["state"] == "draft"
     assert approved.json()["status"] == "completed"
+
+
+def test_approve_posts_the_adjustment_when_the_flag_is_on(client, db, live_env, monkeypatch):
+    """The 2026-08-22 change: a reviewer's approval IS the validation.
+
+    Counting is the app's one exception to draft-only, because the judgement
+    a human would apply at the Validate button — is this counted number
+    right? — is the judgement the reviewer just made."""
+    from app.odoo.simulator import OdooSimulator
+    from app.sync.runner import run_domain
+
+    sim = OdooSimulator(live_env.fixtures_path, read_only=False)
+    run_domain(db, live_env, "products", conn=sim, trigger="manual")
+    run_domain(db, live_env, "stock", conn=sim, trigger="manual")
+    monkeypatch.setattr("app.odoo.writer.get_connection", lambda settings, read_only=False: sim)
+    monkeypatch.setattr(
+        "app.counting.locations.get_connection", lambda settings, read_only=True: sim
+    )
+    for flag in (
+        "write_create_inventory_addition",
+        "write_create_inventory_reduction",
+        "write_validate_inventory_adjustment",
+    ):
+        set_flag(db, flag, True)
+    _people(db)
+    floor = login(client, "floorteam@test.io")
+    flow = login(client, "flow@test.io")
+
+    product = db.scalars(sa_select(Product).where(Product.odoo_product_id == 201)).first()
+    odoo_now = client.post(
+        "/api/v1/counts/stock-at",
+        json={"location_key": "floor", "product_ids": [product.id]},
+        headers=floor,
+    ).json()["quantities"][str(product.id)]
+    count = client.post(
+        "/api/v1/counts",
+        json={
+            "location_key": "floor",
+            "items": [{"product_id": product.id, "counted_qty": odoo_now + 6}],
+        },
+        headers=floor,
+    ).json()
+
+    approved = client.post(
+        f"/api/v1/counts/items/{count['items'][0]['id']}/approve", json={}, headers=flow
+    )
+    assert approved.status_code == 200, approved.text
+    item = approved.json()["items"][0]
+    assert item["picking_status"] == "validated"
+    assert item["picking_name"] and item["picking_url"]  # the link is still recorded
+    state = sim.search_read("stock.picking", [["name", "=", item["picking_name"]]], ["state"])
+    assert state and state[0]["state"] == "done"
+
+
+def test_a_failed_post_keeps_the_approval_and_the_draft(client, db, live_env, monkeypatch):
+    """An approval is a DECISION. If Odoo refuses the posting, the item stays
+    approved with its draft and the reason — the pre-2026-08-22 outcome — and
+    never 422s the review away."""
+    from app.odoo.simulator import OdooSimulator
+    from app.odoo.writer import OdooWriter
+    from app.sync.runner import run_domain
+
+    sim = OdooSimulator(live_env.fixtures_path, read_only=False)
+    run_domain(db, live_env, "products", conn=sim, trigger="manual")
+    run_domain(db, live_env, "stock", conn=sim, trigger="manual")
+    monkeypatch.setattr("app.odoo.writer.get_connection", lambda settings, read_only=False: sim)
+    monkeypatch.setattr(
+        "app.counting.locations.get_connection", lambda settings, read_only=True: sim
+    )
+    for flag in (
+        "write_create_inventory_addition",
+        "write_create_inventory_reduction",
+        "write_validate_inventory_adjustment",
+    ):
+        set_flag(db, flag, True)
+
+    def boom(self, **kwargs):
+        raise OdooWriteError("Odoo said no")
+
+    monkeypatch.setattr(OdooWriter, "validate_adjustment", boom)
+    _people(db)
+    floor = login(client, "floorteam@test.io")
+    flow = login(client, "flow@test.io")
+
+    product = db.scalars(sa_select(Product).where(Product.odoo_product_id == 201)).first()
+    odoo_now = client.post(
+        "/api/v1/counts/stock-at",
+        json={"location_key": "floor", "product_ids": [product.id]},
+        headers=floor,
+    ).json()["quantities"][str(product.id)]
+    count = client.post(
+        "/api/v1/counts",
+        json={
+            "location_key": "floor",
+            "items": [{"product_id": product.id, "counted_qty": odoo_now + 2}],
+        },
+        headers=floor,
+    ).json()
+
+    approved = client.post(
+        f"/api/v1/counts/items/{count['items'][0]['id']}/approve", json={}, headers=flow
+    )
+    assert approved.status_code == 200, approved.text
+    item = approved.json()["items"][0]
+    assert item["status"] == "approved"  # the decision survives
+    assert item["picking_status"] == "created"  # the draft stands
+    assert "Odoo said no" in item["picking_error"]
 
 
 def test_mixed_outcomes_roll_up_honestly(client, db, settings_env):

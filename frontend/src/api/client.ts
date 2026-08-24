@@ -88,6 +88,19 @@ export async function apiUpload<T>(path: string, form: FormData, method = "POST"
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** Authorized image fetch for display: same bearer-in-a-header rule as
+ *  apiDownload, handed back as an object URL. The caller MUST revoke it when
+ *  the element unmounts — an un-revoked blob holds the bytes for the life of
+ *  the document. */
+export async function apiBlobUrl(path: string): Promise<string> {
+  const token = getToken();
+  const resp = await fetch(new URL(`/api/v1${path}`, API_BASE), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!resp.ok) throw new ApiError(resp.status, `couldn't load (${resp.status})`);
+  return URL.createObjectURL(await resp.blob());
+}
+
 /** Authorized file download: fetch with the bearer token, save via a blob
  *  link (tokens never ride in URLs). */
 export async function apiDownload(path: string, fallbackName: string): Promise<void> {

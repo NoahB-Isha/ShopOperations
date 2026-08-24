@@ -39,6 +39,7 @@ class AdjustResult:
     status: str  # created | simulated | failed | none
     reference: str = ""
     picking_name: str = ""
+    picking_id: int | None = None
     url: str = ""
     error: str = ""
 
@@ -116,5 +117,6 @@ def reconcile_floor_count(
         ),
         reference=result.reference,
         picking_name=result.record_name,
+        picking_id=result.record_ids[0] if result.record_ids else None,
         url=result.deep_link,
     )

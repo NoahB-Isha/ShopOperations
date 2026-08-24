@@ -44,6 +44,7 @@ OPERATION_FLAGS = {
     "prepare_count_transfer": "write_prepare_count_transfer",
     "create_inventory_reduction": "write_create_inventory_reduction",
     "create_inventory_addition": "write_create_inventory_addition",
+    "validate_adjustment": "write_validate_inventory_adjustment",
 }
 
 
@@ -65,6 +66,20 @@ class WriteResult:
 
 class WriterValidationError(ValueError):
     """Bad input to a write operation (unknown product, empty lines…)."""
+
+
+# (odoo base url, picking-type name, which default location) -> resolved env.
+# Process-lifetime: these are Odoo configuration records, and re-reading them
+# once per adjustment is what tripped Odoo's rate limiter (see _adjustment_env).
+_ADJUSTMENT_ENV_CACHE: dict[tuple[str, str, str], tuple[int | None, int | None, list[str]]] = {}
+_ADJUSTMENT_TYPE_IDS_CACHE: dict[str, set[int]] = {}
+
+
+def clear_adjustment_caches() -> None:
+    """Forget the resolved operation types (tests; and after changing the
+    configured type names)."""
+    _ADJUSTMENT_ENV_CACHE.clear()
+    _ADJUSTMENT_TYPE_IDS_CACHE.clear()
 
 
 class OdooWriter:
@@ -373,7 +388,18 @@ class OdooWriter:
         for an inventory-adjustment operation type matched by configured name
         (ilike; % wildcards allowed). `need` is which default the operation
         requires: 'dest' for reductions, 'src' for additions. Failures fall
-        back to None so dry-runs still render honestly."""
+        back to None so dry-runs still render honestly.
+
+        Cached per process, because approving a whole inventory count makes one
+        adjustment per item and this lookup ran on every one of them: on
+        2026-08-22 a 65-item review put Odoo's proxy over its limit and 16
+        approvals came back "could not resolve the adjustment picking type
+        (HTTP 429)" — approvals with no Odoo record at all. The operation types
+        are configuration; they do not change between two clicks."""
+        cache_key = (self.settings.odoo_base_url, wanted, need)
+        cached = _ADJUSTMENT_ENV_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
         warnings: list[str] = []
         type_id: int | None = None
         loc_id: int | None = None
@@ -398,7 +424,11 @@ class OdooWriter:
             else:
                 warnings.append(f"no picking type matching '{wanted}' on the instance")
         except OdooError as e:
+            # Not cached: a transient failure must not poison every later call.
             warnings.append(f"could not resolve the adjustment picking type ({e})")
+            return type_id, loc_id, warnings
+        if type_id is not None:
+            _ADJUSTMENT_ENV_CACHE[cache_key] = (type_id, loc_id, warnings)
         return type_id, loc_id, warnings
 
     def create_inventory_reduction(
@@ -636,6 +666,237 @@ class OdooWriter:
             message=f"Draft {label} {rec.get('name', picking_id)} created — review it in Odoo.",
             audit_id=audit_id,
         )
+
+    def validate_adjustment(
+        self,
+        *,
+        picking_odoo_id: int,
+        reference: str = "",
+        dry_run: bool = False,
+        ignore_feature_flag: bool = False,
+    ) -> WriteResult:
+        """Post an inventory-adjustment picking the app created — the ONE
+        operation that moves stock instead of proposing it.
+
+        Everything else in this class stops at a draft for a human to
+        validate. Counting is the deliberate exception (Noah, 2026-08-22): a
+        reviewer has already compared the counted number against Odoo's and
+        approved it, so a second human clicking Validate on 49 pickings adds
+        no judgement — it only adds a queue. See DECISIONS.md.
+
+        Because this one really does change stock, its guards are the tightest
+        in the file, and BOTH of them are load-bearing:
+
+          * the origin must be app-prefixed — never post a human's picking;
+          * the picking TYPE must be one of the two inventory-adjustment
+            types. `ILAPP-CNT-` is shared with the floor's STAGING→FLOOR count
+            transfers (transfers/service.prepare_count_transfer uses the same
+            prefix), so a reference-only check would post pallets nobody has
+            counted yet. Type is what tells the two apart.
+
+        Backorders are refused rather than confirmed: a quantity below demand
+        means the shelf couldn't give what the count asked for, which is a
+        question for a person, not something to answer with a wizard."""
+        started = time.monotonic()
+        operation = "validate_adjustment"
+
+        if picking_odoo_id <= 0:
+            raise WriterValidationError("No picking to validate.")
+        payload = {"picking_id": picking_odoo_id, "method": "button_validate"}
+        reason = self._forced_dry_run_reason(operation, dry_run, ignore_feature_flag)
+        if reason:
+            audit_id = self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                record_ids=[picking_odoo_id],
+                payload=payload,
+                response={},
+                error="",
+                started=started,
+            )
+            return WriteResult(
+                operation=operation,
+                reference=reference,
+                dry_run=True,
+                dry_run_reason=reason,
+                success=True,
+                odoo_model="stock.picking",
+                record_ids=[picking_odoo_id],
+                payload=payload,
+                message=_dry_run_message(reason),
+                audit_id=audit_id,
+            )
+
+        try:
+            state, name = self._check_validatable(picking_odoo_id)
+            if state == "done":
+                steps = ["already validated (idempotent retry)"]
+            else:
+                steps = self._post_adjustment(picking_odoo_id, state)
+                state = str(
+                    (
+                        self.conn.call_kw("stock.picking", "read", [[picking_odoo_id], ["state"]])
+                        or [{}]
+                    )[0].get("state", "")
+                )
+                if state != "done":
+                    raise OdooWriteError(
+                        f"{name} is still '{state}' after validating — check it in Odoo."
+                    )
+        except (OdooError, OdooWriteError, WriterValidationError) as e:
+            self._audit(
+                operation=operation,
+                reference=reference,
+                dry_run=False,
+                dry_run_reason="",
+                success=False,
+                odoo_model="stock.picking",
+                record_ids=[picking_odoo_id],
+                payload=payload,
+                response={},
+                error=str(e),
+                started=started,
+            )
+            if isinstance(e, WriterValidationError):
+                raise
+            raise OdooWriteError(str(e)) from e
+
+        audit_id = self._audit(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[picking_odoo_id],
+            payload=payload,
+            response={"steps": steps, "state": state},
+            error="",
+            started=started,
+        )
+        return WriteResult(
+            operation=operation,
+            reference=reference,
+            dry_run=False,
+            dry_run_reason="",
+            success=True,
+            odoo_model="stock.picking",
+            record_ids=[picking_odoo_id],
+            record_name=name,
+            deep_link=odoo_record_url(self.settings, "stock.picking", picking_odoo_id),
+            payload=payload,
+            message=f"{name} validated in Odoo ({', '.join(steps)}).",
+            audit_id=audit_id,
+        )
+
+    def _check_validatable(self, picking_odoo_id: int) -> tuple[str, str]:
+        """(state, name) — or a refusal. See validate_adjustment for why both
+        the reference AND the picking type are checked."""
+        rows = self.conn.call_kw(
+            "stock.picking",
+            "read",
+            [[picking_odoo_id], ["name", "origin", "state", "picking_type_id"]],
+        )
+        if not rows:
+            raise WriterValidationError(f"Picking #{picking_odoo_id} not found in Odoo.")
+        rec = rows[0]
+        name = str(rec.get("name") or f"#{picking_odoo_id}")
+        if not is_app_reference(str(rec.get("origin") or "")):
+            raise WriterValidationError(
+                f"Refusing to validate {name}: its reference isn't app-prefixed, so the "
+                "app didn't create it."
+            )
+        type_id = rec.get("picking_type_id")
+        type_id = type_id[0] if isinstance(type_id, list) else type_id
+        if type_id not in self._adjustment_type_ids():
+            type_label = (
+                rec["picking_type_id"][1]
+                if isinstance(rec.get("picking_type_id"), list)
+                else "unknown"
+            )
+            raise WriterValidationError(
+                f"Refusing to validate {name}: '{type_label}' is not an inventory-adjustment "
+                "operation type. Only adjustments are posted by the app; transfers and "
+                "counts are validated by the person doing them."
+            )
+        state = str(rec.get("state") or "")
+        if state == "cancel":
+            raise WriterValidationError(f"{name} is cancelled in Odoo — nothing to validate.")
+        return state, name
+
+    def _adjustment_type_ids(self) -> set[int]:
+        """The ids of the two configured inventory-adjustment operation types.
+        Empty would make the type guard vacuous, so an empty result raises.
+
+        Cached like _adjustment_env, and for the same reason: posting a whole
+        count is one call per item, and re-reading configuration on each one is
+        what got the app rate-limited."""
+        cache_key = self.settings.odoo_base_url
+        cached = _ADJUSTMENT_TYPE_IDS_CACHE.get(cache_key)
+        if cached:
+            return cached
+        ids: set[int] = set()
+        for wanted in (
+            self.settings.odoo_reduction_picking_type,
+            self.settings.odoo_addition_picking_type,
+        ):
+            for row in self.conn.search_read(
+                "stock.picking.type", [["name", "ilike", wanted]], ["id"], order="id asc"
+            ):
+                ids.add(int(row["id"]))
+        if not ids:
+            raise WriterValidationError(
+                "Neither inventory-adjustment operation type could be found in Odoo — "
+                "refusing to validate anything until the type guard works."
+            )
+        _ADJUSTMENT_TYPE_IDS_CACHE[cache_key] = ids
+        return ids
+
+    def _post_adjustment(self, picking_odoo_id: int, state: str) -> list[str]:
+        """Confirm → reserve → mark the lines picked → button_validate."""
+        steps: list[str] = []
+        if state == "draft":
+            self.conn.call_kw("stock.picking", "action_confirm", [[picking_odoo_id]])
+            steps.append("confirmed")
+            state = "confirmed"
+        if state in ("confirmed", "waiting"):
+            self.conn.call_kw("stock.picking", "action_assign", [[picking_odoo_id]])
+            steps.append("reserved")
+
+        moves = self.conn.search_read(
+            "stock.move",
+            [["picking_id", "=", picking_odoo_id]],
+            ["id", "product_uom_qty", "quantity", "picked"],
+        )
+        if not moves:
+            raise WriterValidationError("That picking has no lines — nothing to post.")
+        # Odoo 17+ posts `quantity` on lines flagged `picked`. Set both, so an
+        # adjustment can't validate as a zero and quietly do nothing.
+        for m in moves:
+            vals: dict = {}
+            if float(m.get("quantity") or 0) != float(m["product_uom_qty"]):
+                vals["quantity"] = m["product_uom_qty"]
+            if not m.get("picked"):
+                vals["picked"] = True
+            if vals:
+                self.conn.call_kw("stock.move", "write", [[m["id"]], vals])
+        steps.append(f"{len(moves)} line(s) picked")
+
+        res = self.conn.call_kw("stock.picking", "button_validate", [[picking_odoo_id]])
+        if isinstance(res, dict) and res.get("res_model"):
+            # A wizard came back — most often the backorder confirmation, which
+            # means Odoo could not give the full quantity. Answering it blind
+            # would post a number nobody counted.
+            raise OdooWriteError(
+                f"Odoo asked for confirmation ({res.get('res_model')}) instead of validating — "
+                "the quantity on hand can't satisfy this adjustment. Handle it in Odoo."
+            )
+        steps.append("validated")
+        return steps
 
     def prepare_count_transfer(
         self,

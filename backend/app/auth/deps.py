@@ -17,6 +17,8 @@ from ..models import (
     Center,
     Role,
     User,
+    Zone,
+    ZoneKind,
 )
 from .service import AuthError, decode_session_token
 
@@ -103,4 +105,15 @@ def visible_center_ids(db: Session, authed: AuthedUser) -> set[int] | None:
     if zone_ids:
         rows = db.scalars(select(Center.id).where(Center.zone_id.in_(zone_ids)))
         ids.update(rows)
+    if authed.has_role(Role.DEPT_ORDER_APPROVER):
+        # The add-on carries no zone on its assignment — it means every
+        # departments zone, so that the orders it exists to approve are
+        # visible even when the holder's own role sees nothing else.
+        ids.update(
+            db.scalars(
+                select(Center.id)
+                .join(Zone, Zone.id == Center.zone_id)
+                .where(Zone.kind == ZoneKind.DEPARTMENTS.value)
+            )
+        )
     return ids

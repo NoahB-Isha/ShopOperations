@@ -1518,3 +1518,91 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   and an over-confident one compounds across a year-long order. Findings 05
   (the max(0,…) clamp hides shortfall depth) and 07-10 are still open by
   choice — see the artifact.
+- Department QR ordering (2026-08-22, Noah: III departments come into the shop
+  and fill in a paper sheet — give them the order form by QR instead): **the
+  QR is a bookmark, not a credential.** `GET /centers/{id}/order-qr.png`
+  (admin; segno, PNG through the `downloads.py` door) encodes
+  `{app_public_url}/place-order?center={id}` and NOTHING else — no token, no
+  session — so a poster taped to the counter is worth exactly a link to the
+  sign-in page. That works BECAUSE everyone at III has an ishausa Google
+  account (Noah confirmed); without accounts this would have needed a separate
+  credential class — a kiosk token that `get_current_user` never accepts,
+  per-department PINs, short expiry — and none of that exists, deliberately.
+  The route is **`/place-order`**, not `/order` (that's an order's DETAIL page
+  — caught by scanning the first poster). Landing there signed-out works
+  because `auth/returnTo.ts` parks the destination in sessionStorage — router
+  state cannot survive the OAuth hop to Google and back — and LoginPage
+  consumes it once; `safeReturnPath` refuses anything but a single-slash
+  same-origin path, since that value decides where a fresh session lands (an
+  open redirect straight after login is how a scanned QR becomes a phishing
+  page). PlaceOrderPage takes `?center=` as an OPENING pick only — tapping
+  another chip still sticks. Admin surface: the poster lives in
+  CenterEditDialog with the link, a copy button and a PNG download —
+  `apiBlobUrl` is the new bearer-in-a-header blob fetch for an inline `<img>`
+  (revoke the object URL on unmount).
+- **"Approve dept orders" is an ADD-ON role** (2026-08-22, Noah's correction
+  the same day — the first cut had departments zones self-approving via a
+  `zones.auto_approve_orders` policy flag; that is GONE, column, migration,
+  `ORDER_AUTO_APPROVED` notification and all). Department orders are reviewed
+  like everyone else's; what changed is WHO. `Role.DEPT_ORDER_APPROVER` is the
+  second add-on next to `inventory_wrangler` (`ADD_ON_ROLES` names both): held
+  ALONGSIDE a real role so a shop team member behind the counter can approve
+  what a department is taking, without being made the Order Reviewer of a
+  review zone. It carries no zone on its assignment — it means every
+  departments-kind zone and nothing else, enforced in three places that must
+  agree: `PARTICIPANTS` (reach the router at all), `visible_center_ids` (see
+  those centers even when the holder's own role sees nothing), and
+  `_is_coordinator_of` (decide them). `flow.COORDINATOR_ROLES` lists the role
+  because the table only says the move EXISTS for it; which orders is the
+  router's business. `notify._recipients` also pings add-on holders on a
+  departments order — the review zone's coordinator alone would ping the
+  person who no longer does the job. Frontend: one nav destination unioned on
+  (`/pending-orders`, deduped if they're also a reviewer), the route's roles,
+  and — new — both add-ons finally appear in the UsersPage role picker as
+  "＋ Approve dept orders" / "＋ Approve counts"; `inventory_wrangler` had been
+  grantable only through the API since it shipped. The demo seed gives
+  floor@ the add-on on top of SHOPPE_FLOOR, which is the pairing the role
+  exists for, and e2e phase3 approves the department's water order as floor@.
+- Counting posts its own adjustments (2026-08-22, Noah — this REVERSES the
+  brief's "nothing the app creates is ever validated by the app", for counting
+  only): approving a counted item used to leave a draft, so 65 approvals left
+  65 pickings for somebody to click Validate on. The judgement a person would
+  apply at that button — is this counted number right? — is the judgement the
+  reviewer just made, so `OdooWriter.validate_adjustment` (flag
+  `write_validate_inventory_adjustment`, migration `f1a83c6d2b57` inserts the
+  row ENABLED because the deployed stack runs migrations but no seed, and
+  `PUT /admin/flags/{key}` 404s on a missing row) posts it. Turning the flag
+  off restores the old behaviour exactly. **Two guards, both load-bearing**:
+  the picking's origin must be app-prefixed, AND its picking TYPE must be one
+  of the two inventory-adjustment types — because `ILAPP-CNT-` is ALSO the
+  prefix on the floor's STAGING→FLOOR count transfers
+  (transfers/service.prepare_count_transfer), so a reference-only sweep would
+  post pallets nobody has counted (58 CNT pickings live: 49 adjustments, 9
+  transfers). `test_validate_adjustment_refuses_anything_that_is_not_an_
+  adjustment` is the control. Backorder wizards are REFUSED, not confirmed — a
+  short quantity is a question for a person. Odoo posts through
+  `button_validate`, now on the WRITE_METHODS allow-list (the simulator
+  implements it, moving quants, so a validate that changed nothing would fail
+  its test). A failed post keeps the approval AND the draft — an approval is a
+  decision, and the worst case is the old behaviour. **The rate-limit bug that
+  came with it**: `_adjustment_env` resolved the picking type on EVERY
+  adjustment, so a 65-item review made 65 config lookups and Odoo's proxy
+  answered HTTP 429 — 16 approvals wrote nothing at all. Both lookups are now
+  cached per process (`clear_adjustment_caches()`, called from the `db`
+  fixture). Catch-up for rows approved before this:
+  `backend/scripts/post_count_adjustments.py` (dry-run default) posts the
+  `created` ones and re-runs `apply_to_odoo` for the `failed` ones, resolving
+  missing `odoo_picking_id`s from the reference (the adjustment core never
+  recorded the id until now — `AdjustResult.picking_id`).
+- Newest-added-first + no sideways scroll (2026-08-22, Noah): the transfer
+  draft and the inventory count both append-ed, so on a phone the row you just
+  added landed off the bottom of the screen — the one row you are about to
+  type into. `transferDraft.withNewestFirst` is the single pure rule (unit
+  tested) used by the page's own two add paths AND `addToDraft`; a repeat
+  merges quantities and moves to the top too, because a merge you can't see
+  reads as a tap that did nothing. InventoryCountPage prepends the same way.
+  The shared `ProductPicker` results list scrolled SIDEWAYS on phones (its
+  meta row — code, case size, category badge, on-the-way chip — is a nowrap
+  flex, and `overflow-y-auto` computes overflow-x to auto): the row wraps now
+  and the container is `overflow-x-hidden`. Both fixes land on every picker
+  surface (catalogs, vendor rosters), not just those two pages.

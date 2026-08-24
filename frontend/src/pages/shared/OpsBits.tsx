@@ -309,7 +309,10 @@ export function ProductPicker({
         className="w-full"
       />
       {search.trim() !== "" && (
-        <div className="mt-2 max-h-80 overflow-y-auto rounded-(--radius-md) bg-surface-container">
+        <div
+          className="mt-2 max-h-80 overflow-x-hidden overflow-y-auto rounded-(--radius-md)
+            bg-surface-container"
+        >
           {isLoading && (
             <div className="grid place-items-center py-8">
               <Spinner size={18} />
@@ -338,8 +341,13 @@ export function ProductPicker({
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{p.name}</span>
-                      <span className="mt-0.5 flex items-center gap-2 text-[12px] text-on-surface-variant">
-                        <span className="font-mono">{productCode(p.barcode, p.global_sku)}</span>
+                      {/* wraps rather than pushing the row wide: a long
+                          category or an "already on the way" chip used to make
+                          the whole result list scroll sideways on a phone */}
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-on-surface-variant">
+                        <span className="max-w-full truncate font-mono">
+                          {productCode(p.barcode, p.global_sku)}
+                        </span>
                         {p.case_size > 1 && (
                           <span className="whitespace-nowrap">case of {p.case_size}</span>
                         )}

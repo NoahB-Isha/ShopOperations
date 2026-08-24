@@ -704,3 +704,87 @@ to `public/palette.js` so the CSP needs no per-edit hash), verified SMTP STARTTL
 posture), non-root containers, and pip-audit/npm-audit/gitleaks/Dependabot in CI. The
 coordinator roster workbook left git and the image for `./private/` — treat it as already
 disclosed and rotate the Stripe terminal registrations.
+
+---
+
+**2026-08-22 — Departments order by QR, approved by a shop team member** *(Phase 5.z)*
+III departments walk into the Shoppe, take water/snacks/t-shirts and fill in a paper
+sheet. They now scan a QR on the counter instead.
+
+*Why the QR carries no credential.* The obvious design — a token in the code, exchanged
+for a scoped session — makes a poster on a wall a bearer credential that anyone can
+photograph and that never expires. Everyone at III has an `@ishausa.org` Google account,
+which is already the production sign-in, so the code can be a plain link
+(`/place-order?center=<id>`): scanning it while signed out lands on the normal Google
+sign-in and returns to the department's form, and sessions last 30 days, so it's one
+sign-in per phone. Rejected, for now: a separate kiosk credential class (its own
+dependency that `get_current_user` never accepts, per-department PINs, short-lived
+exchange, hard rate limits). That is the design to reach for if account-free access is
+ever needed — the important part of it is that a kiosk token must never be "a user with
+fewer roles", or one missed `require_roles` turns a poster into an admin.
+
+Two consequences the code owns: the destination is parked in `sessionStorage`
+(`auth/returnTo.ts`) because router state cannot survive the redirect to Google and
+back, and `safeReturnPath` accepts only single-slash same-origin paths — the value
+decides where a fresh session lands, and an open redirect immediately after login is
+exactly how a scanned QR becomes a phishing page.
+
+*Who approves.* The first cut of this had departments approving themselves, on the
+reasoning that the paper sheet had no approval step either. Noah's correction, same day:
+a shop team member should look. That is not the same as making them an Order Reviewer of
+the III Departments review zone — the person behind the counter is an Inventory Flow
+Manager or Floor Team, and a review zone is a coordinator's territory, with centers,
+catalogs and a roster attached.
+
+So it's an **add-on role**, the second one after `inventory_wrangler`:
+`dept_order_approver`, held alongside whatever someone already is, granting exactly one
+job. Add-ons carry no row scope on their assignment — an approver reaches every
+departments-kind zone and nothing else — which means the permission is expressed in
+three places that have to agree (router membership, `visible_center_ids`,
+`_is_coordinator_of`) rather than in a zone id. The alternative, a zone-scoped
+`zone_coordinator` row pointing at III Departments, would have been less code and the
+wrong shape: it says "this person runs that review zone" when what's true is "this
+person can approve a department's pickup."
+
+The self-approval machinery is deleted rather than left switched off — the column, its
+migration, the `ORDER_AUTO_APPROVED` notification kind and the "Record it" copy. A
+disabled feature nobody uses is a thing the next person has to understand.
+
+Also fixed in passing: both add-ons now appear in the Users page role picker.
+`inventory_wrangler` had been grantable only through the API since it shipped, which
+made it, in practice, a permission nobody could give anyone.
+
+---
+
+**2026-08-22 — Approving a count validates it in Odoo** *(Phase 5.z)*
+This reverses, for one flow, the rule the project was built on: *nothing the app creates
+is ever validated by the app.* Everywhere else that rule stands.
+
+The rule exists so a human sees every stock movement before it happens. In counting, that
+human has already looked: the reviewer compared a counted number against Odoo's, in a
+screen built to show exactly that, and pressed Approve. Leaving the resulting adjustment
+as a draft doesn't add a second judgement, it adds a second queue — 49 pickings on one
+day, each needing a click that can only say "yes, what the reviewer decided." A queue
+nobody works is worse than no queue: the shelf figures stay wrong while the app reports
+the count as applied.
+
+So `OdooWriter.validate_adjustment` posts it, and it is the only operation in the writer
+that moves stock. Its guards are correspondingly tight, and the second one was found by
+looking at production rather than by reasoning: `ILAPP-CNT-` is shared between count
+adjustments and the floor's STAGING→FLOOR count transfers, so validating by reference
+prefix — the obvious implementation, and what the request literally asked for — would
+have posted pallets nobody had counted yet. The picking TYPE is what separates them.
+Backorder wizards are refused rather than confirmed, because a quantity Odoo can't
+satisfy is a question for a person.
+
+The escape hatch is the feature flag: `write_validate_inventory_adjustment` off restores
+the previous behaviour exactly — a draft, a deep link, a human. It ships on, unlike every
+other write flag, because it *is* the requested behaviour and a flag-off default would
+have shipped a feature that silently does nothing.
+
+*The bug underneath it.* Looking at those 49, another 16 approvals turned out to have
+written nothing at all: `_adjustment_env` re-read the picking type for every single
+adjustment, and a 65-item review put Odoo's proxy over its rate limit (HTTP 429). The
+approvals were recorded, Odoo never heard them. Operation types are configuration, so
+both lookups are cached per process now, and `scripts/post_count_adjustments.py` re-runs
+the ones that were lost.

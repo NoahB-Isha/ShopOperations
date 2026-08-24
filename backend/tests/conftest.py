@@ -65,6 +65,12 @@ def live_env(settings_env, monkeypatch):
 
 @pytest.fixture()
 def db(settings_env):
+    from app.odoo.writer import clear_adjustment_caches
+
+    # the resolved adjustment operation types are cached for the life of the
+    # process (they're configuration, and re-reading them per adjustment got
+    # the app rate-limited) — each test gets a fresh simulator, so clear it
+    clear_adjustment_caches()
     Base.metadata.create_all(get_engine())
     session = get_sessionmaker()()
     yield session

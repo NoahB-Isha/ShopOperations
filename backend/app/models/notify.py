@@ -22,7 +22,7 @@ from .base import Base, JSONVariant, utcnow
 
 
 class NotificationKind(str, enum.Enum):
-    ORDER_PLACED = "order_placed"  # → the zone's coordinator(s)
+    ORDER_PLACED = "order_placed"  # → whoever reviews this center's orders
     ORDER_APPROVED = "order_approved"  # → the orderer
     ORDER_REJECTED = "order_rejected"  # → the orderer
     ORDER_SHIPPED = "order_shipped"  # → the orderer (picking validated in Odoo)

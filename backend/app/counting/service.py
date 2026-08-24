@@ -6,9 +6,15 @@ through the same shared core (oos/adjust.reconcile_floor_count) rather than a
 third copy — with one addition: counts happen at a location that isn't always
 the floor, so the adjustment carries the counted location's Odoo id.
 
-As everywhere else in this app: the adjustment is a DRAFT, a human validates
-it in Odoo, and the item records the link. Rejected counts and counts still
-waiting write nothing.
+Counting is the app's ONE exception to "the app never validates" (Noah,
+2026-08-22): a reviewer has already held the counted number against Odoo's and
+approved it, so leaving 49 pickings for a second person to click Validate adds
+a queue, not a judgement. The adjustment is still created as a draft first and
+still carries its ILAPP-CNT- reference and deep link; `post_adjustment` then
+posts it through `OdooWriter.validate_adjustment`, behind its own feature flag
+(`write_validate_inventory_adjustment`). With the flag off, the old behaviour
+is exactly what happens: a draft, and a link for a human. Rejected counts and
+counts still waiting write nothing either way.
 """
 from __future__ import annotations
 
@@ -23,7 +29,8 @@ from ..models import (
     InventoryCountItem,
     OdooWriteOutcome,
 )
-from ..odoo.writer import WriterValidationError
+from ..odoo.errors import OdooWriteError
+from ..odoo.writer import OdooWriter, WriterValidationError
 from ..oos.adjust import AdjustTooLarge, reconcile_floor_count
 from .locations import CountLocation
 
@@ -94,8 +101,23 @@ def apply_to_odoo(
     item.picking_status = outcome.status
     item.picking_reference = outcome.reference
     item.picking_error = outcome.error
+    item.odoo_picking_id = outcome.picking_id
     item.odoo_picking_name = outcome.picking_name
     item.odoo_picking_url = outcome.url
+
+    if outcome.status == OdooWriteOutcome.CREATED.value:
+        posted = post_adjustment(db, settings, item, actor_user_id)
+        if posted:
+            return (
+                f"{outcome.picking_name} posted in Odoo ({outcome.direction} "
+                f"{outcome.qty:g} at {location.key}) — the count is live"
+            )
+        if item.picking_error:
+            return (
+                f"draft {outcome.picking_name} created ({outcome.direction} "
+                f"{outcome.qty:g} at {location.key}), but posting it failed: "
+                f"{item.picking_error} — validate it in Odoo"
+            )
 
     if outcome.status == "none":
         return (
@@ -113,3 +135,36 @@ def apply_to_odoo(
             "was written to Odoo"
         )
     return f"Odoo refused the adjustment: {outcome.error}"
+
+
+def post_adjustment(
+    db: Session,
+    settings: Settings,
+    item: InventoryCountItem,
+    actor_user_id: int | None,
+) -> bool:
+    """Validate the adjustment this item already created. True when Odoo says
+    'done'.
+
+    Failure is recorded on the item and never raised: the approval decision is
+    already made, and the draft is still there with its deep link — the worst
+    case is the behaviour the app had before it posted anything. A gated flag
+    is not a failure either; it leaves the item CREATED, which is exactly what
+    'a human validates it' looks like."""
+    if not item.odoo_picking_id:
+        return False
+    writer = OdooWriter(db, settings, actor_user_id=actor_user_id)
+    try:
+        result = writer.validate_adjustment(
+            picking_odoo_id=int(item.odoo_picking_id),
+            reference=item.picking_reference,
+        )
+    except (OdooWriteError, WriterValidationError) as e:
+        item.picking_error = str(e)
+        log.warning("count item %s: could not post %s: %s", item.id, item.odoo_picking_name, e)
+        return False
+    if result.dry_run:
+        return False  # flag off / kill switch — the draft stands, as before
+    item.picking_status = OdooWriteOutcome.VALIDATED.value
+    item.picking_error = ""
+    return True

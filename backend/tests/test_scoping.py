@@ -208,6 +208,41 @@ def test_center_detail_names_the_reviewer_the_requester_and_the_shelf(client, db
     assert client.get(f"/api/v1/centers/{chicago['id']}/detail", headers=orderer).status_code == 404
 
 
+def test_the_order_qr_carries_a_link_and_nothing_else(client, db, settings_env):
+    """The poster on the Shoppe counter. What makes it safe to tape to a wall
+    is that the code is a URL — no token, no session, no credential — so a
+    photograph of it gets you a link to the sign-in page."""
+    _, _, austin, *_ = _world(db)
+    mk_user(db, "admin@t.l", (Role.ADMIN, None, None))
+    mk_user(db, "orderer@t.l", (Role.CENTER_ORDERER, None, austin.id))
+    admin = login(client, "admin@t.l")
+
+    body = client.get(f"/api/v1/centers/{austin.id}/detail", headers=admin).json()
+    assert body["order_url"].endswith(f"/place-order?center={austin.id}")
+
+    r = client.get(f"/api/v1/centers/{austin.id}/order-qr.png", headers=admin)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert "attachment" in r.headers["content-disposition"]
+
+    # the code encodes that URL and nothing else — same input, same bytes
+    import io
+
+    import segno
+
+    expected = io.BytesIO()
+    segno.make(body["order_url"], error="m").save(
+        expected, kind="png", scale=10, border=4, dark="#1a1a1a"
+    )
+    assert r.content == expected.getvalue()
+
+    # printing posters is an admin job — a requester can't enumerate them
+    assert client.get(
+        f"/api/v1/centers/{austin.id}/order-qr.png", headers=login(client, "orderer@t.l")
+    ).status_code == 403
+
+
 def test_center_sales_compare_two_complete_months(client, db):
     """Dot size and the up/down arrow both come from this.
 
