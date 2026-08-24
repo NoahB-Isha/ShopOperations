@@ -15,7 +15,7 @@ dependencies = [
     "pyjwt[crypto]>=2.8",  # [crypto] = cryptography, for Supabase ES256/RS256 token verify
     "openpyxl>=3.1",
     "segno>=1.6",  # QR posters for the department order form (pure Python, no deps)
-    "anthropic>=0.116",
+    "anthropic>=1.0.0",
     "python-multipart>=0.0.32",
 ]
 
