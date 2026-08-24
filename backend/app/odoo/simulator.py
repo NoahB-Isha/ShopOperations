@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..models.base import utcnow
 from .errors import OdooError, OdooWriteNotPermitted
 from .protocol import READ_METHODS, WRITE_METHODS
 
@@ -28,6 +29,9 @@ RELATIONS: dict[tuple[str, str], str] = {
     ("stock.quant", "location_id"): "stock.location",
     # the transfers sync finds staging-bound pickings by destination subtree
     ("stock.picking", "location_dest_id"): "stock.location",
+    # the counting ledger asks what crossed a location's boundary
+    ("stock.move.line", "location_id"): "stock.location",
+    ("stock.move.line", "location_dest_id"): "stock.location",
 }
 
 # one2many creation commands the app uses ((parent, field) -> (child, backref))
@@ -283,8 +287,35 @@ class OdooSimulator:
                 move["state"] = "done"
                 move["quantity"] = qty
                 move["picked"] = True
+                # Odoo writes a move LINE per validated move, and that ledger
+                # is what counting/ledger.py reads to tell a sale from another
+                # count's correction. A simulator that moved quants silently
+                # would let that logic pass its tests without being exercised.
+                self._add_move_line(pick, move, product, qty, src, dest)
             pick["state"] = "done"
         return True
+
+    def _add_move_line(
+        self, pick: dict, move: dict, product: Any, qty: float, src: Any, dest: Any
+    ) -> None:
+        rows = self._rows("stock.move.line")
+        rows.append(
+            {
+                "id": max((r.get("id") or 0) for r in rows) + 1 if rows else 1,
+                "date": utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "state": "done",
+                "quantity": qty,
+                "product_id": self._m2o("product.product", self._m2o_id(product), "display_name"),
+                "location_id": self._m2o("stock.location", self._m2o_id(src), "complete_name"),
+                "location_dest_id": self._m2o(
+                    "stock.location", self._m2o_id(dest), "complete_name"
+                ),
+                "picking_id": [pick["id"], str(pick.get("name") or "")],
+                "picking_type_id": pick.get("picking_type_id"),
+                "move_id": move.get("id"),
+                "reference": str(pick.get("name") or ""),
+            }
+        )
 
     def _move_quant(self, product: Any, location: Any, delta: float) -> None:
         location_id = self._m2o_id(location)

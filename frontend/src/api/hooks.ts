@@ -572,6 +572,7 @@ import type {
   OrderingCoverageOut,
   ReleaseStaleOut,
   ResetFlowOut,
+  StockAtOut,
 } from "./types";
 
 export function useOrderContext() {
@@ -1343,10 +1344,7 @@ export function useCountLocations() {
 export function useStockAt() {
   return useMutation({
     mutationFn: (v: { location_key: string; product_ids: number[] }) =>
-      api<{ location_key: string; source: string; quantities: Record<string, number> }>(
-        "/counts/stock-at",
-        { method: "POST", body: v },
-      ),
+      api<StockAtOut>("/counts/stock-at", { method: "POST", body: v }),
   });
 }
 

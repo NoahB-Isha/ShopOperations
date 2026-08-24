@@ -41,8 +41,8 @@ from ..models import (
     User,
     utcnow,
 )
-from . import flow, locations
-from .service import apply_to_odoo, event
+from . import flow, locations, recent
+from .service import apply_to_odoo, event, read_baseline
 
 router = APIRouter(prefix="/counts", tags=["counting"])
 
@@ -69,10 +69,27 @@ class StockAtIn(BaseModel):
     product_ids: list[int] = Field(min_length=1, max_length=500)
 
 
+class RecentCountOut(BaseModel):
+    """Somebody else's count of this product at this location."""
+
+    count_id: int
+    counted_by: str
+    counted_at: datetime
+    counted_qty: float
+    status: str
+    # False = it hasn't reached Odoo, so both counts are measuring against the
+    # same starting number. That's the warning; True is just context.
+    applied: bool
+    note: str
+
+
 class StockAtOut(BaseModel):
     location_key: str
     source: str  # live | snapshot
     quantities: dict[int, float]
+    # products somebody else has counted here lately — keyed by product id,
+    # absent when there's nothing to say
+    recent: dict[int, RecentCountOut] = {}
 
 
 class CountLineIn(BaseModel):
@@ -131,6 +148,10 @@ class ItemOut(BaseModel):
     entries: list[EntryOut]
     events: list[ItemEventOut]
     submitted_at: datetime
+    # Another count of the same product at the same location. When it hasn't
+    # been applied, approving both moves stock twice against one starting
+    # number — the 2026-08-22 duplicates. Advisory: the reviewer decides.
+    also_counted: RecentCountOut | None = None
 
 
 class CountOut(BaseModel):
@@ -210,8 +231,16 @@ def _load(db: Session, count_id: int) -> InventoryCount:
     return count
 
 
-def _item_out(db: Session, item: InventoryCountItem, names: dict[int, str]) -> ItemOut:
+def _item_out(
+    db: Session,
+    item: InventoryCountItem,
+    names: dict[int, str],
+    also: dict[int, recent.RecentCount] | None = None,
+) -> ItemOut:
+    """`also` is the whole response's recent-counts map (recent.for_items),
+    passed in rather than looked up per row — a queue is dozens of items."""
     latest = item.latest
+    other = (also or {}).get(item.id)
     return ItemOut(
         id=item.id,
         count_id=item.count_id,
@@ -250,6 +279,7 @@ def _item_out(db: Session, item: InventoryCountItem, names: dict[int, str]) -> I
             )
             for e in item.entries
         ],
+        also_counted=_recent_out({0: other})[0] if other else None,
         events=[
             ItemEventOut(
                 kind=ev.kind,
@@ -271,6 +301,7 @@ def _count_out(db: Session, count: InventoryCount) -> CountOut:
         ids |= {ev.actor_user_id for ev in item.events}
     ids |= {ev.actor_user_id for ev in count.events}
     names = _names(db, ids)
+    also = recent.for_items(db, list(count.items))
     return CountOut(
         id=count.id,
         display_name=count.display_name,
@@ -280,7 +311,7 @@ def _count_out(db: Session, count: InventoryCount) -> CountOut:
         counted_by=names.get(count.counted_by_id or 0, "unknown"),
         note=count.note,
         submitted_at=count.submitted_at,
-        items=[_item_out(db, i, names) for i in count.items],
+        items=[_item_out(db, i, names, also) for i in count.items],
         events=[
             ItemEventOut(
                 kind=ev.kind,
@@ -335,10 +366,31 @@ def stock_at(
     _: AuthedUser = Depends(require_roles(*COUNTERS)),
 ) -> StockAtOut:
     """What Odoo says is at this location for these products, right now — the
-    number the counter compares the shelf against."""
+    number the counter compares the shelf against, plus a heads-up when
+    somebody else has already counted the same thing (see recent.py)."""
     loc = _resolve_location(db, settings, body.location_key)
     qtys, source = locations.quantities_at(db, settings, loc, body.product_ids)
-    return StockAtOut(location_key=loc.key, source=source, quantities=qtys)
+    return StockAtOut(
+        location_key=loc.key,
+        source=source,
+        quantities=qtys,
+        recent=_recent_out(recent.recent_counts(db, loc.key, body.product_ids)),
+    )
+
+
+def _recent_out(found: dict[int, recent.RecentCount]) -> dict[int, RecentCountOut]:
+    return {
+        pid: RecentCountOut(
+            count_id=r.count_id,
+            counted_by=r.counted_by,
+            counted_at=r.counted_at,
+            counted_qty=r.counted_qty,
+            status=r.status,
+            applied=r.applied,
+            note=r.note,
+        )
+        for pid, r in found.items()
+    }
 
 
 @router.get("/assignees", response_model=list[AssigneeOut])
@@ -502,7 +554,7 @@ def review_queue(
         ids |= {ev.actor_user_id for ev in item.events}
     names = _names(db, ids)
     items = sorted(items, key=lambda i: (*flow.queue_rank(i.status, len(i.entries)), i.id))
-    return [_item_out(db, i, names) for i in items]
+    return [_item_out(db, i, names, recent.for_items(db, items)) for i in items]
 
 
 @router.get("/my-recounts", response_model=list[ItemOut])
@@ -529,7 +581,9 @@ def my_recounts(
     ids: set[int | None] = set()
     for item in items:
         ids |= {e.counted_by_id for e in item.entries} | {ev.actor_user_id for ev in item.events}
-    return [_item_out(db, i, _names(db, ids)) for i in items]
+    return [
+        _item_out(db, i, _names(db, ids), recent.for_items(db, items)) for i in items
+    ]
 
 
 @router.get("/{count_id}", response_model=CountOut)
@@ -568,16 +622,25 @@ def approve_item(
     settings: Settings = Depends(get_settings),
     authed: AuthedUser = Depends(require_roles(*REVIEWERS)),
 ) -> CountOut:
-    """Approve one item: the counted quantity becomes Odoo's, via a draft."""
+    """Approve one item: the counted quantity becomes Odoo's."""
     item = _get_item(db, item_id)
     if not flow.can_review(item.status):
         raise HTTPException(409, f"That item is already {item.status}.")
     loc = _resolve_location(db, settings, item.count.location_key)
+
+    # Re-read Odoo BEFORE recording the decision. A stale baseline isn't a
+    # write that failed — it's an instruction that no longer means what it
+    # said — so the approval is refused rather than recorded and left broken,
+    # which also keeps the item open for the "Request recount" button.
+    baseline = read_baseline(db, settings, item, loc)
+    if baseline.blocked:
+        raise HTTPException(422, baseline.message(item.product.name))
+
     item.status = CountItemStatus.APPROVED.value
     item.reviewed_by_id = authed.id
     item.reviewed_at = utcnow()
     item.recount_assignee_id = None
-    note = apply_to_odoo(db, settings, item, loc, authed.id)
+    note = apply_to_odoo(db, settings, item, loc, authed.id, baseline=baseline)
     event(db, item, item.count_id, CountEventKind.APPROVED, body.note.strip() or "approved", authed.id)
     event(db, item, item.count_id, CountEventKind.ODOO, note, authed.id)
     _refresh_status(item.count)
@@ -720,18 +783,35 @@ def approve_all(
     count = _load(db, count_id)
     loc = _resolve_location(db, settings, count.location_key)
     done = 0
+    skipped = 0
     for item in count.items:
         if not flow.can_review(item.status):
+            continue
+        # Same guard as the single-item approval — but one stale row must not
+        # throw away the other nineteen decisions, so it is SKIPPED and left
+        # open, with the reason on its own timeline.
+        baseline = read_baseline(db, settings, item, loc)
+        if baseline.blocked:
+            skipped += 1
+            event(
+                db, item, count.id, CountEventKind.ODOO,
+                baseline.message(item.product.name), authed.id,
+            )
             continue
         item.status = CountItemStatus.APPROVED.value
         item.reviewed_by_id = authed.id
         item.reviewed_at = utcnow()
         item.recount_assignee_id = None
-        note = apply_to_odoo(db, settings, item, loc, authed.id)
+        note = apply_to_odoo(db, settings, item, loc, authed.id, baseline=baseline)
         event(db, item, count.id, CountEventKind.APPROVED, body.note.strip() or "approved with the submission", authed.id)
         event(db, item, count.id, CountEventKind.ODOO, note, authed.id)
         done += 1
-    event(db, None, count.id, CountEventKind.APPROVED, f"{done} item(s) approved{(' — ' + body.note.strip()) if body.note.strip() else ''}", authed.id)
+    summary = f"{done} item(s) approved"
+    if skipped:
+        summary += f"; {skipped} left open — Odoo's quantity moved since they were counted"
+    if body.note.strip():
+        summary += f" — {body.note.strip()}"
+    event(db, None, count.id, CountEventKind.APPROVED, summary, authed.id)
     _refresh_status(count)
     db.commit()
     return _count_out(db, _load(db, count_id))

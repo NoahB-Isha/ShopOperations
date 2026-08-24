@@ -275,6 +275,29 @@ function QueueItem({ item, onAsk }: { item: CountItemOut; onAsk: (a: Ask) => voi
 
       <HistoryTable item={item} />
 
+      {item.also_counted && item.status !== "approved" && item.status !== "rejected" && (
+        /* The other count of the same product at the same shelf. Approving
+           both while neither has reached Odoo subtracts two deltas from one
+           starting number — that's how 2026-08-22 put a product at zero that
+           was counted 3, 6 and 5. Advisory: the reviewer decides, but they
+           decide knowing. */
+        <div
+          data-testid="also-counted"
+          className={`mt-2 rounded-(--radius-sm) px-2.5 py-1.5 text-[12.5px] leading-snug ${
+            item.also_counted.applied
+              ? "bg-surface-container text-on-surface-variant"
+              : "bg-error-container text-on-error-container"
+          }`}
+        >
+          {!item.also_counted.applied && (
+            <span className="font-semibold">Also counted, not yet applied — </span>
+          )}
+          {item.also_counted.note} (count #{item.also_counted.count_id}).
+          {!item.also_counted.applied &&
+            " Approving both takes each difference off the same starting number."}
+        </div>
+      )}
+
       {item.status === "recount_requested" ? (
         <p className="mt-2 text-[12.5px] text-on-surface-variant">
           Waiting on {item.recount_assignee || "whoever counts it"} to recount.

@@ -1380,6 +1380,27 @@ export interface CountItemEventOut {
 
 export type CountItemStatus = "pending" | "recount_requested" | "approved" | "rejected";
 
+/** Somebody else's count of the same product at the same location. */
+export interface RecentCountOut {
+  count_id: number;
+  counted_by: string;
+  counted_at: string;
+  counted_qty: number;
+  status: CountItemStatus;
+  /** false = it hasn't reached Odoo, so both counts measure from the same
+   *  starting number — that's the warning; true is just context */
+  applied: boolean;
+  note: string;
+}
+
+export interface StockAtOut {
+  location_key: string;
+  source: "live" | "snapshot";
+  quantities: Record<string, number>;
+  /** product id -> a count somebody else already took here */
+  recent: Record<string, RecentCountOut>;
+}
+
 export interface CountItemOut {
   id: number;
   count_id: number;
@@ -1406,6 +1427,9 @@ export interface CountItemOut {
   entries: CountEntryOut[];
   events: CountItemEventOut[];
   submitted_at: string;
+  /** another count of this product at this location — approving both moves
+   *  stock twice against one starting number */
+  also_counted: RecentCountOut | null;
 }
 
 export type CountStatus =

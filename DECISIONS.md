@@ -788,3 +788,79 @@ adjustment, and a 65-item review put Odoo's proxy over its rate limit (HTTP 429)
 approvals were recorded, Odoo never heard them. Operation types are configuration, so
 both lookups are cached per process now, and `scripts/post_count_adjustments.py` re-runs
 the ones that were lost.
+
+---
+
+**2026-08-24 — Counters and reviewers can see each other's counts** *(Phase 5.z)*
+The 08-22 catch-up posted 81 adjustments, and three products came out holding a quantity
+nobody had counted. Two people had walked the same rack; each submission froze the same
+Odoo number; both deltas were then subtracted from it. The LS Peasant was counted 3, 6
+and 5, and ended at 0.
+
+Nothing in the app was wrong, exactly — the unique constraint stops a product appearing
+twice in one submission, and a second submission is what a legitimate recount looks like,
+so it must stay allowed. What was missing is that **nobody could see the other count**.
+So the app now says so, in the two places where a person could still act on it: on the
+counting row the moment a product is added, and on the review card above the Approve
+button.
+
+The distinction that carries the meaning is *applied*, not *approved*. A count that has
+reached Odoo is harmless — the system quantity already includes it, and mentioning it
+only explains why the number moved, so it fades after a week. A count that hasn't is the
+hazard regardless of age, because it is still going to be measured against the old
+number. With the posting flag off, an approved count is still unapplied: it's a draft.
+
+Advisory on both sides. Blocking a second count would break recounts, which are the
+whole point of the review loop.
+
+**What this does not fix.** The delta is still computed against the Odoo quantity frozen
+at count time, and applied whenever the adjustment posts. That gap is the actual defect —
+it also produced the negative-stock refusal in the catch-up, where a count from the 22nd
+met a shelf that had moved by the 24th. Re-reading Odoo at apply time (and refusing when
+live has drifted from the captured baseline) would close the class; the warning only
+makes it visible to a human first. Left open deliberately, as a decision about how much
+the app should second-guess a reviewer, not an oversight.
+
+---
+
+**2026-08-24 — The count's baseline is re-read before it is applied** *(Phase 5.z)*
+An inventory adjustment doesn't set stock to a number, it moves a difference: counted
+minus what Odoo said when the count was taken. That difference is only the right
+instruction while Odoo still says the same thing. It said 9 for the LS Peasant when three
+people counted it; two differences were then applied to it; the shelf record went to 0.
+
+So the approval re-reads Odoo first. If the number still matches, nothing changes — this
+is the ordinary case and it behaves exactly as before. If Odoo has caught up to what was
+counted, the item is approved with nothing to write, which is the goal state anyway. If
+it has moved somewhere else, the approval is **refused**: nothing is written, and the
+item stays open so the reviewer can ask for a recount.
+
+Refusing rather than recomputing is the judgement call here. Recomputing against live
+would silently do one of two contradictory things: for a duplicate count it lands on the
+right answer, and for a product that simply sold three units since the count it re-adds
+them. Guessing about stock is the thing this codebase does not do.
+
+*But the app doesn't have to guess.* Odoo's move ledger records what moved and where it
+went, and Odoo's own `stock.location.usage` names the kind: a `customer` counterpart is a
+sale, an `inventory` one is a correction. So the refusal asks why first (`ledger.py`).
+Drift explained entirely by sales, transfers and receipts → the count's finding is
+untouched by any of that, so it applies, with the reason recorded on the item's history.
+Any correction in the window → refuse, because the discrepancy has been fixed once
+already. Unexplained residual, or Odoo silent → refuse, because not knowing is not the
+same as knowing it is fine.
+
+That distinction is what makes the guard usable: a shop floor sells all day, and a rule
+that blocked on any movement would block nearly every afternoon approval. A rule that
+blocks on *corrections* blocks exactly the thing that went wrong.
+
+One subtlety worth keeping: the adjustment test is "did any happen", not "do they net to
+zero". The Relaxed Henley's two corrections were +2 and then −2 — netting to nothing
+while meaning the shelf had been corrected twice. Running the module against production
+before wiring it in is what caught that.
+
+Two details that carry weight. The refusal happens BEFORE the decision is recorded,
+because `flow.can_review` allows approve/reject/recount only on an open item — approving
+first and failing after would leave the item in a state with no way back. And a snapshot
+fallback is never treated as drift: when Odoo is quiet, `quantities_at` returns the last
+sync's figure, which is routinely behind for unrelated reasons, and blocking on it would
+stop approvals every time the connection hiccuped.

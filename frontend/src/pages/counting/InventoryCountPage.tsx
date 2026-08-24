@@ -17,7 +17,7 @@ import {
   useSubmitCount,
   useSubmitRecount,
 } from "../../api/hooks";
-import type { CountItemOut } from "../../api/types";
+import type { CountItemOut, RecentCountOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import {
   Badge,
@@ -95,11 +95,13 @@ function QtyStepper({
 function CountRow({
   line,
   odooQty,
+  alsoCounted,
   onChange,
   onRemove,
 }: {
   line: CountLine;
   odooQty: number | undefined;
+  alsoCounted: RecentCountOut | undefined;
   onChange: (v: number | null) => void;
   onRemove: () => void;
 }) {
@@ -133,6 +135,25 @@ function CountRow({
           ✕
         </button>
       </div>
+
+      {alsoCounted && (
+        /* Somebody already counted this. Loud when their count hasn't reached
+           Odoo yet: both counts would then be measured against the same
+           starting number, which is how a shelf ends up at a quantity nobody
+           counted (2026-08-22). Quiet when it's already applied — then it's
+           just why the Odoo number moved. */
+        <div
+          data-testid="also-counted"
+          className={`mt-2 rounded-(--radius-sm) px-2.5 py-1.5 text-[12px] leading-snug ${
+            alsoCounted.applied
+              ? "bg-surface-container text-on-surface-variant"
+              : "bg-warn-container text-on-warn-container"
+          }`}
+        >
+          {!alsoCounted.applied && <span className="font-semibold">Just counted — </span>}
+          {alsoCounted.note}
+        </div>
+      )}
 
       <div className="mt-2.5 flex items-center justify-between gap-3">
         {/* the number the counter is checking against — deliberately loud */}
@@ -207,6 +228,7 @@ export function InventoryCountPage() {
   const [lines, setLines] = usePersistedState<CountLine[]>("count.lines", []);
   const [note, setNote] = usePersistedState<string>("count.note", "");
   const [odooQty, setOdooQty] = useState<Record<number, number>>({});
+  const [alsoCounted, setAlsoCounted] = useState<Record<number, RecentCountOut>>({});
   const [source, setSource] = useState<string>("live");
   const stockAt = useStockAt();
   const submit = useSubmitCount();
@@ -235,6 +257,9 @@ export function InventoryCountPage() {
             Object.fromEntries(Object.entries(out.quantities).map(([k, v]) => [Number(k), v])),
           );
           setSource(out.source);
+          setAlsoCounted(
+            Object.fromEntries(Object.entries(out.recent).map(([k, v]) => [Number(k), v])),
+          );
         },
       },
     );
@@ -353,6 +378,7 @@ export function InventoryCountPage() {
               key={line.product_id}
               line={line}
               odooQty={odooQty[line.product_id]}
+              alsoCounted={alsoCounted[line.product_id]}
               onChange={(v) =>
                 setLines(
                   lines.map((x) => (x.product_id === line.product_id ? { ...x, counted: v } : x)),

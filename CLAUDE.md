@@ -1606,3 +1606,68 @@ The app gets its own mailbox (e.g., `orders@…`) for sending India/vendor order
   flex, and `overflow-y-auto` computes overflow-x to auto): the row wraps now
   and the container is `overflow-x-hidden`. Both fixes land on every picker
   surface (catalogs, vendor rosters), not just those two pages.
+- "Just counted" warning (2026-08-24, after the duplicate hunt below): two
+  people counting one rack could not see each other, so
+  `app/counting/recent.py` answers "who else counted this here lately, and is
+  their count still going to move stock?" for a set of products at a location.
+  Two weights, deliberately: **unapplied** (`applied=False`) is the WARNING and
+  ignores age entirely — an unapplied count from three weeks ago collides just
+  as hard as one from this morning — while **applied** is context, fades after
+  `RECENT_DAYS` (7), and only explains why the Odoo number moved. "Applied"
+  means ODOO HEARD IT (`picking_status` validated/none), NOT that a reviewer
+  approved it: with the posting flag off an approval leaves a draft, and a
+  draft still moves stock later against the old number
+  (`test_a_settled_count_is_context_not_a_warning` locks that). Rejected counts
+  are neither — a reviewer threw them out and Odoo never heard. Two surfaces,
+  one query: `POST /counts/stock-at` gained `recent` (product id → the other
+  count), which the counting page renders on the row the moment a product is
+  added — before a number is written down; and `ItemOut.also_counted` puts it
+  on the review card above the Approve button, red, naming the other count and
+  what approving both would do. `recent.for_items` does the whole review list
+  in one query per location and excludes each item's OWN submission (a queue
+  spans submissions, so a single shared product map can't do that). ADVISORY
+  on both sides — a genuine recount IS a second submission, so nothing blocks.
+- **The duplicate hunt that prompted it** (2026-08-24, Noah asked): of the 81
+  adjustments posted in the 08-22/23 catch-up, 6 products had been counted
+  twice at one location and **3 genuinely double-applied** — each delta came
+  off the same frozen `odoo_qty`, so the shelf record landed on a number
+  nobody counted: `CA0202800200` LS Peasant Surya S (counts 3/6/5 from a
+  baseline of 9 → floor 0), `CA0249200400` Relaxed Henley White L (7 and 3 →
+  net 0), `CA0254300400` Surya Chandra L (2 and 7 → net −1). The other 3 had
+  their duplicate cancelled in Odoo by a human already. Root cause: the unique
+  constraint is per SUBMISSION (`uq_count_product`), and near-simultaneous
+  submissions overlap — #32/#33, #42/#46 and #55/#56 were each submitted in
+  the same MINUTE. The draft-only flow hid it; posting a batch of 65 turned it
+  into moved stock. STILL OPEN by choice: recomputing the delta against LIVE
+  Odoo stock at apply time (rather than the frozen baseline) is the fix that
+  would close the class outright — the warning makes it visible, it does not
+  make it impossible. Analysis note for the next person: production location
+  ids are NOT the fixture ids (floor is 1232 live, 14 in fixtures) — a
+  hardcoded 14 made every live quant read return 0 and nearly produced a
+  confidently wrong report.
+- **Odoo is re-read at APPLY time** (2026-08-24, Noah — the fix the warning
+  above only made visible): an inventory adjustment moves a DIFFERENCE
+  (counted − what Odoo said when counted), so applying it is only correct
+  while Odoo still says the same thing. `counting/service.read_baseline`
+  re-reads the location NOW (same `locations.quantities_at` the count page
+  and submit use — build on, never around) and hands the caller a `Baseline`:
+  `drifted` (live ≠ captured) and `settled` (live == counted). The approve
+  endpoints call it BEFORE recording the decision, because a stale baseline
+  is not a write that failed — it's an instruction that no longer means what
+  it said. Three outcomes, and keeping them apart is the point: **settled** →
+  approved with nothing to adjust ("Odoo already shows N (it was M when
+  counted)"); **drifted** → HTTP 422, NOTHING written and the item stays
+  OPEN, so the reviewer still has the Request-recount button (`flow.can_review`
+  is pending/recount only — an approved item has no way back, which is why the
+  refusal must come first); otherwise → unchanged, the original difference is
+  applied. Bulk approval SKIPS a stale row rather than 422-ing the batch — one
+  stale item must not throw away nineteen decisions — and says so in the
+  submission event. **A snapshot fallback is NOT drift** (`Baseline.drifted`
+  requires `source == "live"`): the fallback is the last sync's figure, behind
+  for reasons that have nothing to do with this count, and treating it as
+  drift would block every approval whenever Odoo went quiet. The refusal is
+  deliberately strict — a sale between count and review also blocks, because
+  the app cannot tell a sale from somebody else's applied count, and the way
+  out (recount) is cheap and correct. `test_two_counts_of_one_shelf_cannot_
+  both_be_applied` reproduces the 08-22 bug and asserts the second approval is
+  now refused with Odoo untouched.
