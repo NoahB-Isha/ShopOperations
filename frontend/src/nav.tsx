@@ -99,7 +99,7 @@ export interface NavItem {
 const byRole: Record<string, NavItem[]> = {
   admin: [
     { path: "/reports", label: "Reports", icon: Icons.chart },
-    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
     { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
@@ -121,16 +121,16 @@ const byRole: Record<string, NavItem[]> = {
   // (homeForRoles), and the phone bar keeps only the first TWO destinations
   // before Scan and More. Transfers sits second (Noah, 2026-08-18) so raising
   // one is a tap on any screen; Suggested items moved behind More, since the
-  // transfer form now carries its own suggestions strip. Two 2026-08-24
-  // merges: Count review rides the Inventory counting destination (tab bar on
-  // both pages), and Coming soon + Out of stock became ONE "Stock status"
-  // destination the same way — the routes are untouched, only the menu slimmed.
+  // transfer form now carries its own suggestions strip. Count review rides
+  // the Inventory counting destination (tab bar on both pages, 2026-08-24).
+  // The out-of-stock page is GONE (2026-09-01, redundant with restock's
+  // computed list) — Coming soon stands alone.
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
     { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
-    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Floor Team: the floor toolkit minus creating transfers (the pages hide
@@ -141,7 +141,7 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/request-items", label: "Request items", short: "Request", icon: Icons.bag },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
-    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
+    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Order Reviewer — one nav whether the review zone is a field zone or III

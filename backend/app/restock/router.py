@@ -18,7 +18,7 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth.deps import AuthedUser, require_roles
@@ -80,6 +80,11 @@ class FloorItemOut(BaseModel):
     group: str = ""
     popularity: float = 0.0
     group_popularity: float = 0.0
+    # Filled ONLY by the check endpoint (None on list rows): the checker's
+    # lifetime restocked-item count, so the UI can celebrate milestones the
+    # moment they happen. Counted from restock_checkoffs — the durable ledger;
+    # floor lines themselves are wiped by the floor reset.
+    my_restocked_total: int | None = None
 
 
 class BackItemOut(BaseModel):
@@ -368,6 +373,44 @@ class CheckIn(BaseModel):
     checked: bool
 
 
+def _my_restocked_total(db: Session, user_id: int) -> int:
+    """Lifetime items this person ticked off, from the durable day ledger.
+    Both lists write restock_checkoffs; the unique (day, list, product) key
+    means toggle-spam can never inflate it past one per shelf per day."""
+    return int(
+        db.scalar(
+            select(func.count(RestockCheckoff.id)).where(
+                RestockCheckoff.checked_by_id == user_id
+            )
+        )
+        or 0
+    )
+
+
+def _record_floor_checkoff(db: Session, line: RestockLine, user_id: int, checked: bool) -> None:
+    """Mirror a floor-line tick into restock_checkoffs. The line rows are
+    working state (the floor reset deletes them); the checkoff row is the
+    record that someone restocked that shelf that day. Unchecking removes
+    only TODAY's credit — a tick from a previous day was a real restock."""
+    today = utcnow().date()
+    existing = db.scalar(
+        select(RestockCheckoff).where(
+            RestockCheckoff.day == today,
+            RestockCheckoff.list_type == FLOOR_LIST,
+            RestockCheckoff.product_id == line.product_id,
+        )
+    )
+    if checked and existing is None:
+        db.add(
+            RestockCheckoff(
+                day=today, list_type=FLOOR_LIST,
+                product_id=line.product_id, checked_by_id=user_id,
+            )
+        )
+    elif not checked and existing is not None:
+        db.delete(existing)
+
+
 @router.post("/floor/{line_id}/check", response_model=FloorItemOut)
 def check_floor_line(
     line_id: int,
@@ -380,6 +423,7 @@ def check_floor_line(
         raise HTTPException(404, "Restock line not found.")
     line.checked_off_at = utcnow() if body.checked else None
     line.checked_off_by_id = authed.id if body.checked else None
+    _record_floor_checkoff(db, line, authed.id, body.checked)
     db.commit()
 
     p = db.get(Product, line.product_id)
@@ -396,6 +440,7 @@ def check_floor_line(
         floor_qty=s.get("floor", 0.0),
         checked=line.checked_off_at is not None,
         snoozed=line.snoozed_until is not None and line.snoozed_until > utcnow().date(),
+        my_restocked_total=_my_restocked_total(db, authed.id),
     )
 
 
@@ -497,4 +542,9 @@ def check_back_item(
     elif not body.checked and existing is not None:
         db.delete(existing)
     db.commit()
-    return {"product_id": product_id, "checked": body.checked, "day": today.isoformat()}
+    return {
+        "product_id": product_id,
+        "checked": body.checked,
+        "day": today.isoformat(),
+        "my_restocked_total": _my_restocked_total(db, authed.id),
+    }

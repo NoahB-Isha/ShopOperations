@@ -26,7 +26,6 @@ import { PurchaseOrderPage } from "./pages/purchasing/PurchaseOrderPage";
 import { PurchasingPage } from "./pages/purchasing/PurchasingPage";
 import { VendorsPage } from "./pages/purchasing/VendorsPage";
 import { ReportsPage } from "./pages/reports/ReportsPage";
-import { OutOfStockPage } from "./pages/restock/OutOfStockPage";
 import { RequestItemsPage } from "./pages/restock/RequestItemsPage";
 import { RestockPage } from "./pages/restock/RestockPage";
 import { SuggestedItemsPage } from "./pages/restock/SuggestedItemsPage";
@@ -251,11 +250,6 @@ export default function App() {
               <Route path="/coming-soon" element={
                 <Protected title="Coming soon" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
                   <ComingSoonPage />
-                </Protected>
-              } />
-              <Route path="/out-of-stock" element={
-                <Protected title="Out of stock" roles={["shoppe_floor", "floor_rotating", "warehouse"]}>
-                  <OutOfStockPage />
                 </Protected>
               } />
               <Route path="/transfer-requests/:id" element={

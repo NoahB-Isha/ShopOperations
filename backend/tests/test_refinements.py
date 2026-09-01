@@ -89,14 +89,14 @@ def test_blacklist_hides_from_catalog_and_board(client, db):
     ).json()["items"]
     assert [p["global_sku"] for p in manager] == ["CA0000000002"]
 
-    # the floor OOS board (both products are floor zeros) skips it too
-    board = {i["sku"] for i in client.get("/api/v1/oos", headers=floor).json()}
-    assert board == {"CA0000000001"}
+    # (the floor OOS board was removed 2026-09-01; the read-only availability
+    # lists keep their own blacklist guard —
+    # test_availability.test_blacklisted_products_leave_availability)
 
-    # un-blacklist restores it everywhere
+    # un-blacklist restores it in the catalog
     client.patch(f"/api/v1/products/{hide.id}", json={"blacklisted": False}, headers=admin)
-    board = {i["sku"] for i in client.get("/api/v1/oos", headers=floor).json()}
-    assert board == {"CA0000000001", "CA0000000002"}
+    skus = {p["global_sku"] for p in client.get("/api/v1/products", headers=floor).json()["items"]}
+    assert {"CA0000000001", "CA0000000002"} <= skus
 
 
 def test_blacklist_sweep_rules_and_exceptions(client, db):
@@ -217,6 +217,6 @@ def test_floor_rotating_cannot_create_transfers(client, db, settings_env):
         f"/api/v1/transfer-requests/{request_id}", headers=rotating
     ).status_code == 200
 
-    # the rest of the floor toolkit works: restock list + the OOS list
+    # the rest of the floor toolkit works: restock list + the availability list
     assert client.get("/api/v1/restock", headers=rotating).status_code == 200
-    assert client.get("/api/v1/oos", headers=rotating).status_code == 200
+    assert client.get("/api/v1/availability/oos", headers=rotating).status_code == 200

@@ -8,7 +8,7 @@
  *   2. Time machine: today mode, a past date (snapshot history + honest
  *      confidence), a future date (engine projection with method mix),
  *      and the beyond-horizon refusal.
- *   3. Out of stock scopes: the floor board plus the merged Everywhere /
+ *   3. Coming soon (the out-of-stock page was removed 2026-09-01)
  *      Warehouse snapshot lists (the old Availability page), and the
  *      warehouse Incoming list.
  *
@@ -69,26 +69,16 @@ test("sales dashboard: highlights, generated narrative, chart+table, drill-down,
   await expect(page.getByText("Last 12 months", { exact: false }).first()).toBeVisible();
 });
 
-test("stock status: read-only OOS scopes + the Coming soon tab", async ({ page }) => {
+test("coming soon stands alone — the out-of-stock page is gone", async ({ page }) => {
   await login(page, "floor@demo.ishalife.test");
-  await page.goto("/out-of-stock");
-
-  // floor roles land on their own scope; the board is READ-ONLY — marking
-  // left the app 2026-08-24 (counting owns counted numbers now)
-  await expect(page.getByTestId("scope-floor")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Mark item out of stock" })).toHaveCount(0);
-
-  // the merged Availability scopes stay reachable (never-stocked peek shows
-  // only off the floor board)
-  await page.getByTestId("scope-org").click();
-  await expect(page.getByRole("button", { name: "Include never-stocked" })).toBeVisible();
-  await page.getByTestId("scope-bwhse").click();
-  await expect(page.getByTestId("scope-bwhse")).toHaveAttribute("aria-selected", "true");
-
-  // one Stock status destination: the Coming soon tab rides the same shell
-  await page.getByRole("button", { name: "Coming soon" }).click();
-  await expect(page).toHaveURL(/\/coming-soon/);
+  await page.goto("/coming-soon");
+  await expect(page.getByRole("heading", { name: "Coming soon" })).toBeVisible();
   await expect(page.getByLabel("Search items on the way")).toBeVisible();
+
+  // the OOS page was removed 2026-09-01 (redundant with restock's computed
+  // list); the route falls through to the role's home page
+  await page.goto("/out-of-stock");
+  await expect(page).not.toHaveURL(/out-of-stock/);
 });
 
 test("warehouse incoming: pending inbound shipments from the snapshot", async ({ page }) => {

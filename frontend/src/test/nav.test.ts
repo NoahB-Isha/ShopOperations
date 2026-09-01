@@ -18,15 +18,16 @@ test("each role sees its own nav", () => {
   expect(homeForRoles(new Set(["warehouse"]))).toBe("/staging2");
   const adminPaths = navForRoles(new Set(["admin"])).map((i) => i.path);
   expect(adminPaths).toContain("/reports");
-  expect(adminPaths).toContain("/out-of-stock");
-  // moved off the menu: audit lives on Status, design pages in Settings,
-  // the availability page merged into Out of stock
+  expect(adminPaths).toContain("/coming-soon");
+  // moved off the menu: audit lives on Status, design pages in Settings.
+  // Gone from the app: the availability page (2026-07-25), the time machine
+  // (2026-08-24) and the out-of-stock page (2026-09-01).
   expect(adminPaths).not.toContain("/styleguide");
   expect(adminPaths).not.toContain("/palette-lab");
   expect(adminPaths).not.toContain("/audit");
   expect(adminPaths).not.toContain("/availability");
-  // the time-machine page was removed 2026-08-11 (its endpoints stayed)
   expect(adminPaths).not.toContain("/time-machine");
+  expect(adminPaths).not.toContain("/out-of-stock");
 });
 
 test("a departments reviewer gets the same nav, one label reworded", () => {

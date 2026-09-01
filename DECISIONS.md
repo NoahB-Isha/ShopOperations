@@ -63,7 +63,62 @@ it painful.
 
 ## Build decisions
 
-**2026-08-24 — Feature merge: one door for counted numbers, and four fewer surfaces**
+**2026-09-01 — Floor polish round: the OOS page goes, the phone details get fixed**
+Noah's list, shipped together. The big one: the out-of-stock page is REMOVED, not
+merged — "it ends up being redundant." He's right on the data: after marking left it
+(08-24) the board was a read-only intersection of things other pages already say —
+the restock list computes what the floor is missing with quantities attached, and
+Coming soon answers "is it on the way." The `/oos` endpoint went with the page
+(same rule as the time machine: no consumer, no surface); `app/oos/adjust.py`
+survives as counting's apply core, and the read-only `/availability` lists stay
+because /incoming and the bot read them. Coming soon stands alone as a destination
+again.
+
+The small ones, each a one-cause fix: the bubble's bin band sat under the phone
+bottom bar + docked FAB (z-40 over z-30, label dead-center under the FAB circle) —
+it now floats above them, and the pill's phone resting inset deepened 200→260 so the
+band's higher top edge keeps its safe margin (the "nudge can't bin" rule). The
+bubble's burst got a synthesized pop. The search FAB needed two taps on iOS because
+focus() only opens the keyboard inside the tap gesture and the catalog's autoFocus
+runs after navigation — a throwaway 16px input is focused synchronously in the
+gesture (16px, or iOS zooms instead of typing) and the real box takes the focus hop
+on mount. And the scanner now powers the camera OFF when an item is FOUND — the
+warm-stream-always design optimized "next scan" latency, but a live camera behind a
+drawer someone is reading is battery and privacy spent on nothing; lookups and
+misses still only pause the decode loop, so the fast path stays fast.
+
+**2026-09-01 — Gamified restocking, round 1: sounds, celebrations, milestones**
+Noah wanted restocking to feel rewarding for the floor volunteers. The boundary came
+first: gamify ONLY the restock checklist, never counting or purchasing — check-offs
+write nothing to Odoo, so a wrong incentive there costs nothing, while rewarding speed
+on counts would corrupt numbers that move real stock. Everything shipped is decoration
+over the existing loop, "data first, always" (the flyToBubble rule): the tick mutation
+is unchanged, sounds and confetti ride on top and every entry point is try/caught.
+
+The milestone counter needed a durable ledger, and the floor's own rows can't be it —
+the floor reset deletes `restock_lines`, so a lifetime tally counted from them would
+evaporate every few weeks. `restock_checkoffs` already existed for the back list with
+exactly the right shape: day-keyed, per-product, attributed, and its unique
+(day, list_type, product) constraint makes toggle-spam structurally unable to inflate
+a count past one per shelf per day. Floor checks now mirror into it
+(`list_type="floor"`, no migration — the column always generalized), and both check
+endpoints return the checker's running total so the UI can celebrate the exact tick
+that crosses 100. Unchecking deletes only today's row: a tick from a previous day was
+a real restock, not a mistake being corrected.
+
+Sounds are synthesized with Web Audio rather than shipped as files — nothing to fetch,
+nothing for the CSP to allow, and the check-off tap satisfies iOS's
+gesture-to-unlock-audio rule because the pop plays inside the handler. The whoosh
+lives inside flyToBubble itself so one call site covers every add-to-draft gesture in
+the app. Aisle/list completions are computed OPTIMISTICALLY from the rows on screen
+(the refetch is still in flight when the sound has to land); only the milestone waits
+for the server, because only the server knows the total. Confetti and fanfares honor
+prefers-reduced-motion and hidden tabs, and the whole layer sits behind one
+device-local toggle (default ON — the sounds only fire on floor gestures, so roles
+that never touch the lists never hear them). Deliberately NOT built: leaderboards
+(head-to-head ranking demotivates rotating volunteers; collective goals fit the seva
+culture better and are round 2 with avatars), XP/levels, and any reward on floor asks
+(it would incentivize flag-spam).
 Noah asked what could be merged, then chose the aggressive cuts. The organizing principle:
 a counted quantity now enters the app in exactly ONE place — the counting page — because
 that is where all the safety machinery lives (never-overwrite history, the "just counted"

@@ -247,6 +247,29 @@ function BottomNav({
   );
 }
 
+/** iOS opens the keyboard only for a focus() that happens INSIDE the tap
+ *  gesture. The search page's autoFocus runs after navigation — outside it —
+ *  so tapping the FAB used to land on the page with the keyboard down and
+ *  need a second tap (Noah, 2026-09-01). The bridge: focus a throwaway input
+ *  NOW, synchronously in the gesture; once the keyboard is up, iOS lets focus
+ *  hop input→input, so the real search box takes over when it mounts. The
+ *  16px font matters — anything smaller and iOS zooms the page instead. */
+function primeKeyboard() {
+  try {
+    const ghost = document.createElement("input");
+    ghost.type = "text";
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.style.cssText =
+      "position:fixed;top:0;left:0;height:1px;width:1px;opacity:0;border:0;padding:0;font-size:16px";
+    document.body.appendChild(ghost);
+    ghost.focus({ preventScroll: true });
+    // the real input steals focus on mount; sweep the ghost afterwards
+    setTimeout(() => ghost.remove(), 1200);
+  } catch {
+    /* the second tap still works — this is only the shortcut */
+  }
+}
+
 /** The docked search FAB: brand orange, breaking out of the top of the bar.
  *
  *  Wears `on-primary` (deep umber) rather than white — that is the token that
@@ -257,6 +280,13 @@ function SearchFab({ item }: { item: NavItem }) {
   return (
     <NavLink
       to={item.path}
+      onClick={() => {
+        // already on the search page: focus its box directly (same gesture
+        // rule); anywhere else, prime the keyboard for the hop
+        const box = document.querySelector<HTMLInputElement>('input[aria-label="Search products"]');
+        if (box) box.focus({ preventScroll: false });
+        else primeKeyboard();
+      }}
       aria-label={s(item.label)}
       title={s(item.label)}
       className="absolute -top-5 left-1/2 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full

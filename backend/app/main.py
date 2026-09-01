@@ -22,7 +22,6 @@ from .health import router as health_router
 from .notices.router import router as notices_router
 from .odoo.errors import OdooWriteError
 from .odoo.writer import WriterValidationError
-from .oos.router import router as oos_router
 from .ordering.router import router as ordering_router
 from .orders.router import router as orders_router
 from .reporting.router import router as reports_router
@@ -69,7 +68,6 @@ def create_app() -> FastAPI:
         center_orders_router,
         restock_router,
         floor_requests_router,
-        oos_router,
         notices_router,
         transfers_router,
         counting_router,

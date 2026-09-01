@@ -250,6 +250,56 @@ def test_restock_api_roundtrip_and_checkoffs(client, db, settings_env):
     assert client.get("/api/v1/restock", headers=other).status_code == 403
 
 
+def test_check_offs_feed_a_durable_personal_tally(client, db, settings_env):
+    """The milestone counter behind the restock celebrations: BOTH lists write
+    restock_checkoffs (floor LINES are wiped by the floor reset, so they can't
+    be the ledger), every check response reports the checker's lifetime total,
+    toggle-spam can't inflate it, and unchecking takes today's credit back."""
+    from app.models import RestockCheckoff, utcnow
+    from sqlalchemy import select
+
+    today = utcnow().date()
+    a, *_ = _fixture_products(db)
+    _sale(db, a.id, today - timedelta(days=1), 12)
+    _stock(db, a.id, "floor", 2)
+    _stock(db, a.id, "bwhse", 90)
+    db.commit()
+    mk_user(db, "floor@test.io", (Role.SHOPPE_FLOOR, None, None))
+    headers = login(client, "floor@test.io")
+
+    [floor_item] = client.get("/api/v1/restock", headers=headers).json()["floor"]
+    line_id = floor_item["line_id"]
+
+    # first tick: total 1, and a durable floor-list checkoff row exists
+    r = client.post(
+        f"/api/v1/restock/floor/{line_id}/check", json={"checked": True}, headers=headers
+    )
+    assert r.json()["my_restocked_total"] == 1
+
+    # toggle spam can't inflate: uncheck takes today's credit back, recheck
+    # restores exactly one
+    r = client.post(
+        f"/api/v1/restock/floor/{line_id}/check", json={"checked": False}, headers=headers
+    )
+    assert r.json()["my_restocked_total"] == 0
+    r = client.post(
+        f"/api/v1/restock/floor/{line_id}/check", json={"checked": True}, headers=headers
+    )
+    assert r.json()["my_restocked_total"] == 1
+
+    # the back list counts too (same product, different list_type)
+    r = client.post(
+        f"/api/v1/restock/back/{a.id}/check", json={"checked": True}, headers=headers
+    )
+    assert r.json()["my_restocked_total"] == 2
+
+    # the floor reset wipes the LINES but the tally survives — checkoffs are
+    # the record, not the working state
+    assert client.post("/api/v1/restock/floor/reset", headers=headers).status_code == 200
+    rows = db.scalars(select(RestockCheckoff)).all()
+    assert len(rows) == 2 and all(row.checked_by_id for row in rows)
+
+
 def test_restock_exclude_flag_removes_items_everywhere(client, db, settings_env):
     """Non-retail POS items (campus meals, prasadam) sell through the same
     registers but never belong on the restock lists — excluded from the

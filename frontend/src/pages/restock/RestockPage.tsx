@@ -5,7 +5,7 @@
    back-stock suggestions now live on the Inventory Flow Manager's Suggested
    items page, under "Database Suggestions", next to what the floor team
    actually asked for. This page is one list again. */
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   useCheckRestock,
   useResetFloorRestock,
@@ -33,6 +33,10 @@ import {
 } from "../../design";
 import type { ActionBox } from "../../design";
 import { LowCountHint, fmtQty, productCode } from "../shared/OpsBits";
+import { playCheck, playChime, playFanfare, playScribble, playUncheck } from "../../sound";
+import { celebrate } from "../../celebrate";
+import { groupJustFinished, listJustFinished, milestoneFor } from "./restockCheer";
+import { CHEER_MS, CelebrationOverlay, type Cheer } from "./CelebrationOverlay";
 
 export function RestockPage() {
   const { data, isLoading } = useRestock();
@@ -175,6 +179,57 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
     flyToBubble(from ?? centerOf(), qty);
   };
 
+  /* The full-screen moment for finishing an aisle or the list. A later cheer
+     replaces a running one (its `key` restarts the animation); the timer is
+     the only dismissal, and it's cleaned up on unmount. */
+  const [cheer, setCheer] = useState<Cheer | null>(null);
+  const cheerTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(cheerTimer.current), []);
+  const showCheer = (title: string, subtitle?: string) => {
+    clearTimeout(cheerTimer.current);
+    setCheer({ key: Date.now(), title, subtitle });
+    cheerTimer.current = setTimeout(() => setCheer(null), CHEER_MS);
+  };
+
+  /* The tick is the gesture, so the sound plays NOW (also what unlocks iOS
+     audio) and the aisle/list celebrations are computed optimistically from
+     the rows on screen — the refetch is still in flight when they should
+     land. Only the milestone waits for the server: the lifetime total rides
+     back on the check response. */
+  const toggle = (item: RestockFloorItem, checked: boolean) => {
+    if (checked) {
+      const aisle = groupJustFinished(items, item.line_id);
+      if (listJustFinished(items, item.line_id)) {
+        playFanfare();
+        celebrate();
+        showCheer("Floor fully stocked! 🎉", "Every item on the list. Nice work.");
+      } else if (aisle) {
+        playChime();
+        celebrate();
+        showCheer(`${aisle}: cleared! 🎉`, "The whole aisle is stocked.");
+      } else {
+        playCheck();
+      }
+    } else {
+      playUncheck();
+    }
+    check.mutate(
+      { list: "floor", line_id: item.line_id, checked },
+      {
+        onSuccess: (out) => {
+          const m = checked ? milestoneFor(out?.my_restocked_total) : null;
+          if (m) {
+            playFanfare();
+            celebrate();
+            showCheer(`Your ${m.toLocaleString()}th item! 🎉`, "Restocked, lifetime. Thank you!");
+          }
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+  const done = items.filter((i) => i.checked).length;
+
   if (items.length === 0) {
     return (
       <EmptyState
@@ -196,6 +251,32 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
   }
 
   return (
+    <>
+    <div className="mb-3 px-1">
+      <div className="mb-1.5 flex items-baseline justify-between text-[12px] tabular-nums text-on-surface-variant">
+        <span>
+          {done === items.length
+            ? "All stocked — the shelves thank you 🎉"
+            : `Restocked ${done} of ${items.length}`}
+        </span>
+        {done > 0 && done < items.length && (
+          <span>{Math.round((done / items.length) * 100)}%</span>
+        )}
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={items.length}
+        aria-valuenow={done}
+        aria-label="Restock progress"
+        className="h-1.5 overflow-hidden rounded-full bg-surface-container"
+      >
+        <div
+          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-(--ease-spring)"
+          style={{ width: `${(done / items.length) * 100}%` }}
+        />
+      </div>
+    </div>
     <ul className="stagger-children flex flex-col gap-2 pb-24">
       {items.map((item, i) => (
         <Fragment key={item.line_id}>
@@ -212,21 +293,17 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
         )}
         <CheckRow
           checked={item.checked}
-          onToggle={(checked) =>
-            check.mutate(
-              { list: "floor", line_id: item.line_id, checked },
-              { onError: (e) => toast.error(e.message) },
-            )
-          }
-          onSnooze={() =>
+          onToggle={(checked) => toggle(item, checked)}
+          onSnooze={() => {
+            playScribble(); // "not today" — the line gets scribbled out
             snooze.mutate(
               { line_id: item.line_id, snoozed: true },
               {
                 onSuccess: () => toast.success(`${item.name} — back on the list tomorrow.`),
                 onError: (e) => toast.error(e.message),
               },
-            )
-          }
+            );
+          }}
           onRequestMore={canRequest ? (from) => requestMore(item, from) : undefined}
           onContextMenu={
             canRequest
@@ -265,6 +342,8 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
       ))}
       <ContextMenu menu={menu.menu} onClose={menu.close} />
     </ul>
+    <CelebrationOverlay cheer={cheer} />
+    </>
   );
 }
 

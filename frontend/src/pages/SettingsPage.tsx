@@ -22,11 +22,13 @@ import {
 } from "../theme";
 import type { ThemeMode } from "../theme";
 import { setSillyMode, useSillyLabel, useSillyMode } from "../silly";
+import { playCheck, setSoundsEnabled, useSounds } from "../sound";
 
 function AppearanceCard() {
   const [active, setActive] = useState(currentPalette);
   const [mode, setMode] = useState<ThemeMode>(currentThemeMode);
   const silly = useSillyMode();
+  const sounds = useSounds();
   const s = useSillyLabel();
   return (
     <Card>
@@ -100,6 +102,26 @@ function AppearanceCard() {
           </p>
         </div>
         <Toggle checked={silly} onChange={setSillyMode} />
+      </div>
+
+      <div className="mt-4 flex items-start justify-between gap-4 border-t border-outline-variant/60 pt-3">
+        <div>
+          <h3 className="text-[14px] font-semibold">
+            Sound effects {sounds && <span aria-hidden>🔊</span>}
+          </h3>
+          <p className="text-[12.5px] leading-4.5 text-on-surface-variant">
+            Little pops and chimes on the restock checklist, a scribble for “not today”, a
+            whoosh when an item joins a request, a fanfare when the list is cleared — plus a
+            buzz on phones that support it. This device only.
+          </p>
+        </div>
+        <Toggle
+          checked={sounds}
+          onChange={(on) => {
+            setSoundsEnabled(on);
+            if (on) playCheck(); // audition the bing right where you turned it on
+          }}
+        />
       </div>
     </Card>
   );

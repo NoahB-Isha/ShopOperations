@@ -469,10 +469,12 @@ export function useRestock() {
 export function useCheckRestock() {
   const qc = useQueryClient();
   return useMutation({
+    // Both check endpoints return the checker's lifetime total so the UI can
+    // celebrate milestones the moment they happen (restockCheer.milestoneFor).
     mutationFn: (args: { list: "floor"; line_id: number; checked: boolean } | { list: "back"; product_id: number; checked: boolean }) =>
       args.list === "floor"
-        ? api(`/restock/floor/${args.line_id}/check`, { method: "POST", body: { checked: args.checked } })
-        : api(`/restock/back/${args.product_id}/check`, { method: "POST", body: { checked: args.checked } }),
+        ? api<{ my_restocked_total?: number | null }>(`/restock/floor/${args.line_id}/check`, { method: "POST", body: { checked: args.checked } })
+        : api<{ my_restocked_total?: number | null }>(`/restock/back/${args.product_id}/check`, { method: "POST", body: { checked: args.checked } }),
     // Cross it off NOW. Without this the row only moved after the POST *and* a
     // full list refetch had come back — a long wait on a phone in the aisle,
     // and much longer against a cold-started backend. The refetch still
@@ -741,15 +743,6 @@ export function useRetryDeliveryCount() {
         { method: "POST" },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["deliveries"] }),
-  });
-}
-
-// -------------------------------------------------------------- floor OOS
-export function useOosList() {
-  return useQuery({
-    queryKey: ["oos"],
-    queryFn: () => api<import("./types").OosItemOut[]>("/oos"),
-    refetchInterval: 15_000,
   });
 }
 
@@ -1132,19 +1125,6 @@ export function useAvailabilityMeta() {
     queryKey: ["availability-meta"],
     queryFn: () => api<AvailabilityMetaOut>("/availability/meta"),
     staleTime: 5 * 60_000,
-  });
-}
-
-export function useAvailabilityOos(scope: string, enabled = true, includeNeverStocked = false) {
-  return useQuery({
-    queryKey: ["availability-oos", scope, includeNeverStocked],
-    queryFn: () =>
-      api<AvailabilityItemOut[]>("/availability/oos", {
-        params: { scope, ...(includeNeverStocked ? { include_never_stocked: true } : {}) },
-      }),
-    enabled,
-    placeholderData: keepPreviousData,
-    staleTime: 30_000,
   });
 }
 

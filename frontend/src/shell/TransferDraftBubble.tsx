@@ -28,6 +28,7 @@ import { clearBubbleAnchor, setBubbleAnchor, useArrival } from "./flyToBubble";
 import { useToast } from "../design";
 import { Icons } from "../nav";
 import { fmtQty } from "../pages/shared/OpsBits";
+import { playPop } from "../sound";
 
 /** Where the draft lives — the pill has nothing to say once you're there.
  *  The Inventory Flow Manager's draft becomes a transfer; the Floor Team's
@@ -44,10 +45,18 @@ const BURST_MS = 420; // must match --animate-bubble-burst
 const BUMP_MS = 420; // must match --animate-bubble-bump
 const ENTER_MS = 550; // must match --animate-bubble-in
 const COUNT_MS = 1100; // must match --animate-count-pop
-/** Drag the pill into this band at the bottom of the screen to bin the draft.
- *  Kept shallower than the pill's resting inset below, so a small nudge where
- *  the pill already lives can never land in the bin. */
+/** Drag the pill into this band to bin the draft. Kept shallower than the
+ *  pill's resting inset below, so a small nudge where the pill already lives
+ *  can never land in the bin. */
 const DROP_ZONE_H = 104;
+/** On phones the bottom nav bar and its docked FAB own the screen's bottom
+ *  edge (z-40, ~4.5rem tall, FAB poking 20px above it) — the band used to sit
+ *  under them and the "Drag here to clear" label hid behind the search FAB
+ *  (Noah, 2026-09-01). So on phones the band floats ABOVE all of that; the
+ *  lift here and the CSS `bottom-[calc(6rem+…)]` in DropZone move together.
+ *  Desktop has no bar and keeps the bottom edge. */
+const DROP_ZONE_LIFT_PHONE = 108;
+const phoneLift = () => (window.innerWidth < 768 ? DROP_ZONE_LIFT_PHONE : 0);
 
 interface Pos {
   x: number;
@@ -89,8 +98,9 @@ function defaultPos(w: number, h: number, vw: number, vh: number): Pos {
   return {
     x: vw - w - (phone ? 20 : 40),
     // clear of the bin band by a wide margin: the pill rests where a drag
-    // must be deliberate to reach the bottom
-    y: vh - h - (phone ? 200 : 150),
+    // must be deliberate to reach the bottom (the phone band now floats above
+    // the nav bar, so the rest sits higher to keep that margin)
+    y: vh - h - (phone ? 260 : 150),
   };
 }
 
@@ -125,7 +135,10 @@ export function TransferDraftBubble() {
     if (!rendered) return;
     const bursting = lines.length > 0 && atDraftPage;
     setExit(bursting ? "burst" : "out");
-    if (bursting) markBurst();
+    if (bursting) {
+      markBurst();
+      playPop(); // the burst's sound — you arrived and it popped into the page
+    }
     const t = window.setTimeout(() => setRendered(false), bursting ? BURST_MS : EXIT_MS);
     return () => window.clearTimeout(t);
   }, [show, rendered, lines.length, atDraftPage]);
@@ -324,7 +337,10 @@ export function TransferDraftBubble() {
       setDragging(true);
     }
     const { vh: viewH } = viewport();
-    const inBin = viewH > 0 && e.clientY > viewH - DROP_ZONE_H;
+    // everything below the band's TOP edge counts — on phones the band floats
+    // above the nav bar, and a drag that carries on past it into the bar is
+    // still unmistakably "toward the bin"
+    const inBin = viewH > 0 && e.clientY > viewH - phoneLift() - DROP_ZONE_H;
     overBinRef.current = inBin;
     if (inBin !== overBin) setOverBin(inBin);
     const now = performance.now();
@@ -486,8 +502,9 @@ function DropZone({ active }: { active: boolean }) {
     <div
       aria-hidden
       style={{ height: DROP_ZONE_H }}
-      className={`pointer-events-none fixed inset-x-0 bottom-0 z-30 flex items-end justify-center
-        pb-[max(1.5rem,env(safe-area-inset-bottom))] transition-all duration-200 ${
+      className={`pointer-events-none fixed inset-x-0 z-30 flex items-end justify-center
+        bottom-[calc(6rem+max(0.75rem,env(safe-area-inset-bottom)))] pb-4 md:bottom-0
+        md:pb-[max(1.5rem,env(safe-area-inset-bottom))] transition-all duration-200 ${
           active
             ? "bg-gradient-to-t from-error/25 to-transparent"
             : "bg-gradient-to-t from-on-surface/10 to-transparent"

@@ -13,6 +13,8 @@
 
 import { useSyncExternalStore } from "react";
 
+import { playWhoosh } from "../sound";
+
 /** Where the pill currently is, in viewport coordinates. The bubble keeps
  *  this up to date as it's placed, dragged and flung. */
 let anchor: { x: number; y: number } | null = null;
@@ -191,6 +193,7 @@ export function flyToBubble(origin: FlyOrigin, qty: number): void {
     announceArrival(qty); // no flight worth watching — just land it
     return;
   }
+  playWhoosh(); // the slingshot's sound — one call site covers every add gesture
 
   withAnchor(240, (target) => {
     if (!target) {

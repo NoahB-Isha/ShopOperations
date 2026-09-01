@@ -136,6 +136,13 @@
   --animate-bubble-burst: bubble-burst 0.42s cubic-bezier(0.3, 0, 0.2, 1) both;
   --animate-burst-spark: burst-spark 0.5s cubic-bezier(0.2, 0.6, 0.3, 1) both;
   --animate-scan-line: scan-line 2.2s ease-in-out infinite;
+  /* the full-screen restock celebration: a veil breathes in and out while the
+     headline springs in, holds, and lifts away. Both run the WHOLE moment
+     (`both` fill); the component unmounts on a TIMER (CHEER_MS in
+     RestockPage.tsx — keep it equal to these durations), never on
+     animationend, which a backgrounded tab never delivers. */
+  --animate-cheer-veil: cheer-veil 1.8s ease-in-out both;
+  --animate-cheer-pop: cheer-pop 1.8s cubic-bezier(0.22, 1.25, 0.36, 1) both;
 
   @keyframes snackbar-in {
     from { opacity: 0; transform: translateY(24px) scale(0.9); }
@@ -217,6 +224,18 @@
   @keyframes scan-line {
     0%, 100% { transform: translateY(-42%); }
     50% { transform: translateY(42%); }
+  }
+  @keyframes cheer-veil {
+    0% { opacity: 0; }
+    12%, 80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes cheer-pop {
+    0% { opacity: 0; transform: scale(0.7) translateY(20px); }
+    13% { opacity: 1; transform: scale(1.07) translateY(-3px); }
+    22% { transform: scale(1) translateY(0); }
+    80% { opacity: 1; transform: scale(1) translateY(0); }
+    100% { opacity: 0; transform: scale(0.97) translateY(-10px); }
   }
 }
 

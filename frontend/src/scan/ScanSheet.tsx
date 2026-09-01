@@ -9,9 +9,12 @@ import { ProductDrawer } from "../pages/ProductDrawer";
 import type { Hit } from "./decode";
 import { useScanner } from "./useScanner";
 
-/** What the sheet is doing right now. The camera keeps running through all of
- *  these except `found` — pausing the decode loop, never the stream, is what
- *  makes "next item" instant. */
+/** What the sheet is doing right now. The camera keeps running through
+ *  lookups and misses (pausing only the decode loop keeps the next scan
+ *  instant), but STOPS the moment an item is found — the drawer opens over
+ *  the viewfinder, and a live camera behind a result you're reading is
+ *  battery and privacy spent on nothing (Noah, 2026-09-01). "Scan again"
+ *  restarts it, at the usual ~1s stream cost. */
 type Phase =
   | { kind: "scanning" }
   | { kind: "looking"; code: string }
@@ -68,10 +71,10 @@ export function ScanSheet({ onClose }: { onClose: () => void }) {
 
   const onHit = useCallback((hit: Hit) => void lookUp(hit.value), [lookUp]);
 
-  // the loop idles while a lookup is in flight or a result is on screen; the
-  // camera itself stays warm the whole time the sheet is open
+  // the loop idles while a lookup is in flight or a miss is on screen; the
+  // camera itself powers OFF once an item is found (see the Phase comment)
   const scanning = phase.kind === "scanning";
-  const scanner = useScanner({ enabled: true, paused: !scanning, onHit });
+  const scanner = useScanner({ enabled: phase.kind !== "found", paused: !scanning, onHit });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -453,6 +453,23 @@ in DECISIONS.md 2026-08-17).
 - FloorItemOut carries `bwhse_qty` (the row shows floor-only; the number is there
   so the transfer draft quotes an honest warehouse figure — test_restock asserts
   it).
+- **Check-offs are also the gamification ledger** (2026-09-01): BOTH lists
+  write `restock_checkoffs` (floor checks mirror into `list_type="floor"`
+  rows — floor LINES are wiped by the reset, so they can't be the ledger).
+  The unique (day, list, product) key means toggle-spam can't inflate a
+  tally; unchecking removes only TODAY's credit
+  (`test_check_offs_feed_a_durable_personal_tally`). Both check endpoints
+  return `my_restocked_total`; milestone thresholds are a UI opinion
+  (`restockCheer.MILESTONES`). The celebration layer is optimistic and purely
+  decorative — data first, always: `restockCheer.ts` (pure, tested: aisle
+  finished / list finished / milestone), `src/sound.ts` (Web Audio synth, no
+  asset files; localStorage `ilops_sounds`, default ON, toggle in
+  Settings→Appearance; `flyToBubble` plays the whoosh so ONE call site covers
+  every add gesture; every entry point try/caught, silent on hidden tabs) and
+  `src/celebrate.ts` (canvas confetti, no-op on reduced-motion/hidden).
+  **Never gamify counting or purchasing** — rewarding speed or volume where
+  numbers move real stock is how counts go wrong; restock check-offs write
+  nothing to Odoo, which is why they're the safe playground.
 - **Floor asks** (`app/floor_requests/`): FloorRequest = product, qty, note,
   status open|picked_up|dismissed. POST = floor_rotating + shoppe_floor; resolving
   = shoppe_floor. **Every ask is its own row** — two people flagging one shelf are
@@ -566,37 +583,31 @@ in DECISIONS.md 2026-08-17).
   location, excluding each item's OWN submission. Advisory on both sides — a
   genuine recount IS a second submission.
 
-### Stock status (OOS & coming soon)
+### Coming soon & availability
 
-- ONE nav destination "Stock status" = `/out-of-stock` + `/coming-soon` under a
-  shared tab bar (`pages/shared/SectionTabs.tsx`, URL-driven like TransfersPage;
-  tab lists in `stockStatusTabs.ts` / `countingTabs.ts` — data-only modules for
-  Fast Refresh). Routes, testids and role access unchanged.
-- Floor OOS list (`app/oos/`, `/out-of-stock`) is **READ-ONLY since 2026-08-24**:
-  marking, unmarking, "back in stock" and the `floor_oos_marks` table are GONE
-  (migration `b2d94f7c8e13`) — counted numbers enter the app ONLY through the
-  counting page; `test_the_board_takes_no_actions` locks the endpoints out.
-  Computed zeros are floor-RELEVANT products (floor row ∪ shoppe sales 30d ∪
-  floor snapshot history 60d, minus restock_exclude) with qty ≤ 0 OR NO row —
-  Odoo vacuums zero quants; a row-required query showed 20 items when ~294 were
-  out. Scope chips: Floor = the floor list; Everywhere/Warehouse = read-only
-  `availability/oos?scope=` lists; roles land on their own scope. Swipe
-  right / right-click still adds an empty shelf to the transfer draft.
-- **OOS lists hide never-stocked items by default**
+- **The out-of-stock PAGE and the `/oos` endpoint are GONE (2026-09-01, Noah:
+  redundant)** — the restock list already computes what the floor is missing,
+  and counting owns corrections. What remains: `app/oos/adjust.py` (counting's
+  apply core — the package survives for it) and the read-only
+  `app/availability/` lists (`/availability/oos?scope=`, `/coming-soon`,
+  `/meta`), which feed the warehouse /incoming page and the bot API.
+- **Availability OOS lists hide never-stocked items by default**
   (`oos_items(include_never_stocked=)`, scope-aware: no snapshot ever showed stock
   in scope). On live that's 1,271 of 1,652 org rows and 1,240 of them SELL — they
-  are HIDDEN, not blacklisted (the sweep's never-sold guard stands); the "Include
-  never-stocked" chip is the peek; the bot API stays curated. `last_in_stock_on`
-  comes from snapshot history.
-- Coming Soon = pending IncomingMove ∪ discovered staging-bound Odoo pickings
-  (dashed chips, "Odoo · state" badge), soonest-first, `within_days`.
-  `useOnTheWay()` + `OnTheWayChip` reuse this aggregation on the transfer form
-  (chips on search results and draft lines + a summary above Send) — ADVISORY,
-  never blocks and the API still allows a second open request for the same
-  product: a shelf that cleared at lunchtime is real and the floor knows it before
-  the numbers do.
-- The /coming-soon subtitle is Noah's wording; the /out-of-stock subtitle is
-  COMMENTED OUT in place at his request — leave it parked rather than deleting.
+  are HIDDEN, not blacklisted (the sweep's never-sold guard stands;
+  `test_blacklisted_products_leave_availability` keeps the blacklist filter).
+  The bot API stays curated and read-only. `last_in_stock_on` comes from
+  snapshot history.
+- `/coming-soon` is its own nav destination again ("Coming soon", admin + floor
+  roles): pending IncomingMove ∪ discovered staging-bound Odoo pickings ∪ active
+  transfer requests (dashed chips, "Odoo · state" badge), soonest-first. The
+  subtitle is Noah's wording. `useOnTheWay()` + `OnTheWayChip` reuse this
+  aggregation on the transfer form (chips on search results and draft lines + a
+  summary above Send) — ADVISORY, never blocks and the API still allows a second
+  open request for the same product: a shelf that cleared at lunchtime is real
+  and the floor knows it before the numbers do.
+- `pages/shared/SectionTabs.tsx` (the URL-driven tab-bar merge pattern) now
+  serves only the counting destination (`countingTabs.ts`).
 
 ### Center orders & notifications
 
@@ -897,11 +908,16 @@ items need a silly name too. Dynamic strings pass through untouched.
 - `homeForRoles`: admin → /reports, warehouse → /staging2, shoppe_floor →
   /restock (nav.test asserts). Warehouse menu is THREE items (Send to floor,
   Inventory counting, Search Inventory) — they live in Odoo. shoppe_floor nav
-  order is Restock · Transfers · Suggested items · Inventory counting · Stock
-  status · Search (the phone bar keeps the first TWO before Scan/More). Two
-  destinations are tab-bar merges (2026-08-24, `SectionTabs`): "Inventory
-  counting" carries /count-review, "Stock status" carries /out-of-stock +
-  /coming-soon — a new silly-mode entry is needed if a merged label changes.
+  order is Restock · Transfers · Suggested items · Inventory counting · Coming
+  soon · Search (the phone bar keeps the first TWO before Scan/More).
+  "Inventory counting" is a tab-bar merge (2026-08-24, `SectionTabs`): it
+  carries /count-review — a new silly-mode entry is needed if a merged label
+  changes. **The search FAB primes the iOS keyboard** (`primeKeyboard` in
+  AppShell, 2026-09-01): focus() only opens the keyboard inside the tap
+  gesture, and the catalog's autoFocus runs after navigation — so the FAB
+  focuses a throwaway 16px input synchronously (16px or iOS zooms instead)
+  and the real box takes over on mount; already-on-catalog taps focus the box
+  directly.
 - Settings is the admin surface (account → appearance → Admin pages card linking
   Users + **Dev Tools** — the old Status page — + styleguide/palette-lab); those
   left the main nav. The audit log is a Dev Tools button. On phones the inbox
@@ -938,8 +954,8 @@ items need a silly name too. Dynamic strings pass through untouched.
   test, axis lock, click swallow, exit-then-mutate; the comments explain why,
   don't re-derive). TOUCH ONLY by design — a mouse gets the row's context menu.
   Wired: restock rows (left = snooze with exit, right = request more), catalog
-  phone list, floor OOS board — floor_rotating included (the draft is
-  role-neutral). Catalog adds default to case size and refuse untracked/manual
+  phone list (the floor OOS board wore it too, until the page was removed
+  2026-09-01). Catalog adds default to case size and refuse untracked/manual
   products. The morph (`morphOnRight`): past `MORPH_START` (0.8 of the row's own
   width, measured on pointerdown) the row collapses toward a `MORPH_BALL_PX` ball
   under the finger — scale from `transform-origin: 0% 50%`, travel capped at
@@ -976,9 +992,12 @@ items need a silly name too. Dynamic strings pass through untouched.
   the finger; release = clear + UNDO snackbar restoring the exact lines — no
   confirm dialog, the gesture is deliberate and undo is one tap). Traps, all
   learned live: read `overBinRef`, NEVER the `overBin` state (a fast flick puts
-  the last pointermove and pointerup in one frame); the resting inset (150/200px)
-  is deliberately deeper than the band so a nudge can't bin anything; measure the
-  pill with **offsetWidth/Height, never getBoundingClientRect** (a running scale
+  the last pointermove and pointerup in one frame); on phones the bin band
+  floats ABOVE the bottom bar + docked FAB (`DROP_ZONE_LIFT_PHONE` + the CSS
+  `bottom-[calc(6rem+…)]` move together — it used to hide behind the search
+  FAB, Noah 2026-09-01) and the resting inset (150 desktop / 260 phone) is
+  deliberately deeper than the band's top so a nudge can't bin anything; the
+  burst plays `playPop()` when it fires; measure the pill with **offsetWidth/Height, never getBoundingClientRect** (a running scale
   animation shrinks the rect and parks it off-screen); clear the entrance class
   on a TIMER, not animationend (a backgrounded tab never delivers the event and
   fill-mode `both` then outranks every later motion); placement REFUSES a zero
@@ -1041,8 +1060,11 @@ native `BarcodeDetector` (reads the <video> with zero pixel copy) else
 option); both format-limited to retail + shelf-label symbologies (the biggest
 speed lever); the wasm module + ~1MB binary are dynamically imported so the native
 path never fetches them. `useScanner.ts`: `enabled` owns the camera stream,
-`paused` only stops the decode loop (a result freeze keeps the camera warm —
-"scan again" is instant); loop on `requestVideoFrameCallback` (a frame is never
+`paused` only stops the decode loop through lookups and misses ("next scan"
+stays instant there), but a FOUND item powers the camera OFF — `enabled`
+follows `phase.kind !== "found"` (battery + privacy while the drawer is read;
+"Scan again" restarts the stream at its ~1s cost — Noah, 2026-09-01); loop on
+`requestVideoFrameCallback` (a frame is never
 decoded twice); the wasm path decodes a center-band ROI capped at 720px;
 check-digit formats (EAN/UPC) accept on one read, Code39/128/ITF wait for two
 identical; torch + continuous autofocus where supported. Manual entry doubles as
@@ -1096,12 +1118,14 @@ the USB-wedge path and the camera-refused fallback — `inputMode="text"` +
   posting script, stale-count release.
 - Known open items, deliberate: ordering review findings 05 and 07–10;
   Amazon/Canada ingestion stubs; `PUT …/lines` endpoints have no UI.
-- Feature-merge round (2026-08-24, this repo state): counting is the one door
-  for counted numbers; OOS board read-only; counting+review and OOS+coming-soon
-  are single tab-bar destinations; adjustments queue and time machine removed
-  (tables `adjustments` + `floor_oos_marks` dropped by `b2d94f7c8e13` — runs on
-  the hosted stack at next deploy). Flags `write_create_inventory_reduction` /
-  `write_create_inventory_addition` remain in use BY COUNTING's apply core.
+- Feature-merge round (2026-08-24): counting is the one door for counted
+  numbers; counting+review is a single tab-bar destination; adjustments queue
+  and time machine removed (tables `adjustments` + `floor_oos_marks` dropped by
+  `b2d94f7c8e13` — runs on the hosted stack at next deploy). Flags
+  `write_create_inventory_reduction` / `write_create_inventory_addition` remain
+  in use BY COUNTING's apply core. 2026-09-01: gamified restocking round 1
+  (sounds/celebrations/milestones), and the out-of-stock page + `/oos` endpoint
+  removed outright — Coming soon stands alone.
 
 ## Maintaining this file
 

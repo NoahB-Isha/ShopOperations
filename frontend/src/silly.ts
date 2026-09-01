@@ -56,7 +56,6 @@ export const SILLY_LABELS: Record<string, string> = {
   "Dev Tools": "The engine room",
   Reports: "🤑🤑🤑",
   Sales: "🤑🤑🤑", // the /reports route title
-  "Out of stock": "Ghost town",
   "Search Inventory": "Find the stash",
   Centers: "The crews",
   Users: "Peeps",
@@ -73,7 +72,6 @@ export const SILLY_LABELS: Record<string, string> = {
   Transfers: "Big moves",
   "Send to floor": "Pallet party",
   "Coming soon": "OTW 👀",
-  "Stock status": "The lowdown",
   // floor
   Restock: "The re-up",
   "Request items": "Gimme gimme",

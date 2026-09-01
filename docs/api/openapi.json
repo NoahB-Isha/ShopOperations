@@ -4591,37 +4591,6 @@
         }
       }
     },
-    "/api/v1/oos": {
-      "get": {
-        "tags": [
-          "oos"
-        ],
-        "summary": "List Oos",
-        "description": "Every FLOOR-RELEVANT product Odoo shows at zero on the floor.\n\n\"Floor-relevant\" matters: Odoo vacuums zero quants, so a product that\nsold out yesterday often has NO floor stock row at all \u2014 the old\nrow-must-exist query silently dropped exactly the items the team most\nneeds to see (the live board was 20 rows while thousands of products\nexisted). A product belongs on this board when it has a floor stock row\ntoday, floor snapshot history, or recent Shoppe sales \u2014 and its floor\nquantity is zero-or-missing. Non-retail POS items stay off.",
-        "operationId": "list_oos_api_v1_oos_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OosItemOut"
-                  },
-                  "type": "array",
-                  "title": "Response List Oos Api V1 Oos Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
     "/api/v1/notices": {
       "get": {
         "tags": [
@@ -10392,6 +10361,17 @@
             "type": "number",
             "title": "Group Popularity",
             "default": 0.0
+          },
+          "my_restocked_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "My Restocked Total"
           }
         },
         "type": "object",
@@ -11274,54 +11254,6 @@
           "read"
         ],
         "title": "NoticeOut"
-      },
-      "OosItemOut": {
-        "properties": {
-          "product_id": {
-            "type": "integer",
-            "title": "Product Id"
-          },
-          "sku": {
-            "type": "string",
-            "title": "Sku"
-          },
-          "barcode": {
-            "type": "string",
-            "title": "Barcode"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category"
-          },
-          "floor_qty": {
-            "type": "number",
-            "title": "Floor Qty"
-          },
-          "bwhse_qty": {
-            "type": "number",
-            "title": "Bwhse Qty"
-          },
-          "incoming_label": {
-            "type": "string",
-            "title": "Incoming Label"
-          }
-        },
-        "type": "object",
-        "required": [
-          "product_id",
-          "sku",
-          "barcode",
-          "name",
-          "category",
-          "floor_qty",
-          "bwhse_qty",
-          "incoming_label"
-        ],
-        "title": "OosItemOut"
       },
       "OrderDetailOut": {
         "properties": {

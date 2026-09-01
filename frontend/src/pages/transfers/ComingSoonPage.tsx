@@ -9,8 +9,6 @@ import { useNavigate } from "react-router-dom";
 import { useComingSoon } from "../../api/hooks";
 import { Badge, EmptyState, Input, PageHeader, ScrollingText, Spinner } from "../../design";
 import { LowCountHint, TransferStatusChip, fmtQty, productCode } from "../shared/OpsBits";
-import { SectionTabs } from "../shared/SectionTabs";
-import { STOCK_STATUS_TABS } from "../restock/stockStatusTabs";
 import { matchesSearch } from "../../search";
 import { useSillyLabel } from "../../silly";
 
@@ -38,10 +36,9 @@ export function ComingSoonPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
-        title="Stock status"
+        title="Coming soon"
         subtitle="These items are actively being transferred from Warehouse to Floor. No need to request them again."
       />
-      <SectionTabs tabs={STOCK_STATUS_TABS} active="/coming-soon" />
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}

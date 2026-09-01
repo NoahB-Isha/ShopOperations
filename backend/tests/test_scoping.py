@@ -254,23 +254,29 @@ def test_center_sales_compare_two_complete_months(client, db):
     from datetime import date
 
     from app.centers.sales import comparison_months, sales_by_center
-    from app.models import SalesCenterMonthly
+    from app.models import SalesCenterMonthly, utcnow
 
     _, _, austin, san_antonio, chicago = _world(db)
-    today = date(2026, 8, 15)
-    (ly, lm), (py, pm) = comparison_months(today)
-    assert (ly, lm) == (2026, 7) and (py, pm) == (2026, 6)  # never August
+    # the pure rule, pinned: mid-August compares July against June, never August
+    assert comparison_months(date(2026, 8, 15)) == ((2026, 7), (2026, 6))
 
+    # Everything below runs against the REAL clock — /centers uses actual
+    # today, and seeding literal July/June rows made this test fail on its own
+    # the day the calendar reached September (the frozen-date trap CLAUDE.md
+    # warns about). Seed whatever months the endpoint will actually compare.
+    today = utcnow().date()
+    (ly, lm), (py, pm) = comparison_months(today)
     db.add_all([
-        SalesCenterMonthly(config_name="Austin", center_id=austin.id, year=2026, month=7,
+        SalesCenterMonthly(config_name="Austin", center_id=austin.id, year=ly, month=lm,
                            units=120, amount=2400),
-        SalesCenterMonthly(config_name="Austin", center_id=austin.id, year=2026, month=6,
+        SalesCenterMonthly(config_name="Austin", center_id=austin.id, year=py, month=pm,
                            units=80, amount=1600),
         # a center whose only month is the one in progress — not a trend yet
-        SalesCenterMonthly(config_name="SA", center_id=san_antonio.id, year=2026, month=8,
+        SalesCenterMonthly(config_name="SA", center_id=san_antonio.id,
+                           year=today.year, month=today.month,
                            units=999, amount=9990),
         # sold last month, nothing before: growth from zero, not a missing center
-        SalesCenterMonthly(config_name="Chicago", center_id=chicago.id, year=2026, month=7,
+        SalesCenterMonthly(config_name="Chicago", center_id=chicago.id, year=ly, month=lm,
                            units=15, amount=300),
     ])
     db.commit()

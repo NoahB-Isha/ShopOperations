@@ -827,16 +827,6 @@ export interface Staging2Out {
   pallets: PalletOut[];
 }
 
-export interface OosItemOut {
-  product_id: number;
-  sku: string;
-  barcode: string;
-  name: string;
-  category: string;
-  floor_qty: number;
-  bwhse_qty: number;
-  incoming_label: string;
-}
 
 // ------------------------------------------------------- purchasing (phase 4)
 export type PurchaseOrderStatus = "draft" | "placed" | "closed" | "cancelled";
