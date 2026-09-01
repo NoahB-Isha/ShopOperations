@@ -13,7 +13,8 @@
 export interface PaletteOption {
   id: string;
   label: string;
-  /** secondary hue swatch shown in the picker (primary is identical in all) */
+  /** the palette's signature hue for the picker — its secondary, except Devi,
+   *  whose signature is the crimson PRIMARY it overrides the brand orange with */
   dot: string;
 }
 
@@ -21,6 +22,7 @@ export const PALETTES: PaletteOption[] = [
   { id: "pop", label: "Charcoal Pop", dot: "#b90d6e" },
   { id: "neem", label: "Neem Tree", dot: "#5c4f26" },
   { id: "turmeric", label: "Turmeric Root", dot: "#f5bd45" },
+  { id: "devi", label: "Devi", dot: "#a91226" },
 ];
 
 const STORAGE_KEY = "ilops_palette";
@@ -37,6 +39,7 @@ export function setPalette(id: string): void {
   } catch {
     /* private browsing — the choice just won't persist */
   }
+  repaintThemeColor(); // palettes disagree about the light surface
 }
 
 
@@ -75,11 +78,22 @@ export function resolvedTheme(mode: ThemeMode = currentThemeMode()): "light" | "
 
 function paint(mode: ThemeMode): void {
   document.documentElement.dataset.theme = resolvedTheme(mode);
-  // keep the browser chrome (status bar, address bar) in step
+  repaintThemeColor();
+}
+
+/** Keep the browser chrome (status bar, address bar) in step with the page.
+ *  Light reads the LIVE surface token — palettes disagree about it (Devi's
+ *  rose-sand vs pop's lilac-white), and a hardcoded value left the phone's
+ *  status bar wearing the wrong palette after a switch. */
+export function repaintThemeColor(): void {
   const dark = document.documentElement.dataset.theme === "dark";
+  const surface = getComputedStyle(document.documentElement)
+    .getPropertyValue("--color-surface")
+    .trim();
+  const content = dark ? "#131523" : surface || "#fbfafd";
   document
     .querySelectorAll('meta[name="theme-color"]')
-    .forEach((el) => el.setAttribute("content", dark ? "#131523" : "#fbfafd"));
+    .forEach((el) => el.setAttribute("content", content));
 }
 
 export function setThemeMode(mode: ThemeMode): void {

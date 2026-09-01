@@ -63,6 +63,32 @@ it painful.
 
 ## Build decisions
 
+**2026-09-01 — The Devi palette, and the one exception to the locked brand orange**
+A fourth light palette after the Linga Bhairavi imagery Noah supplied (kumkum reds,
+temple gold, lamp-lit creams, the sanctum's dark maroon). The first draft kept the
+house rule — brand orange primary, crimson only as secondary — and Noah rejected it
+as "too close to the original app." So Devi became the one palette that overrides
+PRIMARY itself: kumkum crimson buttons/FAB/active states with cream on-primary
+(the umber-on-orange trick doesn't survive a dark primary), temple gold promoted to
+secondary wearing dark text (the Turmeric precedent), and the brand flame demoted to
+tertiary so the orange survives as an accent rather than the identity. The exception
+is sanctioned for Devi alone — the rule stays the rule elsewhere, and the tradeoff is
+recorded on the Palette Lab card: crimson primary lives near the error red, so
+destructive actions in this palette lean on wording and error containers, never hue
+alone. Light mode only, as ever — dark stays the one global scheme.
+
+Incidental fix the palette exposed: the browser-chrome `theme-color` meta was
+hardcoded to the default palette's surface, so a phone's status bar wore lilac-white
+over Devi's rose-sand. It now reads the live `--color-surface` and repaints on both
+theme and palette switches.
+
+Calibration, by looking rather than arguing: the first draft's rose-sand ground was
+too heavy (lightened to lamp-lit ivory on sight), and a bolder experiment — selected
+chips wearing the FULL gold and flame on the restock aisle headings and quantities —
+was tried and mostly reverted. What survived it is Devi's one flourish: the restock
+"bring out" numbers render in flame, via a palette-scoped rule that other palettes
+never see. Two rounds of "show me" beat any amount of specification here.
+
 **2026-09-01 — Floor polish round: the OOS page goes, the phone details get fixed**
 Noah's list, shipped together. The big one: the out-of-stock page is REMOVED, not
 merged — "it ends up being redundant." He's right on the data: after marking left it

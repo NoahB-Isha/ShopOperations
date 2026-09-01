@@ -107,6 +107,21 @@ const VARIANTS: Variant[] = [
       { hex: "#f9f9fe", label: "surface" },
     ],
   },
+  {
+    id: "devi",
+    className: "pl-devi",
+    name: "D — Devi",
+    story:
+      "Full immersion, after the Linga Bhairavi imagery — and the ONE palette allowed to override the brand orange: kumkum-crimson primary (every button goes red), temple-gold secondary wearing dark text, the brand flame demoted to tertiary with one flourish — Devi alone paints the restock 'bring out' numbers in it. Lamp-lit ivory ground, snackbars on the sanctum's dark maroon.",
+    tradeoff:
+      "Crimson primary sits near the error red — destructive actions lean on wording and the error container, not hue alone. Gold chips flirt with the amber 'stale' warnings, like Turmeric.",
+    swatches: [
+      { hex: "#a91226", label: "primary (Devi's exception)" },
+      { hex: "#d29a26", label: "secondary" },
+      { hex: "#ffdcc2", label: "tertiary container" },
+      { hex: "#fdf6f1", label: "surface" },
+    ],
+  },
 ];
 
 /** The same miniature "Status meets Catalog" page, re-rendered per theme. */

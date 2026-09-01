@@ -298,6 +298,50 @@
   --color-inverse-on-surface: #f0f0fa;
 }
 
+/* Devi: full immersion after the Linga Bhairavi imagery (Noah,
+   2026-09-01). THE one exception to "brand orange primary in every
+   palette" — Devi's PRIMARY is kumkum crimson, so every button, FAB
+   and active state goes red; temple gold steps up to secondary
+   (wearing dark text, the Turmeric precedent) and the brand flame
+   survives as tertiary. Rose-sand ground, sanctum maroon everywhere
+   ink lives. */
+:root[data-palette="devi"] {
+  --color-primary: #a91226; /* kumkum crimson — the buttons go red */
+  --color-on-primary: #fff3ec; /* lamp-lit cream */
+  --color-primary-container: #ffd9d9; /* sindoor wash */
+  --color-on-primary-container: #40000d;
+  --color-inverse-primary: #ffb3b4; /* crimson's glow on the sanctum dark */
+  --color-secondary: #d29a26; /* temple gold (light hue: dark text) */
+  --color-on-secondary: #3a2900;
+  --color-secondary-container: #ffe1a4;
+  --color-on-secondary-container: #291d00;
+  --color-tertiary: #b3540a; /* the brand flame, demoted to accent */
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #ffdcc2; /* diya glow */
+  --color-on-tertiary-container: #361a00;
+  --color-surface-dim: #eed7c9;
+  --color-surface: #fdf6f1; /* lamp-lit ivory, a breath of rose */
+  --color-surface-container-low: #f9eee6;
+  --color-surface-container: #f5e5da;
+  --color-surface-container-high: #f0dccd;
+  --color-surface-container-highest: #ead2c1; /* toward sandalwood */
+  --color-on-surface: #2a1114; /* sanctum-maroon ink */
+  --color-on-surface-variant: #5e4145;
+  --color-outline: #906f6a;
+  --color-outline-variant: #e5cabf;
+  --color-inverse-surface: #331318; /* the sanctum at night */
+  --color-inverse-on-surface: #ffe9e4;
+}
+
+/* Devi's one flourish: this palette ALONE paints the restock "bring out"
+   numbers in its flame tertiary (Noah kept exactly this from a bolder
+   experiment, 2026-09-01 — gold chips and flame aisle headings were tried
+   and reverted). Palette-scoped on purpose; the class hook is in
+   RestockPage. */
+:root[data-palette="devi"] .restock-qty {
+  color: var(--color-tertiary);
+}
+
 /* ---- DARK scheme: ONE global scheme (deep slate-indigo, orange
    glows on it) shared by every palette — the palette choice shapes
    light mode only. The `, :root[data-palette]` keeps this winning

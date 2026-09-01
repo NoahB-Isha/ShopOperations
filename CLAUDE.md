@@ -859,10 +859,20 @@ Full rationale in DECISIONS.md (2026-08-05 remediation). The posture:
 
 Material Design 3, vibrant and editorial — fun, colorful, quirky at times, always
 functional (Noah's call, superseding the early Linear-quiet direction; see
-DECISIONS.md). Brand orange `#f36f21` primary everywhere, deep-umber on-primary.
-Light mode has **three palettes** — Charcoal Pop (DEFAULT; its values live in the
-`@theme` block so `data-palette="pop"` needs no override), Neem Tree, Turmeric Root
-(sunflower-gold secondary wears DARK text — gold is a light hue) — as
+DECISIONS.md). Brand orange `#f36f21` primary with deep-umber on-primary in every
+palette EXCEPT Devi — **Devi overrides primary to kumkum crimson `#a91226` with
+cream on-primary** (Noah, 2026-09-01: "the orange buttons need to change to red";
+the one sanctioned exception — don't spread it to other palettes, and note
+crimson-primary sits near the error red, so destructive actions there lean on
+wording + error containers, not hue). Light mode has **four palettes** — Charcoal
+Pop (DEFAULT; its values live in the `@theme` block so `data-palette="pop"` needs
+no override), Neem Tree, Turmeric Root (sunflower-gold secondary wears DARK
+text — gold is a light hue), and Devi (crimson primary; temple-gold secondary;
+the brand flame demoted to tertiary with ONE flourish — a
+`:root[data-palette="devi"]` rule in tokens.css paints the restock "bring out"
+numbers flame; full-gold chips and flame aisle headings were tried and
+REVERTED (Noah, 2026-09-01) — don't re-bolden; lamp-lit ivory ground — after
+the Linga Bhairavi imagery) — as
 `data-palette` on `<html>` + localStorage, applied pre-paint by `public/palette.js`,
 which validates stored ids and falls back to pop (retired ids can't strand anyone).
 **Dark is a SETTING, not the device's** (`ilops_theme` system|light|dark, resolved

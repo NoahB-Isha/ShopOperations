@@ -7,8 +7,8 @@
 //
 // TWO choices are applied here:
 //
-//   data-palette  which LIGHT palette (pop | neem | turmeric). The ids must
-//                 stay in lockstep with the @theme / [data-palette=…] blocks
+//   data-palette  which LIGHT palette (pop | neem | turmeric | devi). The ids
+//                 must stay in lockstep with the @theme / [data-palette=…] blocks
 //                 in src/styles/tokens.css and src/styles/palette-lab.css.
 //                 Retired ids (sunset/indigo/forest) fall back to the default
 //                 so stale localStorage can't strand anyone.
@@ -23,7 +23,7 @@
 try {
   var p = localStorage.getItem("ilops_palette");
   document.documentElement.dataset.palette =
-    ["pop", "neem", "turmeric"].indexOf(p) >= 0 ? p : "pop";
+    ["pop", "neem", "turmeric", "devi"].indexOf(p) >= 0 ? p : "pop";
 } catch (e) {
   document.documentElement.dataset.palette = "pop";
 }

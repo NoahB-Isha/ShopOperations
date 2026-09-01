@@ -320,7 +320,8 @@ function FloorList({ items, threshold }: { items: RestockFloorItem[]; threshold:
           sku={productCode(item.barcode, item.sku)}
           right={
             <span className="text-right">
-              <span className="display block text-2xl leading-none">{fmtQty(item.qty)}</span>
+              {/* restock-qty: the Devi palette paints this flame (tokens.css) */}
+              <span className="restock-qty display block text-2xl leading-none">{fmtQty(item.qty)}</span>
               <span className="text-[11px] text-on-surface-variant">bring out</span>
             </span>
           }

@@ -51,6 +51,34 @@
   --color-outline-variant: #dcc9ae;
 }
 
+/* D — Devi: full immersion — kumkum-crimson PRIMARY (the one palette that
+   overrides the brand orange), temple-gold secondary, flame tertiary,
+   rose-sand ground */
+.pl-devi {
+  --color-primary: #a91226;
+  --color-on-primary: #fff3ec;
+  --color-primary-container: #ffd9d9;
+  --color-on-primary-container: #40000d;
+  --color-secondary: #d29a26;
+  --color-on-secondary: #3a2900;
+  --color-secondary-container: #ffe1a4;
+  --color-on-secondary-container: #291d00;
+  --color-tertiary: #b3540a;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #ffdcc2;
+  --color-on-tertiary-container: #361a00;
+  --color-surface: #fdf6f1;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f9eee6;
+  --color-surface-container: #f5e5da;
+  --color-surface-container-high: #f0dccd;
+  --color-surface-container-highest: #ead2c1;
+  --color-on-surface: #2a1114;
+  --color-on-surface-variant: #5e4145;
+  --color-outline: #906f6a;
+  --color-outline-variant: #e5cabf;
+}
+
 /* C — Turmeric Root: fresh-cut gold on cool lavender-slate (dark text on the gold) */
 .pl-turmeric {
   --color-secondary: #f5bd45;
