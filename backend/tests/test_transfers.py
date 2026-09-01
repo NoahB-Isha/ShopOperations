@@ -178,18 +178,10 @@ def test_full_flow_against_simulator_with_barcode_validation(
     assert any(e["kind"] == "discrepancy" for e in req["events"])
     assert any("validated in Odoo" in e["note"] for e in req["events"])
 
-    # ---- the -1 sits in the warehouse adjustments queue
-    r = client.get("/api/v1/adjustments", headers=wh)
-    [adj] = r.json()
-    assert (adj["qty_expected"], adj["qty_counted"], adj["delta"]) == (9, 8, -1)
-    assert adj["request_id"] == rid
-    r = client.post(
-        f"/api/v1/adjustments/{adj['id']}/resolve",
-        json={"action": "resolved", "note": "found it under the cart"},
-        headers=wh,
-    )
-    assert r.status_code == 200
-    assert client.get("/api/v1/adjustments", headers=wh).json() == []
+    # ---- the -1 is recorded on the request itself (the adjustments queue is
+    # gone — the DISCREPANCY event and Odoo's count picking are the record)
+    [disc] = [e for e in req["events"] if e["kind"] == "discrepancy"]
+    assert "sent 9, counted 8 (-1)" in disc["note"]
 
 
 def test_simulated_flow_manual_close(client, db, settings_env):
@@ -230,7 +222,8 @@ def test_simulated_flow_manual_close(client, db, settings_env):
     assert r.status_code == 200
     assert r.json()["status"] == "done"
     assert r.json()["lines"][0]["delta"] == 0
-    assert client.get("/api/v1/adjustments", headers=login(client, "wh@test.io")).json() == []
+    # counted taken as sent → no invented discrepancies on the record
+    assert not any(e["kind"] == "discrepancy" for e in r.json()["events"])
 
 
 def test_transitions_enforce_role_and_order(client, db, settings_env):
@@ -644,10 +637,9 @@ def test_floor_receipt_in_odoo_closes_the_request(client, db, live_env, monkeypa
     assert by_sku[incense.global_sku]["delta"] == 1  # over
     assert any(reference in e["note"] for e in body["events"])
 
-    # both directions filed as adjustments for the queue (warehouse owns it)
-    adj = client.get("/api/v1/adjustments", headers=login(client, "wh@test.io")).json()
-    deltas = sorted(a["delta"] for a in adj if a["request_id"] == rid)
-    assert deltas == [-2.0, 1.0]
+    # both directions land in the DISCREPANCY event (the queue is gone)
+    [disc] = [e for e in body["events"] if e["kind"] == "discrepancy"]
+    assert "(-2)" in disc["note"] and "(+1)" in disc["note"]
 
 
 def test_count_validation_survives_a_real_throttle(client, db, live_env, monkeypatch):
@@ -1092,12 +1084,8 @@ def test_delivery_form_closes_the_requests_that_rode_it(client, db, live_env, mo
     client.get("/api/v1/transfer-requests/deliveries", headers=wh)  # listener
     [delivery] = client.get("/api/v1/transfer-requests/deliveries", headers=wh).json()
     assert delivery["status"] == "counted"
-
-    # the difference queues against the DELIVERY, not one request
-    [adj] = client.get("/api/v1/adjustments", headers=wh).json()
-    assert (adj["qty_expected"], adj["qty_counted"], adj["delta"]) == (6, 5, -1)
-    assert adj["request_id"] is None
-    assert adj["delivery_name"] == "III/INT/PALLET1"
+    # the pallet-vs-count difference is logged, not queued — the validated
+    # count picking in Odoo is the durable record (queue removed 2026-08-24)
 
 
 def test_a_plain_edit_in_odoo_counts_as_seen(client, db, live_env, monkeypatch):

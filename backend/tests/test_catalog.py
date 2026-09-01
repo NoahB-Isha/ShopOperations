@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.models import Role
 
-from .util import login, mk_product, mk_user, set_flag
+from .util import login, mk_product, mk_user
 
 
 def _setup(client, db, n: int = 60):
@@ -381,91 +381,15 @@ def test_locations_are_honest_when_odoo_is_silent(client, db, live_env, monkeypa
     assert body["buckets"]  # the last sync's totals still come back
 
 
-# ------------------------------------------------- editing the floor count
-def test_floor_count_renders_a_draft_adjustment_and_never_validates(
-    client, db, live_env, monkeypatch
-):
-    """The Inventory Flow Manager counted the shelf. Odoo gets a DRAFT."""
-    from app.odoo.simulator import OdooSimulator
-    from app.sync.runner import run_domain
-
-    sim = OdooSimulator(live_env.fixtures_path, read_only=False)
-    run_domain(db, live_env, "products", conn=sim, trigger="manual")
-    run_domain(db, live_env, "stock", conn=sim, trigger="manual")
-    monkeypatch.setattr(
-        "app.odoo.writer.get_connection", lambda settings, read_only=False: sim
-    )
-    set_flag(db, "write_create_inventory_addition", True)
-    set_flag(db, "write_create_inventory_reduction", True)
+# ------------------------------------------------- the floor count is gone
+def test_floor_count_left_the_product_drawer(client, db):
+    """Counted numbers enter the app ONLY through the counting page
+    (2026-08-24): the old per-product floor-count endpoint is removed, not
+    just hidden — a stale client must get 404/405, never a write."""
+    p = mk_product(db, "IN9999", "Incense-Stick-Test", odoo_id=9911)
     mk_user(db, "flr@test.io", (Role.SHOPPE_FLOOR, None, None))
     floor = login(client, "flr@test.io")
-
-    from app.models import Product, StockLevel
-    from sqlalchemy import select as sa_select
-
-    product = db.scalars(
-        sa_select(Product).where(Product.odoo_product_id.is_not(None))
-    ).first()
-    # the stock sync may already have a floor row for this product — set it,
-    # don't insert a second one
-    row = db.scalars(
-        sa_select(StockLevel).where(
-            StockLevel.product_id == product.id, StockLevel.location_key == "floor"
-        )
-    ).first()
-    if row is None:
-        row = StockLevel(product_id=product.id, location_key="floor", qty=0)
-        db.add(row)
-    row.qty = 4
-    db.commit()
-
-    # counted MORE than Odoo -> an addition draft
     r = client.post(
-        f"/api/v1/products/{product.id}/floor-count",
-        json={"counted_qty": 9, "note": "counted the shelf"},
-        headers=floor,
+        f"/api/v1/products/{p.id}/floor-count", json={"counted_qty": 3}, headers=floor
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["floor_qty_before"] == 4 and body["delta"] == 5
-    assert body["direction"] == "add" and body["status"] == "created"
-    assert body["picking_name"] and body["url"]
-    # it is a DRAFT: the app never validates a stock move
-    state = sim.search_read(
-        "stock.picking", [["name", "=", body["picking_name"]]], ["state"]
-    )
-    assert state and state[0]["state"] == "draft"
-
-    # counted the same -> nothing written
-    r2 = client.post(
-        f"/api/v1/products/{product.id}/floor-count", json={"counted_qty": 4}, headers=floor
-    )
-    assert r2.json()["status"] == "none" and r2.json()["direction"] == "none"
-
-    # a wild number is refused rather than adjusted
-    r3 = client.post(
-        f"/api/v1/products/{product.id}/floor-count", json={"counted_qty": 999_999}, headers=floor
-    )
-    assert r3.status_code == 422 and "too large" in r3.json()["detail"]
-
-
-def test_floor_count_is_not_for_untracked_items_or_other_roles(client, db, settings_env):
-    water = mk_product(db, "MAN-WATER-2", "Spring Water", source="manual", stock_tracked=False)
-    mk_user(db, "flr2@test.io", (Role.SHOPPE_FLOOR, None, None))
-    mk_user(db, "wh4@test.io", (Role.WAREHOUSE, None, None))
-    floor = login(client, "flr2@test.io")
-    wh = login(client, "wh4@test.io")
-
-    r = client.post(
-        f"/api/v1/products/{water.id}/floor-count", json={"counted_qty": 3}, headers=floor
-    )
-    assert r.status_code == 422 and "isn't tracked in Odoo" in r.json()["detail"]
-
-    tracked = mk_product(db, "IN9999", "Incense-Stick-Test", odoo_id=9911)
-    # the warehouse works in Odoo; the floor owns the floor count
-    assert (
-        client.post(
-            f"/api/v1/products/{tracked.id}/floor-count", json={"counted_qty": 3}, headers=wh
-        ).status_code
-        == 403
-    )
+    assert r.status_code in (404, 405)

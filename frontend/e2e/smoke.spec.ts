@@ -25,10 +25,11 @@ test("admin, warehouse, and orderer see different navs", async ({ page }) => {
   await expect(page.getByRole("navigation").first()).toContainText("Centers");
   await page.getByRole("button", { name: /sign out/i }).click();
 
-  // the warehouse menu is deliberately two items since 2026-08-17 — they work
+  // the warehouse menu is deliberately slim since 2026-08-17 — they work
   // in Odoo, so the app gives them the delivery form and product lookup. The
-  // pages that left (Incoming, Transfers, Coming soon, Out of stock,
-  // Adjustments) kept their routes; they're just not menu items.
+  // pages that left (Incoming, Transfers, Coming soon, Out of stock) kept
+  // their routes; they're just not menu items. (Adjustments left the app
+  // entirely, 2026-08-24.)
   await login(page, "warehouse@demo.ishalife.test");
   await expect(page.getByRole("navigation").first()).toContainText("Send to floor");
   await expect(page.getByRole("navigation").first()).toContainText("Search Inventory");

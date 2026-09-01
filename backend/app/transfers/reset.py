@@ -26,12 +26,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import Settings
 from ..models import (
-    Adjustment,
     OdooWriteOutcome,
     PalletDiscrepancy,
     PalletRequestLink,
@@ -72,7 +71,6 @@ class ResetReport:
     requests_kept: int
     pallets_cleared: int
     events_cleared: int = 0
-    adjustments_cleared: int = 0
     drafts_removed: list[str] = field(default_factory=list)
     already_gone: list[str] = field(default_factory=list)  # deleted in Odoo already
     leftovers: list[OdooLeftover] = field(default_factory=list)
@@ -212,18 +210,6 @@ def reset_delivery_flow(
         )
         or 0
     )
-    adj_count = (
-        db.scalar(
-            select(func.count(Adjustment.id)).where(
-                or_(
-                    Adjustment.request_id.in_(doomed_ids or [-1]),
-                    Adjustment.pallet_id.in_(pallet_ids or [-1]),
-                )
-            )
-        )
-        or 0
-    )
-
     report = ResetReport(
         applied=apply,
         keep_hours=keep_hours,
@@ -232,7 +218,6 @@ def reset_delivery_flow(
         requests_kept=len(kept),
         pallets_cleared=len(pallets),
         events_cleared=event_count,
-        adjustments_cleared=adj_count,
         drafts_removed=drafts_removed,
         already_gone=already_gone,
         leftovers=leftovers,
@@ -255,14 +240,6 @@ def reset_delivery_flow(
         db.execute(delete(PalletRequestLink).where(PalletRequestLink.pallet_id.in_(pallet_ids)))
     if doomed_ids:
         db.execute(delete(PalletRequestLink).where(PalletRequestLink.request_id.in_(doomed_ids)))
-    db.execute(
-        delete(Adjustment).where(
-            or_(
-                Adjustment.request_id.in_(doomed_ids or [-1]),
-                Adjustment.pallet_id.in_(pallet_ids or [-1]),
-            )
-        )
-    )
     if doomed_ids:
         db.execute(delete(TransferEvent).where(TransferEvent.request_id.in_(doomed_ids)))
         db.execute(
@@ -287,8 +264,8 @@ def reset_delivery_flow(
     db.commit()
 
     report.note = (
-        f"Cleared {len(doomed)} request(s), {len(pallets)} pallet(s), {event_count} event(s) "
-        f"and {adj_count} adjustment(s). Kept {len(kept)} request(s) from the last "
+        f"Cleared {len(doomed)} request(s), {len(pallets)} pallet(s) and {event_count} "
+        f"event(s). Kept {len(kept)} request(s) from the last "
         f"{keep_hours}h. The next pallet validated in Odoo is the first one the app will "
         "see. "
     )

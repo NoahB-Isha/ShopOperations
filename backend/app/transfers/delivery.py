@@ -33,7 +33,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import Settings
 from ..models import (
-    Adjustment,
     DiscrepancyReason,
     OdooLocation,
     OdooWriteOutcome,
@@ -961,37 +960,33 @@ def poll_delivery_counts(db: Session, settings: Settings) -> int:
         except OdooError as e:
             log.warning("could not read count %s: %s", pallet.count_picking_name, e)
             continue
-        _file_delivery_adjustments(db, pallet, counted)
+        _log_count_differences(pallet, counted)
         pallet.status = "counted"
         closed += 1
     db.commit()
     return closed
 
 
-def _file_delivery_adjustments(
-    db: Session, pallet: PalletTransfer, counted: dict[int, float]
-) -> None:
-    """Pallet-vs-count differences → the warehouse's adjustments queue."""
+def _log_count_differences(pallet: PalletTransfer, counted: dict[int, float]) -> None:
+    """Pallet-vs-count differences used to feed an adjustments queue; that
+    queue is gone (2026-08-24). The validated count picking in Odoo is the
+    durable record — this log line is just the operational breadcrumb."""
     expected = {
         int(line.get("product_id") or 0): float(line.get("qty") or 0)
         for line in (pallet.lines or [])
     }
+    diffs = []
     for product_id in set(expected) | set(counted):
         if product_id <= 0:
             continue
         sent = round(expected.get(product_id, 0.0), 3)
         found = round(counted.get(product_id, 0.0), 3)
-        if sent == found:
-            continue
-        db.add(
-            Adjustment(
-                pallet_id=pallet.id,
-                product_id=product_id,
-                qty_expected=sent,
-                qty_counted=found,
-                delta=round(found - sent, 3),
-                note=f"Count of {pallet.display_name} ({pallet.count_picking_name})",
-            )
+        if sent != found:
+            diffs.append(f"product {product_id}: sent {sent:g}, counted {found:g}")
+    if diffs:
+        log.info(
+            "count %s of %s differs from the pallet: %s",
+            pallet.count_picking_name, pallet.display_name, "; ".join(diffs),
         )
 
 

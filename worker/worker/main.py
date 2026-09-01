@@ -1,6 +1,5 @@
 """Background worker: Odoo snapshot syncs on their cadence, the notification
-pump (phase 3), order-mailbox ingestion (phase 4), and the time-machine
-history backfill (phase 5).
+pump (phase 3), and order-mailbox ingestion (phase 4).
 
 Polite-client policy (from the brief): stock & incoming a few times a day,
 products twice a day, sales hourly (current-month incrementals; the previous
@@ -31,10 +30,8 @@ from app.config import get_settings
 from app.db import get_sessionmaker
 from app.models import SYNC_DOMAINS
 from app.notify.service import deliver_pending, email_channel_snapshot, probe_whatsapp_bridge
-from app.odoo.connection import get_connection
 from app.ordering.mailbox import mailbox_configured, poll_mailbox
 from app.sync.runner import get_or_create_state, run_domain
-from app.timemachine.backfill import backfill_state, process_next
 
 log = logging.getLogger("worker")
 
@@ -128,23 +125,6 @@ class Worker:
         finally:
             db.close()
 
-    def _backfill_history(self) -> None:
-        """Time-machine reconstruction queue: ONE weekly date per loop pass —
-        each is a real as-of computation on Odoo's side, so pacing them out
-        keeps us a polite client. Idle when the queue is empty."""
-        db = self.sessions()
-        try:
-            if not backfill_state(db).get("pending"):
-                return
-            conn = get_connection(self.settings, read_only=True)
-            processed = process_next(db, self.settings, conn)
-            if processed:
-                log.info("time-machine backfill: reconstructed %s", processed)
-        except Exception:  # noqa: BLE001 — the loop must survive anything
-            log.exception("time-machine backfill failed")
-        finally:
-            db.close()
-
     def run_forever(self) -> None:
         log.info(
             "worker up — odoo mode: %s, cadence (min): %s",
@@ -160,7 +140,6 @@ class Worker:
             self._pump_notifications()
             self._probe_bridge()
             self._poll_mailbox()
-            self._backfill_history()
             for _ in range(15):
                 if self.stop:
                     break

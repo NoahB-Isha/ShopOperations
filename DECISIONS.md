@@ -63,6 +63,39 @@ it painful.
 
 ## Build decisions
 
+**2026-08-24 — Feature merge: one door for counted numbers, and four fewer surfaces**
+Noah asked what could be merged, then chose the aggressive cuts. The organizing principle:
+a counted quantity now enters the app in exactly ONE place — the counting page — because
+that is where all the safety machinery lives (never-overwrite history, the "just counted"
+warning, the baseline re-read, the ledger classification). The product drawer's
+floor-count and the whole OOS marking flow (mark → draft reduction, "back in stock" →
+counted reconciliation) bypassed every one of those guards: two people could floor-count
+the same shelf from the drawer and land both drafts, which is the 2026-08-22 double-apply
+bug on the draft-only path. Rather than teaching three write paths the same guards, two
+of the paths were deleted. The OOS board went further than proposed — Noah: "This page
+should only show a searchable list of oos items. No marking items" — so the board is
+read-only and `floor_oos_marks` is gone entirely; fixing a phantom floor number means
+counting the product. `oos/adjust.py` and the reduction/addition writer operations
+survive because counting's apply core runs on them.
+
+Also in the round, all Noah's calls: **counting + count review** are one nav destination
+(URL-driven tab bar, the TransfersPage pattern, extracted as `SectionTabs`; tabs follow
+roles so warehouse sees Count only and an inventory_wrangler Review only — the Inventory
+Flow Manager keeps both, explicitly confirmed); **Out of stock + Coming soon** merged the
+same way into "Stock status" (they were two answers to one floor question, already
+sharing the incoming aggregation; the floor nav drops from 8 destinations to 6);
+the **adjustments queue** is removed outright — it had no nav entry since 08-17 and no
+reviewer, so rows accumulated unseen; the DISCREPANCY event on the request and the
+validated count picking in Odoo already carried the same facts, and the delivery closer
+now logs pallet-vs-count differences instead of queueing them. The `adjustments` table
+and its historical rows were dropped (Noah's pick over keeping the dead table — the Odoo
+pickings are the durable record). And the **time machine** is fully removed: the page had
+been gone since 08-11 and a code audit found zero consumers of the endpoints; the
+reconstructed `stock_snapshots` rows it wrote stay, still feeding the drawer graph and
+OOS history. Routes and testids for the merged pages are untouched — only the menu and
+the write surface shrank. Migration `b2d94f7c8e13` (drops `adjustments` +
+`floor_oos_marks`; downgrade recreates schemas empty).
+
 **2026-08-18 — Reset to a known point, with a discovery watermark** *(Phase 2.z)*
 Noah wanted the two weeks of testing gone — the full board and the 15 undeclared pallets — with
 anything asked for in the last 24h kept, and the real process starting from the next pallet. The

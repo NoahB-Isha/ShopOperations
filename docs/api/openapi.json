@@ -349,6 +349,103 @@
             }
           },
           {
+            "name": "in_pos_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "In Pos Only"
+            }
+          },
+          {
+            "name": "in_stock_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "In Stock Only"
+            }
+          },
+          {
+            "name": "price_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Price Min"
+            }
+          },
+          {
+            "name": "price_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Price Max"
+            }
+          },
+          {
+            "name": "barcode_prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 8,
+              "default": "",
+              "title": "Barcode Prefix"
+            }
+          },
+          {
+            "name": "sold_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 730,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sold Days"
+            }
+          },
+          {
+            "name": "sold_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 1,
+              "title": "Sold Min"
+            }
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -533,6 +630,54 @@
         ]
       }
     },
+    "/api/v1/products/by-barcode/{code}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Product By Barcode",
+        "description": "Exact lookup for the phone scanner: one symbol in, one product out.\n\nDeliberately NOT the tokenized catalog search \u2014 a scan is an identity\nclaim, so a partial or ambiguous match is a miss, not a guess. Blacklisted\nand inactive products are returned: someone holding the item wants to know\nwhat it is, and \"hidden from the catalog\" is part of that answer.",
+        "operationId": "get_product_by_barcode_api_v1_products_by_barcode__code__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/products/{product_id}": {
       "get": {
         "tags": [
@@ -618,6 +763,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/locations": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Item Locations",
+        "description": "Every location holding this item, bin by bin.\n\nThe stock sync deliberately collapses hundreds of BWHSE bins\n(III/Stock/BWHSE/A/1/1/1) into one `bwhse` number, which is the right\nanswer for every list in the app and the wrong answer for the person who\nhas to go and FIND the thing. So this reads quants live, on demand, for\nONE product \u2014 the same trade the centers map makes for its click panel.\n\nHonest when it can't: a failed Odoo read falls back to the synced buckets\nand says so, rather than pretending the item is nowhere.",
+        "operationId": "item_locations_api_v1_products__product_id__locations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemLocationsOut"
                 }
               }
             }
@@ -842,6 +1035,162 @@
                     "$ref": "#/components/schemas/CenterOut"
                   },
                   "title": "Response List Centers Api V1 Centers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/centers/{center_id}/detail": {
+      "get": {
+        "tags": [
+          "centers"
+        ],
+        "summary": "Center Detail",
+        "operationId": "center_detail_api_v1_centers__center_id__detail_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "center_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Center Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CenterDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/centers/{center_id}/order-qr.png": {
+      "get": {
+        "tags": [
+          "centers"
+        ],
+        "summary": "Center Order Qr",
+        "description": "A printable QR for this center's order form.\n\nThe code carries a URL and nothing else \u2014 no token, no session, no\ncredential. Someone who scans it and isn't signed in lands on the normal\nGoogle sign-in and comes straight back here, which is why the poster can\nlive on a wall: photographing it gets you a link to a login page.",
+        "operationId": "center_order_qr_api_v1_centers__center_id__order_qr_png_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "center_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Center Id"
+            }
+          },
+          {
+            "name": "scale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Scale"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/centers/{center_id}": {
+      "patch": {
+        "tags": [
+          "centers"
+        ],
+        "summary": "Update Center",
+        "description": "Edit a center and its roster in place.\n\nThe spreadsheet used to be the source of truth and this app a mirror of\nit. It is the other way round now: the roster lives here, an import is\nsomething an admin chooses to run, and this is how a name, a zone or a\nphone number actually gets fixed.",
+        "operationId": "update_center_api_v1_centers__center_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "center_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Center Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CenterPatchIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CenterOut"
                 }
               }
             }
@@ -2813,6 +3162,77 @@
         ]
       }
     },
+    "/api/v1/ordering/coverage": {
+      "get": {
+        "tags": [
+          "ordering"
+        ],
+        "summary": "Get Coverage",
+        "operationId": "get_coverage_api_v1_ordering_coverage_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "ordering"
+        ],
+        "summary": "Put Coverage",
+        "description": "Order N months of cover, everywhere.\n\nWrites the coverage keys into the `ordering_rules` override and leaves\nevery other tuned value alone, so switching from a quarter's ordering to a\nyear is one number rather than fourteen \u2014 see rules.coverage_overrides for\nwhat it deliberately doesn't touch (expiry caps, air-only minimums, lead\ntimes).",
+        "operationId": "put_coverage_api_v1_ordering_coverage_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoverageIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/ordering/email-settings": {
       "get": {
         "tags": [
@@ -3137,7 +3557,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PreviewIn"
+                "$ref": "#/components/schemas/app__center_orders__router__PreviewIn"
               }
             }
           },
@@ -3149,7 +3569,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PreviewOut"
+                  "$ref": "#/components/schemas/app__center_orders__router__PreviewOut"
                 }
               }
             }
@@ -3178,7 +3598,7 @@
           "center-orders"
         ],
         "summary": "Place Order",
-        "description": "Place the order: PENDING, reasonability computed and stored, the zone's\ncoordinator(s) pinged over WhatsApp. Nothing touches Odoo until approval.",
+        "description": "Place the order: PENDING, reasonability computed and stored, and whoever\nreviews this center pinged. Nothing touches Odoo until approval.",
         "operationId": "place_order_api_v1_center_orders_post",
         "security": [
           {
@@ -3657,7 +4077,79 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__restock__router__RestockOut"
+                  "$ref": "#/components/schemas/RestockOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/restock/groups": {
+      "get": {
+        "tags": [
+          "restock"
+        ],
+        "summary": "Get Groups",
+        "description": "The prefix\u2192aisle table. Editable because the shop will coin a prefix\nlong before anyone ships a release.",
+        "operationId": "get_groups_api_v1_restock_groups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "restock"
+        ],
+        "summary": "Put Groups",
+        "description": "Replace the overrides. Prefixes in NEVER_GROUP are dropped \u2014 CA names a\nshipping origin, not a type, and mapping it would put unrelated items in\none aisle.",
+        "operationId": "put_groups_api_v1_restock_groups_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3754,6 +4246,124 @@
         }
       }
     },
+    "/api/v1/restock/floor/{line_id}/snooze": {
+      "post": {
+        "tags": [
+          "restock"
+        ],
+        "summary": "Snooze Floor Line Endpoint",
+        "description": "\"Not today\" \u2014 swipe a line away and it returns tomorrow, qty intact.\nSame roles as check-off: whoever can work the list can defer an item.",
+        "operationId": "snooze_floor_line_endpoint_api_v1_restock_floor__line_id__snooze_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Line Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnoozeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorItemOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/restock/back/{product_id}/snooze": {
+      "post": {
+        "tags": [
+          "restock"
+        ],
+        "summary": "Snooze Suggestion",
+        "description": "\"Not this week.\" A computed suggestion can't be settled for good \u2014 the\nnumbers will keep saying the same thing \u2014 so it parks for a week and\ncomes back on its own. (A Floor Team ask, judged by a person, is\ndismissed permanently instead; that lives in floor_requests.)",
+        "operationId": "snooze_suggestion_api_v1_restock_back__product_id__snooze_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnoozeSuggestionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Snooze Suggestion Api V1 Restock Back  Product Id  Snooze Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/restock/back/{product_id}/check": {
       "post": {
         "tags": [
@@ -3813,13 +4423,181 @@
         }
       }
     },
+    "/api/v1/floor-requests": {
+      "post": {
+        "tags": [
+          "floor-requests"
+        ],
+        "summary": "Raise Requests",
+        "operationId": "raise_requests_api_v1_floor_requests_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FloorRequestOut"
+                  },
+                  "title": "Response Raise Requests Api V1 Floor Requests Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "floor-requests"
+        ],
+        "summary": "List Requests",
+        "description": "Open asks by default. `mine=true` is the Floor Team's own board \u2014 what\nthey asked for and whether it's been picked up yet.",
+        "operationId": "list_requests_api_v1_floor_requests_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "open",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Mine"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FloorRequestOut"
+                  },
+                  "title": "Response List Requests Api V1 Floor Requests Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/floor-requests/{request_id}/{action}": {
+      "post": {
+        "tags": [
+          "floor-requests"
+        ],
+        "summary": "Resolve Request",
+        "description": "picked-up = it's going on a transfer; dismissed = looked at, not needed.\nEither way the floor sees what happened to their ask.",
+        "operationId": "resolve_request_api_v1_floor_requests__request_id___action__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorRequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/oos": {
       "get": {
         "tags": [
           "oos"
         ],
         "summary": "List Oos",
-        "description": "Marked products first (newest on top), then every FLOOR-RELEVANT\nproduct Odoo shows at zero on the floor.\n\n\"Floor-relevant\" matters: Odoo vacuums zero quants, so a product that\nsold out yesterday often has NO floor stock row at all \u2014 the old\nrow-must-exist query silently dropped exactly the items the team most\nneeds to see (the live board was 20 rows while thousands of products\nexisted). A product belongs on this board when it has a floor stock row\ntoday, floor snapshot history, or recent Shoppe sales \u2014 and its floor\nquantity is zero-or-missing. Non-retail POS items stay off.",
+        "description": "Every FLOOR-RELEVANT product Odoo shows at zero on the floor.\n\n\"Floor-relevant\" matters: Odoo vacuums zero quants, so a product that\nsold out yesterday often has NO floor stock row at all \u2014 the old\nrow-must-exist query silently dropped exactly the items the team most\nneeds to see (the live board was 20 rows while thousands of products\nexisted). A product belongs on this board when it has a floor stock row\ntoday, floor snapshot history, or recent Shoppe sales \u2014 and its floor\nquantity is zero-or-missing. Non-retail POS items stay off.",
         "operationId": "list_oos_api_v1_oos_get",
         "responses": {
           "200": {
@@ -3842,150 +4620,6 @@
             "HTTPBearer": []
           }
         ]
-      },
-      "post": {
-        "tags": [
-          "oos"
-        ],
-        "summary": "Mark Out Of Stock",
-        "description": "'This shelf is actually empty.' Renders the draft reduction for\nwhatever quantity Odoo still claims; with nothing to remove it's pure\nbookkeeping (picking stays 'none').",
-        "operationId": "mark_out_of_stock_api_v1_oos_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MarkIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OosItemOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/oos/{mark_id}": {
-      "delete": {
-        "tags": [
-          "oos"
-        ],
-        "summary": "Unmark",
-        "description": "Marked by mistake: plain undo, no stock adjustment.",
-        "operationId": "unmark_api_v1_oos__mark_id__delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "mark_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Mark Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/oos/{mark_id}/restock": {
-      "post": {
-        "tags": [
-          "oos"
-        ],
-        "summary": "Back In Stock",
-        "description": "The shelf has stock again. With a counted quantity, renders the draft\nthat reconciles Odoo to the count \u2014 \"USA-III: Inventory Adj  Adding Qty\"\nwhen the count is higher than Odoo's number, a reduction when it's lower.\nDraft only; quantities are re-checkable in Odoo before anyone validates.",
-        "operationId": "back_in_stock_api_v1_oos__mark_id__restock_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "mark_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Mark Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RestockIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/app__oos__router__RestockOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/notices": {
@@ -4307,6 +4941,225 @@
         ]
       }
     },
+    "/api/v1/transfer-requests/deliveries": {
+      "get": {
+        "tags": [
+          "transfers"
+        ],
+        "summary": "List Deliveries",
+        "description": "Recent pallets to the floor, newest first \u2014 and, like every board GET\nhere, the listener for their validation and their count.",
+        "operationId": "list_deliveries_api_v1_transfer_requests_deliveries_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeliveryOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Deliveries Api V1 Transfer Requests Deliveries Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "transfers"
+        ],
+        "summary": "Declare Delivery",
+        "description": "Submit the form. Links the requests to the pallet, freezes what's on\nit, writes the sent quantities back onto the request lines, and records\nthe reasons. If the pallet is already validated in Odoo, the requests\nclose as done in the same call.",
+        "operationId": "declare_delivery_api_v1_transfer_requests_deliveries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transfer-requests/deliveries/candidates": {
+      "get": {
+        "tags": [
+          "transfers"
+        ],
+        "summary": "Delivery Candidates",
+        "description": "Question 1: \"please select the transfer you're sending\". Recent\nstaging2 \u2192 floor-staging transfers; `search` is the \"Don't see it?\" path\nand matches a picking name anywhere in Odoo.",
+        "operationId": "delivery_candidates_api_v1_transfer_requests_deliveries_candidates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidatesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transfer-requests/deliveries/preview": {
+      "post": {
+        "tags": [
+          "transfers"
+        ],
+        "summary": "Delivery Preview",
+        "description": "Questions 2 and 3 for one selected transfer: which requests the app\nthinks are in it, and which items need a reason given that selection.\nRecomputed as the selection changes \u2014 the threshold lives here so every\nclient asks the same questions.",
+        "operationId": "delivery_preview_api_v1_transfer_requests_deliveries_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__transfers__router__PreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__transfers__router__PreviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transfer-requests/deliveries/{pallet_id}/prepare-count": {
+      "post": {
+        "tags": [
+          "transfers"
+        ],
+        "summary": "Retry Delivery Count",
+        "operationId": "retry_delivery_count_api_v1_transfer_requests_deliveries__pallet_id__prepare_count_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pallet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Pallet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/transfer-requests/{request_id}": {
       "get": {
         "tags": [
@@ -4475,7 +5328,7 @@
           "transfers"
         ],
         "summary": "Mark Sent",
-        "description": "Warehouse is done: stock is at staging. Sent quantities are read back\nfrom the Odoo picking, and the count transfer is prepared for the\nbarcode app in the same motion.",
+        "description": "Warehouse is done picking: the stock is staged. Sent quantities are\nread back from Odoo.\n\nWhere it's staged decides what happens next. Straight to floor staging\n(the direct path) \u2192 the count transfer is prepared here, as it always\nwas. Into Staging2 \u2192 it waits for the pallet, and the DELIVERY's count\ncovers it; preparing one per request as well would move the same units\ntwice.",
         "operationId": "mark_sent_api_v1_transfer_requests__request_id__sent_post",
         "security": [
           {
@@ -4746,13 +5599,164 @@
         }
       }
     },
-    "/api/v1/adjustments": {
+    "/api/v1/counts/locations": {
       "get": {
         "tags": [
-          "transfers"
+          "counting"
         ],
-        "summary": "List Adjustments",
-        "operationId": "list_adjustments_api_v1_adjustments_get",
+        "summary": "List Locations",
+        "description": "Where this person can count, and where they start.",
+        "operationId": "list_locations_api_v1_counts_locations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationsOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/counts/stock-at": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Stock At",
+        "description": "What Odoo says is at this location for these products, right now \u2014 the\nnumber the counter compares the shelf against, plus a heads-up when\nsomebody else has already counted the same thing (see recent.py).",
+        "operationId": "stock_at_api_v1_counts_stock_at_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockAtIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockAtOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/counts/assignees": {
+      "get": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "List Assignees",
+        "description": "Everyone who may perform a count \u2014 the recount assignment dropdown.",
+        "operationId": "list_assignees_api_v1_counts_assignees_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AssigneeOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Assignees Api V1 Counts Assignees Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/counts": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Submit Count",
+        "description": "Submit for review \u2014 the counting page's one final action.\n\nThe Odoo quantity is read HERE, by the server, and frozen onto each entry:\nthe reviewer has to know what the system claimed when the shelf was\ncounted, and a browser is not a trustworthy source for that.",
+        "operationId": "submit_count_api_v1_counts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCountIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "List Counts",
+        "description": "Submissions, newest first. `mine` is the counter's own history; without\nit a reviewer sees everything (a counter sees their own either way).",
+        "operationId": "list_counts_api_v1_counts_get",
         "security": [
           {
             "HTTPBearer": []
@@ -4760,13 +5764,23 @@
         ],
         "parameters": [
           {
-            "name": "status",
+            "name": "mine",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "default": "open",
-              "title": "Status"
+              "type": "boolean",
+              "default": false,
+              "title": "Mine"
+            }
+          },
+          {
+            "name": "open_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Open Only"
             }
           }
         ],
@@ -4778,9 +5792,9 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/app__transfers__router__AdjustmentOut"
+                    "$ref": "#/components/schemas/CountSummaryOut"
                   },
-                  "title": "Response List Adjustments Api V1 Adjustments Get"
+                  "title": "Response List Counts Api V1 Counts Get"
                 }
               }
             }
@@ -4798,13 +5812,75 @@
         }
       }
     },
-    "/api/v1/adjustments/{adjustment_id}/resolve": {
-      "post": {
+    "/api/v1/counts/queue": {
+      "get": {
         "tags": [
-          "transfers"
+          "counting"
         ],
-        "summary": "Resolve Adjustment",
-        "operationId": "resolve_adjustment_api_v1_adjustments__adjustment_id__resolve_post",
+        "summary": "Review Queue",
+        "description": "Everything needing a reviewer's attention, recounts first.\n\nRanking lives in flow.queue_rank: a submitted recount is somebody's second\ntrip to the same shelf, so it outranks a first count.",
+        "operationId": "review_queue_api_v1_counts_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ItemOut"
+                  },
+                  "type": "array",
+                  "title": "Response Review Queue Api V1 Counts Queue Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/counts/my-recounts": {
+      "get": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "My Recounts",
+        "description": "Recounts assigned to me \u2014 the counter's to-do list.",
+        "operationId": "my_recounts_api_v1_counts_my_recounts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ItemOut"
+                  },
+                  "type": "array",
+                  "title": "Response My Recounts Api V1 Counts My Recounts Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/counts/{count_id}": {
+      "get": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Get Count",
+        "operationId": "get_count_api_v1_counts__count_id__get",
         "security": [
           {
             "HTTPBearer": []
@@ -4812,12 +5888,60 @@
         ],
         "parameters": [
           {
-            "name": "adjustment_id",
+            "name": "count_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "Adjustment Id"
+              "title": "Count Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/items/{item_id}/approve": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Approve Item",
+        "description": "Approve one item: the counted quantity becomes Odoo's.",
+        "operationId": "approve_item_api_v1_counts_items__item_id__approve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Item Id"
             }
           }
         ],
@@ -4826,7 +5950,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ResolveIn"
+                "$ref": "#/components/schemas/ReviewIn"
               }
             }
           }
@@ -4837,7 +5961,353 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__transfers__router__AdjustmentOut"
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/items/{item_id}/reject": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Reject Item",
+        "description": "Throw the count out. Odoo is not touched; the reason is kept forever.",
+        "operationId": "reject_item_api_v1_counts_items__item_id__reject_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/items/{item_id}/request-recount": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Request Recount",
+        "description": "Ask for another physical count, optionally by a specific person.",
+        "operationId": "request_recount_api_v1_counts_items__item_id__request_recount_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecountRequestIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/items/{item_id}/recount": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Submit Recount",
+        "description": "Perform the recount. Appends an entry \u2014 the original is never touched \u2014\nand puts the item back in the queue, where recounts rank higher.",
+        "operationId": "submit_recount_api_v1_counts_items__item_id__recount_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecountIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/{count_id}/approve": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Approve All",
+        "description": "Approve every item still open. Items already decided are left alone \u2014\nan individual decision always outranks a bulk one.",
+        "operationId": "approve_all_api_v1_counts__count_id__approve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "count_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Count Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/{count_id}/reject": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Reject All",
+        "operationId": "reject_all_api_v1_counts__count_id__reject_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "count_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Count Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/counts/{count_id}/request-recount": {
+      "post": {
+        "tags": [
+          "counting"
+        ],
+        "summary": "Request Recount All",
+        "operationId": "request_recount_all_api_v1_counts__count_id__request_recount_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "count_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Count Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecountRequestIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountOut"
                 }
               }
             }
@@ -5264,116 +6734,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Bot Health Api V1 Bot Health Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/time-machine/bounds": {
-      "get": {
-        "tags": [
-          "time-machine"
-        ],
-        "summary": "Get Bounds",
-        "operationId": "get_bounds_api_v1_time_machine_bounds_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Bounds Api V1 Time Machine Bounds Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/time-machine": {
-      "get": {
-        "tags": [
-          "time-machine"
-        ],
-        "summary": "Get View",
-        "operationId": "get_view_api_v1_time_machine_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "date",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date",
-              "title": "Date"
-            }
-          },
-          {
-            "name": "category",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Category"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Q"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get View Api V1 Time Machine Get"
                 }
               }
             }
@@ -5897,19 +7257,19 @@
         ]
       }
     },
-    "/api/v1/admin/time-machine/backfill": {
+    "/api/v1/admin/transfers/release-stale-counts": {
       "post": {
         "tags": [
           "admin"
         ],
-        "summary": "Start History Backfill",
-        "description": "Queue weekly stock-history reconstruction from Odoo's move ledger.\nThe worker processes one date per loop pass (polite pacing); days the\nlive capture already covers are never overwritten.",
-        "operationId": "start_history_backfill_api_v1_admin_time_machine_backfill_post",
+        "summary": "Release Stale Counts Endpoint",
+        "description": "One-time: hand the requests stranded mid-old-flow back to the delivery\nform (see delivery.release_stale_counts for what that means and what it\ndeliberately won't do). Preview first \u2014 `apply: true` is the second call.\n\nAn endpoint rather than a script because the affected requests live on the\nhosted stack, which has no shell; a preview rather than a migration\nbecause deciding it needs a LIVE Odoo read of each count picking, and a\nmigration must never depend on Odoo answering.",
+        "operationId": "release_stale_counts_endpoint_api_v1_admin_transfers_release_stale_counts_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BackfillIn"
+                "$ref": "#/components/schemas/ReleaseStaleCountsIn"
               }
             }
           },
@@ -5923,7 +7283,56 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Start History Backfill Api V1 Admin Time Machine Backfill Post"
+                  "title": "Response Release Stale Counts Endpoint Api V1 Admin Transfers Release Stale Counts Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/transfers/reset-flow": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Reset Transfer Flow",
+        "description": "One-time: clear the testing rubble and start the delivery process from\nthe next pallet. Preview first \u2014 `apply: true` DELETES rows (see\ntransfers/reset.py for exactly what it will and won't touch).",
+        "operationId": "reset_transfer_flow_api_v1_admin_transfers_reset_flow_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetFlowIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reset Transfer Flow Api V1 Admin Transfers Reset Flow Post"
                 }
               }
             }
@@ -6223,6 +7632,7 @@
           "admin"
         ],
         "summary": "Import Coordinators",
+        "description": "Re-read the roster file that ships with the deployment.\n\nKept for the seeded/local path; the admin UI uploads a file instead (see\nbelow), because the roster now lives in this app and a spreadsheet is\nsomething you bring TO it, not something it reads over your shoulder.",
         "operationId": "import_coordinators_api_v1_admin_import_coordinators_post",
         "requestBody": {
           "content": {
@@ -6243,6 +7653,55 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Import Coordinators Api V1 Admin Import Coordinators Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/import/coordinators/upload": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Import Coordinators Upload",
+        "description": "Import a roster the admin picked off their own machine (.xlsx or .csv).\n\nWritten to a temp file because the parsers want a path, and deleted in a\nfinally \u2014 a roster carries every coordinator's phone number and has no\nbusiness lingering in the container's filesystem.",
+        "operationId": "import_coordinators_upload_api_v1_admin_import_coordinators_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_coordinators_upload_api_v1_admin_import_coordinators_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Import Coordinators Upload Api V1 Admin Import Coordinators Upload Post"
                 }
               }
             }
@@ -6482,6 +7941,32 @@
         },
         "type": "object",
         "title": "ApproveIn"
+      },
+      "AssigneeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "roles"
+        ],
+        "title": "AssigneeOut"
       },
       "AttachmentOut": {
         "properties": {
@@ -6791,6 +8276,21 @@
           "checked": {
             "type": "boolean",
             "title": "Checked"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
+          },
+          "popularity": {
+            "type": "number",
+            "title": "Popularity",
+            "default": 0.0
+          },
+          "group_popularity": {
+            "type": "number",
+            "title": "Group Popularity",
+            "default": 0.0
           }
         },
         "type": "object",
@@ -6807,23 +8307,6 @@
           "checked"
         ],
         "title": "BackItemOut"
-      },
-      "BackfillIn": {
-        "properties": {
-          "weeks": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Weeks"
-          }
-        },
-        "type": "object",
-        "title": "BackfillIn"
       },
       "BadgeOut": {
         "properties": {
@@ -6876,6 +8359,30 @@
           "name"
         ],
         "title": "Body_create_order_from_upload_api_v1_ordering_orders_upload_post"
+      },
+      "Body_import_coordinators_upload_api_v1_admin_import_coordinators_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          },
+          "create_users": {
+            "type": "boolean",
+            "title": "Create Users",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_coordinators_upload_api_v1_admin_import_coordinators_upload_post"
       },
       "Body_import_order_list_api_v1_order_lists_import_post": {
         "properties": {
@@ -6946,6 +8453,87 @@
         },
         "type": "object",
         "title": "CanaryIn"
+      },
+      "CandidateOut": {
+        "properties": {
+          "odoo_picking_id": {
+            "type": "integer",
+            "title": "Odoo Picking Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "item_count": {
+            "type": "integer",
+            "title": "Item Count"
+          },
+          "total_units": {
+            "type": "number",
+            "title": "Total Units"
+          },
+          "already_declared": {
+            "type": "boolean",
+            "title": "Already Declared"
+          },
+          "declared_pallet_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Pallet Id"
+          },
+          "from_staging2": {
+            "type": "boolean",
+            "title": "From Staging2"
+          }
+        },
+        "type": "object",
+        "required": [
+          "odoo_picking_id",
+          "name",
+          "state",
+          "date",
+          "item_count",
+          "total_units",
+          "already_declared",
+          "declared_pallet_id",
+          "from_staging2"
+        ],
+        "title": "CandidateOut"
+      },
+      "CandidatesOut": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidates",
+          "note"
+        ],
+        "title": "CandidatesOut"
       },
       "CatalogItemOut": {
         "properties": {
@@ -7031,6 +8619,88 @@
           "items"
         ],
         "title": "CatalogOut"
+      },
+      "CenterDetailOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "zone_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Name"
+          },
+          "reviewers": {
+            "items": {
+              "$ref": "#/components/schemas/PersonOut"
+            },
+            "type": "array",
+            "title": "Reviewers"
+          },
+          "requesters": {
+            "items": {
+              "$ref": "#/components/schemas/PersonOut"
+            },
+            "type": "array",
+            "title": "Requesters"
+          },
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/PersonOut"
+            },
+            "type": "array",
+            "title": "Contacts"
+          },
+          "stock": {
+            "items": {
+              "$ref": "#/components/schemas/CenterStockLine"
+            },
+            "type": "array",
+            "title": "Stock"
+          },
+          "stock_total": {
+            "type": "number",
+            "title": "Stock Total"
+          },
+          "stock_status": {
+            "type": "string",
+            "title": "Stock Status"
+          },
+          "stock_note": {
+            "type": "string",
+            "title": "Stock Note",
+            "default": ""
+          },
+          "order_url": {
+            "type": "string",
+            "title": "Order Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "zone_name",
+          "reviewers",
+          "requesters",
+          "contacts",
+          "stock",
+          "stock_total",
+          "stock_status"
+        ],
+        "title": "CenterDetailOut"
       },
       "CenterGrantOut": {
         "properties": {
@@ -7170,6 +8840,92 @@
             "type": "string",
             "title": "Odoo Location Name",
             "default": ""
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "sales_units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Units"
+          },
+          "sales_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Amount"
+          },
+          "sales_prev_units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Prev Units"
+          },
+          "sales_month": {
+            "type": "string",
+            "title": "Sales Month",
+            "default": ""
+          },
+          "sales_prev_month": {
+            "type": "string",
+            "title": "Sales Prev Month",
+            "default": ""
+          },
+          "reviewers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reviewers",
+            "default": []
+          },
+          "requesters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requesters",
+            "default": []
+          },
+          "order_url": {
+            "type": "string",
+            "title": "Order Url",
+            "default": ""
           }
         },
         "type": "object",
@@ -7192,6 +8948,150 @@
           "contacts"
         ],
         "title": "CenterOut"
+      },
+      "CenterPatchIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "zone_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Id"
+          },
+          "clear_zone": {
+            "type": "boolean",
+            "title": "Clear Zone",
+            "default": false
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "stripe_terminal_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stripe Terminal Name"
+          },
+          "stripe_terminal_serial": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stripe Terminal Serial"
+          },
+          "contacts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ContactIn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacts"
+          }
+        },
+        "type": "object",
+        "title": "CenterPatchIn",
+        "description": "Every field optional: null means \"leave it\", \"\" means \"clear it\". Same\nidiom as the user editor, so the two forms behave the same way."
       },
       "CenterRefOut": {
         "properties": {
@@ -7220,6 +9120,34 @@
           "zone_kind"
         ],
         "title": "CenterRefOut"
+      },
+      "CenterStockLine": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode",
+            "default": ""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty": {
+            "type": "number",
+            "title": "Qty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku",
+          "name",
+          "qty"
+        ],
+        "title": "CenterStockLine"
       },
       "CentersIn": {
         "properties": {
@@ -7378,6 +9306,36 @@
         ],
         "title": "ComingSoonRequestRef"
       },
+      "ContactIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Name",
+            "default": ""
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Email",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Phone",
+            "default": ""
+          },
+          "role_note": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Role Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ContactIn"
+      },
       "ContactOut": {
         "properties": {
           "name": {
@@ -7438,6 +9396,252 @@
           "item_count"
         ],
         "title": "ContextCenterOut"
+      },
+      "CountLineIn": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "counted_qty": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Counted Qty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "counted_qty"
+        ],
+        "title": "CountLineIn"
+      },
+      "CountOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "location_label": {
+            "type": "string",
+            "title": "Location Label"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "counted_by": {
+            "type": "string",
+            "title": "Counted By"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ItemEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "location_key",
+          "location_label",
+          "status",
+          "counted_by",
+          "note",
+          "submitted_at",
+          "items",
+          "events"
+        ],
+        "title": "CountOut"
+      },
+      "CountSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "location_label": {
+            "type": "string",
+            "title": "Location Label"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "counted_by": {
+            "type": "string",
+            "title": "Counted By"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "item_count": {
+            "type": "integer",
+            "title": "Item Count"
+          },
+          "pending_items": {
+            "type": "integer",
+            "title": "Pending Items"
+          },
+          "recount_items": {
+            "type": "integer",
+            "title": "Recount Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "location_key",
+          "location_label",
+          "status",
+          "counted_by",
+          "submitted_at",
+          "item_count",
+          "pending_items",
+          "recount_items"
+        ],
+        "title": "CountSummaryOut"
+      },
+      "CoverageIn": {
+        "properties": {
+          "months": {
+            "type": "number",
+            "maximum": 36.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Months"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months"
+        ],
+        "title": "CoverageIn"
+      },
+      "CoverageOut": {
+        "properties": {
+          "months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months"
+          },
+          "default_target_moh": {
+            "type": "number",
+            "title": "Default Target Moh"
+          },
+          "category_target_moh": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Category Target Moh"
+          },
+          "expiry_max_target_moh": {
+            "type": "number",
+            "title": "Expiry Max Target Moh"
+          },
+          "air_only_min_moh": {
+            "type": "number",
+            "title": "Air Only Min Moh"
+          },
+          "bulk_cycle_target_moh": {
+            "type": "number",
+            "title": "Bulk Cycle Target Moh"
+          },
+          "sea_lead_months": {
+            "type": "integer",
+            "title": "Sea Lead Months"
+          },
+          "air_lead_months": {
+            "type": "integer",
+            "title": "Air Lead Months"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "default_target_moh",
+          "category_target_moh",
+          "expiry_max_target_moh",
+          "air_only_min_moh",
+          "bulk_cycle_target_moh",
+          "sea_lead_months",
+          "air_lead_months"
+        ],
+        "title": "CoverageOut",
+        "description": "The one number a buyer actually thinks in: months of cover to order."
+      },
+      "CreateCountIn": {
+        "properties": {
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CountLineIn"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location_key",
+          "items"
+        ],
+        "title": "CreateCountIn"
       },
       "CreateIn": {
         "properties": {
@@ -7548,6 +9752,364 @@
         ],
         "title": "DecideProposalIn"
       },
+      "DeclareIn": {
+        "properties": {
+          "odoo_picking_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Odoo Picking Id"
+          },
+          "request_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Request Ids"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonIn"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Reasons"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "odoo_picking_id",
+          "request_ids"
+        ],
+        "title": "DeclareIn"
+      },
+      "DeliveryDiscrepancyOut": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty_requested": {
+            "type": "number",
+            "title": "Qty Requested"
+          },
+          "qty_sent": {
+            "type": "number",
+            "title": "Qty Sent"
+          },
+          "delta": {
+            "type": "number",
+            "title": "Delta"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "reason_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Labels"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "sku",
+          "barcode",
+          "name",
+          "qty_requested",
+          "qty_sent",
+          "delta",
+          "reasons",
+          "reason_labels",
+          "note"
+        ],
+        "title": "DeliveryDiscrepancyOut"
+      },
+      "DeliveryItemOut": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty": {
+            "type": "number",
+            "title": "Qty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "sku",
+          "name",
+          "qty"
+        ],
+        "title": "DeliveryItemOut"
+      },
+      "DeliveryOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "picking_status": {
+            "type": "string",
+            "title": "Picking Status"
+          },
+          "odoo_picking_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odoo Picking Id"
+          },
+          "picking_name": {
+            "type": "string",
+            "title": "Picking Name"
+          },
+          "picking_url": {
+            "type": "string",
+            "title": "Picking Url"
+          },
+          "picking_error": {
+            "type": "string",
+            "title": "Picking Error"
+          },
+          "item_count": {
+            "type": "integer",
+            "title": "Item Count"
+          },
+          "total_units": {
+            "type": "number",
+            "title": "Total Units"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "validated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validated At"
+          },
+          "declared_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared At"
+          },
+          "declared_by": {
+            "type": "string",
+            "title": "Declared By"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "needs_details": {
+            "type": "boolean",
+            "title": "Needs Details"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryRequestOut"
+            },
+            "type": "array",
+            "title": "Requests"
+          },
+          "discrepancies": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryDiscrepancyOut"
+            },
+            "type": "array",
+            "title": "Discrepancies"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "count": {
+            "$ref": "#/components/schemas/app__transfers__router__OdooRefOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "picking_status",
+          "odoo_picking_id",
+          "picking_name",
+          "picking_url",
+          "picking_error",
+          "item_count",
+          "total_units",
+          "created_at",
+          "validated_at",
+          "declared_at",
+          "declared_by",
+          "note",
+          "needs_details",
+          "requests",
+          "discrepancies",
+          "items",
+          "count"
+        ],
+        "title": "DeliveryOut"
+      },
+      "DeliveryRefOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "picking_name": {
+            "type": "string",
+            "title": "Picking Name"
+          },
+          "picking_url": {
+            "type": "string",
+            "title": "Picking Url"
+          },
+          "declared_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared At"
+          },
+          "validated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validated At"
+          },
+          "request_count": {
+            "type": "integer",
+            "title": "Request Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "picking_name",
+          "picking_url",
+          "declared_at",
+          "validated_at",
+          "request_count"
+        ],
+        "title": "DeliveryRefOut",
+        "description": "The received transfer a request rode to the floor."
+      },
+      "DeliveryRequestOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "line_count": {
+            "type": "integer",
+            "title": "Line Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "status",
+          "created_by",
+          "line_count"
+        ],
+        "title": "DeliveryRequestOut"
+      },
       "EmailOut": {
         "properties": {
           "id": {
@@ -7617,6 +10179,55 @@
         "type": "object",
         "title": "EmailSettingsIn"
       },
+      "EntryOut": {
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "counted_qty": {
+            "type": "number",
+            "title": "Counted Qty"
+          },
+          "odoo_qty": {
+            "type": "number",
+            "title": "Odoo Qty"
+          },
+          "odoo_qty_source": {
+            "type": "string",
+            "title": "Odoo Qty Source"
+          },
+          "delta": {
+            "type": "number",
+            "title": "Delta"
+          },
+          "counted_by": {
+            "type": "string",
+            "title": "Counted By"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt",
+          "counted_qty",
+          "odoo_qty",
+          "odoo_qty_source",
+          "delta",
+          "counted_by",
+          "reason",
+          "created_at"
+        ],
+        "title": "EntryOut"
+      },
       "ExchangeIn": {
         "properties": {
           "supabase_token": {
@@ -7629,6 +10240,39 @@
           "supabase_token"
         ],
         "title": "ExchangeIn"
+      },
+      "ExtraRowOut": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty_sent": {
+            "type": "number",
+            "title": "Qty Sent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "sku",
+          "barcode",
+          "name",
+          "qty_sent"
+        ],
+        "title": "ExtraRowOut"
       },
       "FacetsOut": {
         "properties": {
@@ -7649,6 +10293,14 @@
           "total_active": {
             "type": "integer",
             "title": "Total Active"
+          },
+          "barcode_prefixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Barcode Prefixes",
+            "default": []
           }
         },
         "type": "object",
@@ -7714,11 +10366,32 @@
           },
           "bwhse_qty": {
             "type": "number",
-            "title": "Bwhse Qty"
+            "title": "Bwhse Qty",
+            "default": 0.0
           },
           "checked": {
             "type": "boolean",
             "title": "Checked"
+          },
+          "snoozed": {
+            "type": "boolean",
+            "title": "Snoozed",
+            "default": false
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
+          },
+          "popularity": {
+            "type": "number",
+            "title": "Popularity",
+            "default": 0.0
+          },
+          "group_popularity": {
+            "type": "number",
+            "title": "Group Popularity",
+            "default": 0.0
           }
         },
         "type": "object",
@@ -7731,10 +10404,162 @@
           "qty",
           "flagged_on",
           "floor_qty",
-          "bwhse_qty",
           "checked"
         ],
         "title": "FloorItemOut"
+      },
+      "FloorRequestOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "qty": {
+            "type": "number",
+            "title": "Qty"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_by": {
+            "type": "string",
+            "title": "Requested By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "resolved_by": {
+            "type": "string",
+            "title": "Resolved By",
+            "default": ""
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "floor_qty": {
+            "type": "number",
+            "title": "Floor Qty",
+            "default": 0
+          },
+          "bwhse_qty": {
+            "type": "number",
+            "title": "Bwhse Qty",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "sku",
+          "barcode",
+          "name",
+          "category",
+          "qty",
+          "note",
+          "status",
+          "requested_by",
+          "created_at"
+        ],
+        "title": "FloorRequestOut"
+      },
+      "GroupsIn": {
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Overrides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "overrides"
+        ],
+        "title": "GroupsIn"
+      },
+      "GroupsOut": {
+        "properties": {
+          "defaults": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Defaults"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Overrides"
+          },
+          "effective": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Effective"
+          },
+          "never_group": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Never Group"
+          },
+          "popularity_days": {
+            "type": "integer",
+            "title": "Popularity Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "defaults",
+          "overrides",
+          "effective",
+          "never_group",
+          "popularity_days"
+        ],
+        "title": "GroupsOut",
+        "description": "What names the aisles, and what an admin has changed."
       },
       "HTTPValidationError": {
         "properties": {
@@ -7853,6 +10678,311 @@
         ],
         "title": "IngestEmailIn"
       },
+      "ItemEventOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "note",
+          "actor",
+          "created_at"
+        ],
+        "title": "ItemEventOut"
+      },
+      "ItemLocationOut": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "title": "Location"
+          },
+          "short": {
+            "type": "string",
+            "title": "Short"
+          },
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "qty": {
+            "type": "number",
+            "title": "Qty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location",
+          "short",
+          "area",
+          "qty"
+        ],
+        "title": "ItemLocationOut",
+        "description": "One place an item physically sits, as Odoo names it."
+      },
+      "ItemLocationsOut": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/ItemLocationOut"
+            },
+            "type": "array",
+            "title": "Locations"
+          },
+          "buckets": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "barcode",
+          "source",
+          "note",
+          "total",
+          "locations",
+          "buckets"
+        ],
+        "title": "ItemLocationsOut"
+      },
+      "ItemOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "count_id": {
+            "type": "integer",
+            "title": "Count Id"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "counted_by": {
+            "type": "string",
+            "title": "Counted By"
+          },
+          "recount_assignee": {
+            "type": "string",
+            "title": "Recount Assignee"
+          },
+          "recount_assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recount Assignee Id"
+          },
+          "reviewed_by": {
+            "type": "string",
+            "title": "Reviewed By"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "counted_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted Qty"
+          },
+          "odoo_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odoo Qty"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "applied_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Qty"
+          },
+          "picking_status": {
+            "type": "string",
+            "title": "Picking Status"
+          },
+          "picking_name": {
+            "type": "string",
+            "title": "Picking Name"
+          },
+          "picking_url": {
+            "type": "string",
+            "title": "Picking Url"
+          },
+          "picking_error": {
+            "type": "string",
+            "title": "Picking Error"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ItemEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "also_counted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecentCountOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "count_id",
+          "product_id",
+          "sku",
+          "barcode",
+          "name",
+          "status",
+          "location_key",
+          "counted_by",
+          "recount_assignee",
+          "recount_assignee_id",
+          "reviewed_by",
+          "reviewed_at",
+          "attempts",
+          "counted_qty",
+          "odoo_qty",
+          "delta",
+          "applied_qty",
+          "picking_status",
+          "picking_name",
+          "picking_url",
+          "picking_error",
+          "entries",
+          "events",
+          "submitted_at"
+        ],
+        "title": "ItemOut"
+      },
       "LegOut": {
         "properties": {
           "id": {
@@ -7944,6 +11074,67 @@
         ],
         "title": "ListMetaOut"
       },
+      "LocationOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "odoo_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odoo Id"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "odoo_id",
+          "note"
+        ],
+        "title": "LocationOut"
+      },
+      "LocationsOut": {
+        "properties": {
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/LocationOut"
+            },
+            "type": "array",
+            "title": "Locations"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          },
+          "can_review": {
+            "type": "boolean",
+            "title": "Can Review"
+          }
+        },
+        "type": "object",
+        "required": [
+          "locations",
+          "default",
+          "can_review"
+        ],
+        "title": "LocationsOut"
+      },
       "ManualEventIn": {
         "properties": {
           "kind": {
@@ -8012,107 +11203,6 @@
           "name"
         ],
         "title": "ManualProductIn"
-      },
-      "MarkIn": {
-        "properties": {
-          "product_id": {
-            "type": "integer",
-            "title": "Product Id"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "required": [
-          "product_id"
-        ],
-        "title": "MarkIn"
-      },
-      "MarkOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
-          },
-          "created_by": {
-            "type": "string",
-            "title": "Created By"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "qty_removed": {
-            "type": "number",
-            "title": "Qty Removed"
-          },
-          "picking": {
-            "$ref": "#/components/schemas/MarkPickingOut"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "note",
-          "created_by",
-          "created_at",
-          "qty_removed",
-          "picking"
-        ],
-        "title": "MarkOut"
-      },
-      "MarkPickingOut": {
-        "properties": {
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "reference": {
-            "type": "string",
-            "title": "Reference"
-          },
-          "error": {
-            "type": "string",
-            "title": "Error"
-          },
-          "picking_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Picking Id"
-          },
-          "picking_name": {
-            "type": "string",
-            "title": "Picking Name"
-          },
-          "url": {
-            "type": "string",
-            "title": "Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status",
-          "reference",
-          "error",
-          "picking_id",
-          "picking_name",
-          "url"
-        ],
-        "title": "MarkPickingOut"
       },
       "NoteIn": {
         "properties": {
@@ -8218,16 +11308,6 @@
           "incoming_label": {
             "type": "string",
             "title": "Incoming Label"
-          },
-          "mark": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MarkOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "type": "object",
@@ -8239,8 +11319,7 @@
           "category",
           "floor_qty",
           "bwhse_qty",
-          "incoming_label",
-          "mark"
+          "incoming_label"
         ],
         "title": "OosItemOut"
       },
@@ -8705,6 +11784,39 @@
         "type": "object",
         "title": "PatchIn"
       },
+      "PersonOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "is_app_user": {
+            "type": "boolean",
+            "title": "Is App User",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "PersonOut"
+      },
       "PlaceOrderIn": {
         "properties": {
           "center_id": {
@@ -8743,71 +11855,6 @@
           "lines"
         ],
         "title": "PlaceOrderIn"
-      },
-      "PreviewIn": {
-        "properties": {
-          "center_id": {
-            "type": "integer",
-            "title": "Center Id"
-          },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/LineIn"
-            },
-            "type": "array",
-            "maxItems": 200,
-            "minItems": 1,
-            "title": "Lines"
-          }
-        },
-        "type": "object",
-        "required": [
-          "center_id",
-          "lines"
-        ],
-        "title": "PreviewIn"
-      },
-      "PreviewOut": {
-        "properties": {
-          "level": {
-            "type": "string",
-            "title": "Level"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "source": {
-            "type": "string",
-            "title": "Source"
-          },
-          "order_badges": {
-            "items": {
-              "$ref": "#/components/schemas/BadgeOut"
-            },
-            "type": "array",
-            "title": "Order Badges"
-          },
-          "lines": {
-            "additionalProperties": {
-              "items": {
-                "$ref": "#/components/schemas/BadgeOut"
-              },
-              "type": "array"
-            },
-            "type": "object",
-            "title": "Lines"
-          }
-        },
-        "type": "object",
-        "required": [
-          "level",
-          "summary",
-          "source",
-          "order_badges",
-          "lines"
-        ],
-        "title": "PreviewOut"
       },
       "ProductListMetaOut": {
         "properties": {
@@ -8906,10 +11953,6 @@
             "type": "string",
             "title": "Category"
           },
-          "cost": {
-            "type": "number",
-            "title": "Cost"
-          },
           "retail_price": {
             "type": "number",
             "title": "Retail Price"
@@ -8946,6 +11989,11 @@
             "type": "boolean",
             "title": "Blacklisted"
           },
+          "available_in_pos": {
+            "type": "boolean",
+            "title": "Available In Pos",
+            "default": true
+          },
           "tags": {
             "items": {
               "$ref": "#/components/schemas/TagOut"
@@ -8981,7 +12029,6 @@
           "barcode",
           "name",
           "category",
-          "cost",
           "retail_price",
           "source",
           "sourcing",
@@ -9204,6 +12251,126 @@
         ],
         "title": "QaIn"
       },
+      "ReasonIn": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Reasons"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id"
+        ],
+        "title": "ReasonIn"
+      },
+      "RecentCountOut": {
+        "properties": {
+          "count_id": {
+            "type": "integer",
+            "title": "Count Id"
+          },
+          "counted_by": {
+            "type": "string",
+            "title": "Counted By"
+          },
+          "counted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Counted At"
+          },
+          "counted_qty": {
+            "type": "number",
+            "title": "Counted Qty"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "applied": {
+            "type": "boolean",
+            "title": "Applied"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count_id",
+          "counted_by",
+          "counted_at",
+          "counted_qty",
+          "status",
+          "applied",
+          "note"
+        ],
+        "title": "RecentCountOut",
+        "description": "Somebody else's count of this product at this location."
+      },
+      "RecountIn": {
+        "properties": {
+          "counted_qty": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Counted Qty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counted_qty"
+        ],
+        "title": "RecountIn"
+      },
+      "RecountRequestIn": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Id"
+          }
+        },
+        "type": "object",
+        "title": "RecountRequestIn"
+      },
+      "ReleaseStaleCountsIn": {
+        "properties": {
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ReleaseStaleCountsIn"
+      },
       "RequestCodeIn": {
         "properties": {
           "identifier": {
@@ -9245,6 +12412,29 @@
           "channel"
         ],
         "title": "RequestCodeOut"
+      },
+      "RequestIn": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineIn"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "title": "RequestIn"
       },
       "RequestOut": {
         "properties": {
@@ -9300,6 +12490,16 @@
           },
           "actions": {
             "$ref": "#/components/schemas/app__transfers__router__ActionsOut"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -9355,10 +12555,6 @@
             "type": "number",
             "title": "Total Requested"
           },
-          "open_adjustments": {
-            "type": "integer",
-            "title": "Open Adjustments"
-          },
           "picking_status": {
             "type": "string",
             "title": "Picking Status"
@@ -9366,6 +12562,16 @@
           "count_status": {
             "type": "string",
             "title": "Count Status"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -9378,11 +12584,28 @@
           "updated_at",
           "line_count",
           "total_requested",
-          "open_adjustments",
           "picking_status",
           "count_status"
         ],
         "title": "RequestSummaryOut"
+      },
+      "ResetFlowIn": {
+        "properties": {
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          },
+          "keep_hours": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Keep Hours",
+            "default": 24
+          }
+        },
+        "type": "object",
+        "title": "ResetFlowIn"
       },
       "ResetOut": {
         "properties": {
@@ -9405,43 +12628,6 @@
           "meta"
         ],
         "title": "ResetOut"
-      },
-      "ResolveIn": {
-        "properties": {
-          "action": {
-            "type": "string",
-            "title": "Action"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "title": "ResolveIn"
-      },
-      "RestockIn": {
-        "properties": {
-          "counted_qty": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 100000.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Counted Qty"
-          }
-        },
-        "type": "object",
-        "title": "RestockIn"
       },
       "RestockMetaOut": {
         "properties": {
@@ -9473,6 +12659,23 @@
               }
             ],
             "title": "Sales Synced At"
+          },
+          "stock_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Synced At"
+          },
+          "line_max_age_days": {
+            "type": "integer",
+            "title": "Line Max Age Days",
+            "default": 7
           },
           "floor_threshold": {
             "type": "number",
@@ -9520,6 +12723,109 @@
         ],
         "title": "RestockMetaOut"
       },
+      "RestockOut": {
+        "properties": {
+          "floor": {
+            "items": {
+              "$ref": "#/components/schemas/FloorItemOut"
+            },
+            "type": "array",
+            "title": "Floor"
+          },
+          "back": {
+            "items": {
+              "$ref": "#/components/schemas/BackItemOut"
+            },
+            "type": "array",
+            "title": "Back"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/RestockMetaOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "floor",
+          "back",
+          "meta"
+        ],
+        "title": "RestockOut"
+      },
+      "ReviewIn": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ReviewIn"
+      },
+      "ReviewRowOut": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty_requested": {
+            "type": "number",
+            "title": "Qty Requested"
+          },
+          "qty_sent": {
+            "type": "number",
+            "title": "Qty Sent"
+          },
+          "delta": {
+            "type": "number",
+            "title": "Delta"
+          },
+          "requested_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requested By"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "sku",
+          "barcode",
+          "name",
+          "qty_requested",
+          "qty_sent",
+          "delta",
+          "requested_by",
+          "reasons",
+          "note"
+        ],
+        "title": "ReviewRowOut"
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -9529,10 +12835,11 @@
           "floor_rotating",
           "zone_coordinator",
           "center_orderer",
-          "dept_liaison",
-          "dept_orderer"
+          "inventory_wrangler",
+          "dept_order_approver"
         ],
-        "title": "Role"
+        "title": "Role",
+        "description": "The six user types. The stored keys are historical and deliberately\nunchanged \u2014 renaming them would rewrite every permission check, every\ntest and every seeded row for no user-visible gain. What people SEE lives\nin the frontend's ROLE_LABELS (2026-08-13):\n\n    admin            \u2192 Admin\n    warehouse        \u2192 Warehouse Team\n    shoppe_floor     \u2192 Inventory Flow Manager\n    floor_rotating   \u2192 Floor Team\n    zone_coordinator \u2192 Order Reviewer\n    center_orderer   \u2192 Order Requester\n\nTwo ADD-ONS sit alongside those six. Neither is a user type: each is held\nIN ADDITION to a real role and grants exactly one job.\n\n    inventory_wrangler   \u2192 Approve counts     (the count review queue)\n    dept_order_approver  \u2192 Approve dept orders\n\ndept_order_approver (2026-08-22) exists because III departments are served\nby whoever is behind the counter: their orders need a shop team member to\nlook, but that person is an Inventory Flow Manager or Floor Team, not the\nOrder Reviewer of a review zone. The add-on grants approval over the\ndepartments zones' orders and nothing else \u2014 no field zone, no catalogs,\nno roster.\n\nThe separate dept_liaison / dept_orderer roles were FOLDED IN on\n2026-08-13: a departments reviewer is simply an Order Reviewer whose\nreview zone is \"III Departments\", and a departments requester is an Order\nRequester whose center is a department. Everything that behaves\ndifferently for departments already keys off the ZONE's kind, never off\nthe role (see center_orders/catalog.py and service.py), so the merge cost\nnothing behaviourally."
       },
       "RoleIn": {
         "properties": {
@@ -9595,6 +12902,17 @@
               }
             ],
             "title": "Zone Name"
+          },
+          "zone_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Kind"
           },
           "center_id": {
             "anyOf": [
@@ -9661,6 +12979,28 @@
           "user"
         ],
         "title": "SessionOut"
+      },
+      "SnoozeIn": {
+        "properties": {
+          "snoozed": {
+            "type": "boolean",
+            "title": "Snoozed",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "SnoozeIn"
+      },
+      "SnoozeSuggestionIn": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "title": "SnoozeSuggestionIn"
       },
       "Staging2ItemOut": {
         "properties": {
@@ -9733,6 +13073,63 @@
           "pallets"
         ],
         "title": "Staging2Out"
+      },
+      "StockAtIn": {
+        "properties": {
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "product_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Product Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location_key",
+          "product_ids"
+        ],
+        "title": "StockAtIn"
+      },
+      "StockAtOut": {
+        "properties": {
+          "location_key": {
+            "type": "string",
+            "title": "Location Key"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "quantities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Quantities"
+          },
+          "recent": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RecentCountOut"
+            },
+            "type": "object",
+            "title": "Recent",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "location_key",
+          "source",
+          "quantities"
+        ],
+        "title": "StockAtOut"
       },
       "StockHistoryOut": {
         "properties": {
@@ -9816,6 +13213,70 @@
           "source"
         ],
         "title": "StockHistoryPoint"
+      },
+      "SuggestionOut": {
+        "properties": {
+          "request_id": {
+            "type": "integer",
+            "title": "Request Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "line_count": {
+            "type": "integer",
+            "title": "Line Count"
+          },
+          "matched_items": {
+            "type": "integer",
+            "title": "Matched Items"
+          },
+          "total_requested": {
+            "type": "number",
+            "title": "Total Requested"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "suggested": {
+            "type": "boolean",
+            "title": "Suggested"
+          },
+          "auto_select": {
+            "type": "boolean",
+            "title": "Auto Select"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "display_name",
+          "status",
+          "created_by",
+          "created_at",
+          "line_count",
+          "matched_items",
+          "total_requested",
+          "reason",
+          "suggested",
+          "auto_select"
+        ],
+        "title": "SuggestionOut"
       },
       "SweepIn": {
         "properties": {
@@ -10730,6 +14191,11 @@
           "odoo_picking_name": {
             "type": "string",
             "title": "Odoo Picking Name"
+          },
+          "can_decide": {
+            "type": "boolean",
+            "title": "Can Decide",
+            "default": false
           }
         },
         "type": "object",
@@ -10752,72 +14218,70 @@
         ],
         "title": "OrderSummaryOut"
       },
-      "app__oos__router__AdjustmentOut": {
+      "app__center_orders__router__PreviewIn": {
         "properties": {
-          "direction": {
-            "type": "string",
-            "title": "Direction"
+          "center_id": {
+            "type": "integer",
+            "title": "Center Id"
           },
-          "qty": {
-            "type": "number",
-            "title": "Qty"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "reference": {
-            "type": "string",
-            "title": "Reference"
-          },
-          "picking_name": {
-            "type": "string",
-            "title": "Picking Name"
-          },
-          "url": {
-            "type": "string",
-            "title": "Url"
-          },
-          "error": {
-            "type": "string",
-            "title": "Error"
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineIn"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Lines"
           }
         },
         "type": "object",
         "required": [
-          "direction",
-          "qty",
-          "status",
-          "reference",
-          "picking_name",
-          "url",
-          "error"
+          "center_id",
+          "lines"
         ],
-        "title": "AdjustmentOut"
+        "title": "PreviewIn"
       },
-      "app__oos__router__RestockOut": {
+      "app__center_orders__router__PreviewOut": {
         "properties": {
-          "floor_qty_before": {
-            "type": "number",
-            "title": "Floor Qty Before"
+          "level": {
+            "type": "string",
+            "title": "Level"
           },
-          "adjustment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/app__oos__router__AdjustmentOut"
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "order_badges": {
+            "items": {
+              "$ref": "#/components/schemas/BadgeOut"
+            },
+            "type": "array",
+            "title": "Order Badges"
+          },
+          "lines": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/BadgeOut"
               },
-              {
-                "type": "null"
-              }
-            ]
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Lines"
           }
         },
         "type": "object",
         "required": [
-          "floor_qty_before",
-          "adjustment"
+          "level",
+          "summary",
+          "source",
+          "order_badges",
+          "lines"
         ],
-        "title": "RestockOut"
+        "title": "PreviewOut"
       },
       "app__ordering__router__EventOut": {
         "properties": {
@@ -11193,34 +14657,6 @@
         ],
         "title": "LinesIn"
       },
-      "app__restock__router__RestockOut": {
-        "properties": {
-          "floor": {
-            "items": {
-              "$ref": "#/components/schemas/FloorItemOut"
-            },
-            "type": "array",
-            "title": "Floor"
-          },
-          "back": {
-            "items": {
-              "$ref": "#/components/schemas/BackItemOut"
-            },
-            "type": "array",
-            "title": "Back"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/RestockMetaOut"
-          }
-        },
-        "type": "object",
-        "required": [
-          "floor",
-          "back",
-          "meta"
-        ],
-        "title": "RestockOut"
-      },
       "app__transfers__router__ActionsOut": {
         "properties": {
           "can_edit_lines": {
@@ -11256,105 +14692,6 @@
         },
         "type": "object",
         "title": "ActionsOut"
-      },
-      "app__transfers__router__AdjustmentOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "request_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Request Id"
-          },
-          "product_id": {
-            "type": "integer",
-            "title": "Product Id"
-          },
-          "sku": {
-            "type": "string",
-            "title": "Sku"
-          },
-          "barcode": {
-            "type": "string",
-            "title": "Barcode",
-            "default": ""
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "qty_expected": {
-            "type": "number",
-            "title": "Qty Expected"
-          },
-          "qty_counted": {
-            "type": "number",
-            "title": "Qty Counted"
-          },
-          "delta": {
-            "type": "number",
-            "title": "Delta"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
-          },
-          "resolution_note": {
-            "type": "string",
-            "title": "Resolution Note"
-          },
-          "resolved_by": {
-            "type": "string",
-            "title": "Resolved By"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "resolved_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resolved At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "request_id",
-          "product_id",
-          "sku",
-          "name",
-          "qty_expected",
-          "qty_counted",
-          "delta",
-          "status",
-          "note",
-          "resolution_note",
-          "resolved_by",
-          "created_at",
-          "resolved_at"
-        ],
-        "title": "AdjustmentOut"
       },
       "app__transfers__router__EventOut": {
         "properties": {
@@ -11466,6 +14803,27 @@
           "bwhse_qty": {
             "type": "number",
             "title": "Bwhse Qty"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons",
+            "default": []
+          },
+          "reason_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Labels",
+            "default": []
+          },
+          "reason_note": {
+            "type": "string",
+            "title": "Reason Note",
+            "default": ""
           }
         },
         "type": "object",
@@ -11557,6 +14915,92 @@
         ],
         "title": "OdooRefOut",
         "description": "One picking's honest linkage: outcome + name + links."
+      },
+      "app__transfers__router__PreviewIn": {
+        "properties": {
+          "odoo_picking_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Odoo Picking Id"
+          },
+          "request_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Request Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "odoo_picking_id"
+        ],
+        "title": "PreviewIn"
+      },
+      "app__transfers__router__PreviewOut": {
+        "properties": {
+          "picking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionOut"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          },
+          "review": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewRowOut"
+            },
+            "type": "array",
+            "title": "Review"
+          },
+          "extras": {
+            "items": {
+              "$ref": "#/components/schemas/ExtraRowOut"
+            },
+            "type": "array",
+            "title": "Extras"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "reason_options": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Reason Options"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "picking",
+          "suggestions",
+          "review",
+          "extras",
+          "threshold",
+          "reason_options",
+          "note"
+        ],
+        "title": "PreviewOut"
       }
     },
     "securitySchemes": {

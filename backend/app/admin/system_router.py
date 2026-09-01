@@ -28,7 +28,6 @@ from ..odoo.contract import check_contract
 from ..ratelimit import rate_limit
 from ..sync.runner import run_all, run_domain
 from ..sync.status import domain_statuses, health_payload, recent_runs
-from ..timemachine.backfill import backfill_state, request_backfill
 from ..transfers.delivery import DeliveryError, release_stale_counts
 from ..transfers.reset import ResetError, reset_delivery_flow
 
@@ -42,7 +41,6 @@ router = APIRouter(
 @router.get("/status")
 def status(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
     flags = db.scalars(select(FeatureFlag)).all()
-    tm_backfill = backfill_state(db)
     return {
         **health_payload(db, settings),
         "auth_mode": settings.auth_mode,
@@ -53,11 +51,6 @@ def status(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
             {"key": f.key, "enabled": f.enabled, "description": f.description} for f in flags
         ],
         "ingestion_sources": registry_status(),
-        "timemachine_backfill": {
-            "pending": len(tm_backfill.get("pending") or []),
-            "done": tm_backfill.get("done", 0),
-            "last_processed": tm_backfill.get("last_processed"),
-        },
     }
 
 
@@ -92,25 +85,6 @@ def rebuild_sales_history(
     return {"domain": run.domain, "status": run.status, "rows": run.rows, "error": run.error}
 
 
-class BackfillIn(BaseModel):
-    weeks: int | None = None  # default = settings.timemachine_backfill_weeks
-
-
-@router.post("/time-machine/backfill")
-def start_history_backfill(
-    body: BackfillIn,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> dict:
-    """Queue weekly stock-history reconstruction from Odoo's move ledger.
-    The worker processes one date per loop pass (polite pacing); days the
-    live capture already covers are never overwritten."""
-    state = request_backfill(db, settings, body.weeks)
-    return {
-        "queued": len(state["pending"]),
-        "requested_weeks": state["requested_weeks"],
-        "note": "the worker reconstructs one date per pass — watch progress on this page",
-    }
 
 
 class ReleaseStaleCountsIn(BaseModel):
@@ -192,7 +166,6 @@ def reset_transfer_flow(
         "requests_kept": report.requests_kept,
         "pallets_cleared": report.pallets_cleared,
         "events_cleared": report.events_cleared,
-        "adjustments_cleared": report.adjustments_cleared,
         "drafts_removed": report.drafts_removed,
         "already_gone": report.already_gone,
         "leftovers": [vars(x) for x in report.leftovers],

@@ -22,7 +22,6 @@ from ..centers.importer import run_import
 from ..config import get_settings
 from ..db import get_sessionmaker
 from ..models import (
-    Adjustment,
     Center,
     CenterOrder,
     CenterOrderEvent,
@@ -349,20 +348,13 @@ def seed_phase2_flows(db: Session) -> None:
                 )
             )
         db.add(
-            Adjustment(
-                request_id=done.id, line_id=done_lines[0].id, product_id=products[4].id,
-                qty_expected=9, qty_counted=8, delta=-1,
-                note=f"Count on #{done.id}",
-            )
-        )
-        db.add(
             TransferEvent(
                 request_id=done.id, kind=TransferEventKind.DISCREPANCY.value,
                 actor_user_id=floor.id,
-                note="1 discrepancy(ies) → adjustments queue: sent 9, counted 8 (-1)",
+                note="1 discrepancy(ies): sent 9, counted 8 (-1)",
             )
         )
-        print("  phase 2: transfer requests seeded (requested / working on it / done+adjustment)")
+        print("  phase 2: transfer requests seeded (requested / working on it / done)")
 
     db.commit()
 

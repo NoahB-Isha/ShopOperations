@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FloorCountOut, ProductOut, StockHistoryPointOut, TagOut } from "../api/types";
+import type { ProductOut, StockHistoryPointOut, TagOut } from "../api/types";
 import {
   useItemLocations,
   usePatchProduct,
   useProductStockHistory,
   useSaveTags,
-  useSetFloorCount,
 } from "../api/hooks";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Drawer, Field, Input, Toggle, useToast } from "../design";
@@ -185,7 +184,6 @@ export function ProductDrawer({
                 stock.
               </p>
             )}
-            <FloorCountEditor product={product} floorQty={stock.floor ?? 0} />
             <ItemLocationsSection product={product} />
             <StockHistorySection productId={product.id} />
           </div>
@@ -344,107 +342,6 @@ function ItemLocationsSection({ product }: { product: ProductOut }) {
                 {data.locations.length} location(s) · {data.total} total, read from Odoo just now.
               </p>
             </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** The Inventory Flow Manager counted the shelf (Noah, 2026-08-18).
- *
- *  This does NOT write a stock level — it renders the draft adjustment that
- *  would make Odoo agree, exactly like the OOS board's "back in stock", and
- *  hands over the link. Validating stock moves stays a human job in Odoo. */
-function FloorCountEditor({ product, floorQty }: { product: ProductOut; floorQty: number }) {
-  const { roles } = useAuth();
-  const mayEdit = roles.has("shoppe_floor") || roles.has("admin");
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(String(floorQty));
-  const [result, setResult] = useState<FloorCountOut | null>(null);
-  const setCount = useSetFloorCount();
-  const toast = useToast();
-  if (!mayEdit) return null;
-
-  const counted = Number(value);
-  const valid = value.trim() !== "" && Number.isFinite(counted) && counted >= 0;
-  const delta = valid ? Math.round((counted - floorQty) * 1000) / 1000 : 0;
-
-  const submit = () =>
-    setCount.mutate(
-      { productId: product.id, counted_qty: counted },
-      {
-        onSuccess: (out) => {
-          setResult(out);
-          if (out.status === "failed") toast.error(out.error || "Odoo refused the adjustment.");
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-
-  return (
-    <div className="mt-3 border-t border-line pt-3">
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((v) => !v);
-          setValue(String(floorQty));
-          setResult(null);
-        }}
-        className="state-layer -mx-1 flex w-full items-center justify-between gap-2 rounded-(--radius-sm)
-          px-1 py-1.5 text-left"
-      >
-        <span className="label-caps">Floor count</span>
-        <span className="text-[12px] text-ink-faint">{open ? "cancel" : "correct it ▾"}</span>
-      </button>
-
-      {open && (
-        <div className="mt-1.5">
-          <p className="mb-2 text-[12.5px] leading-4.5 text-ink-faint">
-            Odoo says <b className="tabular-nums">{floorQty}</b> on the floor. Enter what you
-            counted — the app renders a draft adjustment for someone to validate in Odoo, and
-            never changes stock itself.
-          </p>
-          <div className="flex items-end gap-2">
-            {/* "Counted on the floor" wrapped onto two lines inside a w-28
-                field and sat on top of the number — the sentence above already
-                says what to type, so the label just names the unit */}
-            <Field label="Counted">
-              <Input
-                type="number"
-                min={0}
-                inputMode="decimal"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className="w-24"
-              />
-            </Field>
-            <Button
-              size="sm"
-              disabled={!valid || delta === 0}
-              loading={setCount.isPending}
-              onClick={submit}
-            >
-              {delta === 0
-                ? "No change"
-                : `${delta > 0 ? "Add" : "Remove"} ${Math.abs(delta)}`}
-            </Button>
-          </div>
-
-          {result && (
-            <div className="mt-2 rounded-(--radius-sm) bg-raised/60 px-2.5 py-2 text-[12.5px] leading-4.5">
-              <p>{result.note}</p>
-              {result.url && (
-                <a
-                  href={result.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-0.5 inline-block font-mono font-medium text-copper-deep hover:underline"
-                >
-                  {result.picking_name} ↗
-                </a>
-              )}
-            </div>
           )}
         </div>
       )}

@@ -35,7 +35,6 @@ import { InventoryCountPage } from "./pages/counting/InventoryCountPage";
 import { ComingSoonPage } from "./pages/transfers/ComingSoonPage";
 import { TransferRequestDetailPage } from "./pages/transfers/TransferRequestDetailPage";
 import { TransfersPage } from "./pages/transfers/TransfersPage";
-import { AdjustmentsPage } from "./pages/warehouse/AdjustmentsPage";
 import { IncomingPage } from "./pages/warehouse/IncomingPage";
 import { Staging2Page } from "./pages/warehouse/Staging2Page";
 
@@ -188,11 +187,6 @@ export default function App() {
               <Route path="/transfers" element={
                 <Protected title="Transfers" roles={["warehouse"]}>
                   <TransfersPage />
-                </Protected>
-              } />
-              <Route path="/adjustments" element={
-                <Protected title="Adjustments" roles={["warehouse"]}>
-                  <AdjustmentsPage />
                 </Protected>
               } />
               {/* floor can look; only warehouse gets the send button */}

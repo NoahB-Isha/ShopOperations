@@ -1,5 +1,4 @@
-"""BWHSE→Floor transfer requests, the delivery form, and the warehouse
-adjustments queue.
+"""BWHSE→Floor transfer requests and the delivery form.
 
 Odoo-native flow (reworked 2026-08-17 — the warehouse lives in Odoo):
 
@@ -28,8 +27,6 @@ from ..auth.deps import AuthedUser, require_roles
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import (
-    Adjustment,
-    AdjustmentStatus,
     OdooWriteOutcome,
     PalletRequestLink,
     PalletTransfer,
@@ -44,7 +41,6 @@ from ..models import (
     TransferRequestStatus,
     User,
     not_blacklisted,
-    utcnow,
 )
 from . import delivery as delivery_service
 from . import pallet as pallet_service
@@ -61,13 +57,6 @@ router = APIRouter(
     tags=["transfers"],
     dependencies=[Depends(require_roles(*PARTICIPANTS))],
 )
-
-adjustments_router = APIRouter(
-    prefix="/adjustments",
-    tags=["transfers"],
-    dependencies=[Depends(require_roles(Role.WAREHOUSE))],
-)
-
 
 # ------------------------------------------------------------------ schemas
 class LineIn(BaseModel):
@@ -154,7 +143,6 @@ class RequestSummaryOut(BaseModel):
     updated_at: datetime
     line_count: int
     total_requested: float
-    open_adjustments: int
     picking_status: str
     count_status: str
     delivery: DeliveryRefOut | None = None
@@ -499,16 +487,6 @@ def list_requests(
 
     names = _user_names(db, {r.created_by_id for r in requests})
     deliveries = _deliveries_for(db, {r.id for r in requests})
-    open_by_request: dict[int, int] = {}
-    if requests:
-        rows = db.execute(
-            select(Adjustment.request_id).where(
-                Adjustment.request_id.in_([r.id for r in requests]),
-                Adjustment.status == AdjustmentStatus.OPEN.value,
-            )
-        )
-        for (rid,) in rows:
-            open_by_request[rid] = open_by_request.get(rid, 0) + 1
 
     return [
         RequestSummaryOut(
@@ -520,7 +498,6 @@ def list_requests(
             updated_at=r.updated_at,
             line_count=len(r.lines),
             total_requested=sum(line.qty_requested for line in r.lines),
-            open_adjustments=open_by_request.get(r.id, 0),
             picking_status=r.picking_status,
             count_status=r.count_status,
             delivery=_delivery_ref(db, deliveries.get(r.id)),
@@ -1314,110 +1291,3 @@ def add_note(
     _event(db, req, TransferEventKind.NOTE, authed, note=body.note.strip())
     db.commit()
     return _request_out(db, settings, _get_request(db, req.id), authed)
-
-
-# ------------------------------------------------------------- adjustments
-class AdjustmentOut(BaseModel):
-    id: int
-    request_id: int | None
-    # a delivery's own count reconciles the whole pallet, so its adjustments
-    # name the delivery instead of a single request
-    delivery_id: int | None = None
-    delivery_name: str = ""
-    product_id: int
-    sku: str
-    barcode: str = ""
-    name: str
-    qty_expected: float
-    qty_counted: float
-    delta: float
-    status: str
-    note: str
-    resolution_note: str
-    resolved_by: str
-    created_at: datetime
-    resolved_at: datetime | None
-
-
-def _adjustment_out(db: Session, rows: list[Adjustment]) -> list[AdjustmentOut]:
-    products = {
-        p.id: p
-        for p in db.scalars(
-            select(Product).where(Product.id.in_({a.product_id for a in rows}))
-        )
-    }
-    names = _user_names(db, {a.resolved_by_id for a in rows})
-    pallet_ids = {a.pallet_id for a in rows if a.pallet_id}
-    pallets = (
-        {
-            p.id: p
-            for p in db.scalars(select(PalletTransfer).where(PalletTransfer.id.in_(pallet_ids)))
-        }
-        if pallet_ids
-        else {}
-    )
-    out = []
-    for a in rows:
-        p = products.get(a.product_id)
-        pallet = pallets.get(a.pallet_id or 0)
-        out.append(
-            AdjustmentOut(
-                id=a.id,
-                request_id=a.request_id,
-                delivery_id=a.pallet_id,
-                delivery_name=pallet.display_name if pallet else "",
-                product_id=a.product_id,
-                sku=p.global_sku if p else "",
-                barcode=(p.barcode or "") if p else "",
-                name=p.name if p else f"product {a.product_id}",
-                qty_expected=a.qty_expected,
-                qty_counted=a.qty_counted,
-                delta=a.delta,
-                status=a.status,
-                note=a.note,
-                resolution_note=a.resolution_note,
-                resolved_by=names.get(a.resolved_by_id or 0, ""),
-                created_at=a.created_at,
-                resolved_at=a.resolved_at,
-            )
-        )
-    return out
-
-
-@adjustments_router.get("", response_model=list[AdjustmentOut])
-def list_adjustments(
-    status: str = "open",
-    db: Session = Depends(get_db),
-    _: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
-) -> list[AdjustmentOut]:
-    q = select(Adjustment).order_by(Adjustment.id.desc())
-    if status != "all":
-        q = q.where(Adjustment.status == status)
-    return _adjustment_out(db, list(db.scalars(q)))
-
-
-class ResolveIn(BaseModel):
-    action: str  # resolved | dismissed
-    note: str = ""
-
-
-@adjustments_router.post("/{adjustment_id}/resolve", response_model=AdjustmentOut)
-def resolve_adjustment(
-    adjustment_id: int,
-    body: ResolveIn,
-    db: Session = Depends(get_db),
-    authed: AuthedUser = Depends(require_roles(Role.WAREHOUSE)),
-) -> AdjustmentOut:
-    if body.action not in (AdjustmentStatus.RESOLVED.value, AdjustmentStatus.DISMISSED.value):
-        raise HTTPException(422, "action must be 'resolved' or 'dismissed'.")
-    adj = db.get(Adjustment, adjustment_id)
-    if adj is None:
-        raise HTTPException(404, "Adjustment not found.")
-    if adj.status != AdjustmentStatus.OPEN.value:
-        raise HTTPException(409, f"Already {adj.status}.")
-    adj.status = body.action
-    adj.resolution_note = body.note.strip()
-    adj.resolved_by_id = authed.id
-    adj.resolved_at = utcnow()
-    db.commit()
-    return _adjustment_out(db, [adj])[0]

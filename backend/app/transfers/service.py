@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import (
-    Adjustment,
     OdooLocation,
     OdooWriteOutcome,
     TransferEvent,
@@ -625,25 +624,15 @@ def finish_from_count(
     source: str,
     actor_user_id: int | None = None,
 ) -> None:
-    """Apply counted quantities, file discrepancies, mark done."""
+    """Apply counted quantities, record discrepancies on the request, mark
+    done. The DISCREPANCY event is the record — the adjustments queue is gone
+    (2026-08-24); the validated count picking in Odoo holds the numbers."""
     from .flow import reconcile  # local import keeps flow.py pure/import-light
 
     for line in req.lines:
         odoo_pid = line.product.odoo_product_id
         line.qty_counted = float(counted_by_odoo_pid.get(odoo_pid or -1, 0.0))
     discrepancies = reconcile(req.lines)
-    for d in discrepancies:
-        db.add(
-            Adjustment(
-                request_id=req.id,
-                line_id=d.line_id,
-                product_id=d.product_id,
-                qty_expected=d.qty_expected,
-                qty_counted=d.qty_counted,
-                delta=d.delta,
-                note=f"Count on {req.display_name}",
-            )
-        )
     req.status = TransferRequestStatus.DONE.value
     _event(
         db, req, TransferEventKind.STATUS, source, actor_user_id,
@@ -656,7 +645,7 @@ def finish_from_count(
         )
         _event(
             db, req, TransferEventKind.DISCREPANCY,
-            f"{len(discrepancies)} discrepancy(ies) → adjustments queue: {detail}",
+            f"{len(discrepancies)} discrepancy(ies): {detail}",
             actor_user_id,
         )
 

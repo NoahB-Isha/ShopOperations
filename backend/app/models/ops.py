@@ -369,45 +369,6 @@ class PalletDiscrepancy(Base):
     product: Mapped[Product] = relationship()
 
 
-# --------------------------------------------------------- adjustments queue
-class AdjustmentStatus(str, enum.Enum):
-    OPEN = "open"
-    RESOLVED = "resolved"  # warehouse fixed it in Odoo / physically
-    DISMISSED = "dismissed"  # counted wrong, no action needed
-
-
-class Adjustment(Base):
-    """A stock discrepancy for the warehouse to review — today these vanish
-    into WhatsApp; here they queue until someone closes them out."""
-
-    __tablename__ = "adjustments"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    request_id: Mapped[int | None] = mapped_column(
-        ForeignKey("transfer_requests.id"), index=True
-    )
-    line_id: Mapped[int | None] = mapped_column(ForeignKey("transfer_request_lines.id"))
-    # a delivery's own count reconciles the whole pallet, so its adjustments
-    # hang off the delivery instead of one request (request_id stays NULL)
-    pallet_id: Mapped[int | None] = mapped_column(
-        ForeignKey("pallet_transfers.id"), index=True
-    )
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    qty_expected: Mapped[float] = mapped_column(Float)  # what warehouse sent
-    qty_counted: Mapped[float] = mapped_column(Float)  # what the count validated
-    delta: Mapped[float] = mapped_column(Float)  # counted - expected
-    status: Mapped[str] = mapped_column(
-        String(12), default=AdjustmentStatus.OPEN.value, index=True
-    )
-    note: Mapped[str] = mapped_column(Text, default="")
-    resolution_note: Mapped[str] = mapped_column(Text, default="")
-    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-    product: Mapped[Product] = relationship()
-
-
 # ----------------------------------------------------------------- restock
 class SalesDaily(Base):
     """Per-day sales units for the recent window only (restock math needs
@@ -504,32 +465,6 @@ class RestockCheckoff(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     checked_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-# ------------------------------------------------------------ floor OOS marks
-class FloorOosMark(Base, TimestampMixin):
-    """The floor team's 'this shelf is actually empty' declaration. Marking a
-    product renders a DRAFT inventory-reduction picking that removes whatever
-    quantity Odoo still claims is on the floor — a human validates it in Odoo
-    (data cleanup, the app never adjusts stock itself). A mark with nothing
-    to remove (Odoo already says 0) is pure bookkeeping: picking stays 'none'."""
-
-    __tablename__ = "floor_oos_marks"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
-    note: Mapped[str] = mapped_column(Text, default="")
-    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    qty_removed: Mapped[float] = mapped_column(Float, default=0)  # floor qty at mark time
-
-    picking_status: Mapped[str] = mapped_column(String(12), default="none")
-    picking_reference: Mapped[str] = mapped_column(String(40), default="")  # ILAPP-OOS-…
-    picking_error: Mapped[str] = mapped_column(Text, default="")
-    odoo_picking_id: Mapped[int | None] = mapped_column(Integer)
-    odoo_picking_name: Mapped[str] = mapped_column(String(80), default="")
-    odoo_picking_url: Mapped[str] = mapped_column(String(500), default="")
-
-    product: Mapped[Product] = relationship()
 
 
 # ------------------------------------------------------- floor team requests

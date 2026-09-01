@@ -217,7 +217,6 @@ def test_floor_rotating_cannot_create_transfers(client, db, settings_env):
         f"/api/v1/transfer-requests/{request_id}", headers=rotating
     ).status_code == 200
 
-    # the rest of the floor toolkit works: restock list + OOS board actions
+    # the rest of the floor toolkit works: restock list + the OOS list
     assert client.get("/api/v1/restock", headers=rotating).status_code == 200
-    r = client.post("/api/v1/oos", json={"product_id": p.id}, headers=rotating)
-    assert r.status_code == 201, r.text
+    assert client.get("/api/v1/oos", headers=rotating).status_code == 200

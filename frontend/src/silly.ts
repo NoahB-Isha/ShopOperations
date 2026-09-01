@@ -73,7 +73,7 @@ export const SILLY_LABELS: Record<string, string> = {
   Transfers: "Big moves",
   "Send to floor": "Pallet party",
   "Coming soon": "OTW 👀",
-  Adjustments: "Damage control",
+  "Stock status": "The lowdown",
   // floor
   Restock: "The re-up",
   "Request items": "Gimme gimme",

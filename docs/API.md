@@ -177,14 +177,13 @@ The spec is the authority — this is the orientation layer. Prefixes are under
 | `/center-orders` | the city-center order flow: context, catalog (menu), reasonability preview, place → approve/reject → shipped; timeline events | orderers, coordinators |
 | `/transfer-requests` | BWHSE→Floor requests: create, state machine (ack/sent/prepare-count/done/cancel), **`/coming-soon`**, **`/staging2`** + pallet send | floor, warehouse |
 | `/restock` | floor + back-stock restock lists, check-offs, floor reset | floor, warehouse |
-| `/oos` | the floor out-of-stock board: marks, restock-with-count (renders draft adjustments) | floor |
+| `/oos` | the floor out-of-stock list (read-only — counted numbers go through `/counts`) | floor, warehouse |
 | `/availability` | org/bwhse/floor OOS + coming-soon lists, snapshot meta | admin, warehouse, floor |
-| `/adjustments` | the warehouse adjustments queue from count discrepancies | warehouse |
+| `/counts` | inventory counting: submissions, review queue, approve/reject/recount | floor, warehouse, wranglers |
 | `/ordering` | purchasing: import candidates → draft POs (the review table), line overrides, place (exports + email), timeline/proposals, vendors + vendor quick orders, forecast analogies, India product list | admin |
-| `/time-machine` | inventory on any date (past snapshots / live / projected future) + day sales | admin, warehouse |
 | `/reports` | monthly sales overview, breakdowns, narrative, Q&A | admin |
 | `/notices` | the in-app inbox (bell) | all roles |
-| `/admin` | users & invites, system status, sync triggers, feature flags, canaries, audit log, history backfill | admin |
+| `/admin` | users & invites, system status, sync triggers, feature flags, canaries, audit log | admin |
 | `/bot` | the key-authenticated read-only surface (above) | machine clients |
 
 Two structural notes worth knowing before you build:

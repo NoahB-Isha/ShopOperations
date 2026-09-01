@@ -32,12 +32,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_sessionmaker
 from ..models import (
-    Adjustment,
     AppSetting,
     CenterOrder,
     CenterOrderEvent,
     CenterOrderLine,
-    FloorOosMark,
     ForecastAnalogy,
     Notification,
     OrderAttachment,
@@ -93,7 +91,6 @@ def clear_demo_data(db: Session, apply: bool) -> list[tuple[str, int]]:
     wipe("notifications (outbox)", Notification)
 
     # --- BWHSE→Floor transfer flow
-    wipe("transfer adjustments", Adjustment)
     wipe("transfer events", TransferEvent)
     wipe("transfer request lines", TransferRequestLine)
     wipe("transfer requests", TransferRequest)
@@ -114,8 +111,7 @@ def clear_demo_data(db: Session, apply: bool) -> list[tuple[str, int]]:
     wipe("purchase orders", PurchaseOrder)
     wipe("forecast analogies", ForecastAnalogy)
 
-    # --- floor state: OOS marks + the restock checklist/accumulator
-    wipe("floor OOS marks", FloorOosMark)
+    # --- floor state: the restock checklist/accumulator
     wipe("restock checklist lines", RestockLine)
     wipe("restock accumulators", RestockAccum)
     wipe("restock check-offs", RestockCheckoff)

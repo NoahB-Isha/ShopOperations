@@ -131,7 +131,7 @@ def movements_since(
         if row["id"] in inside:
             continue  # moved within this area — the total here didn't change
         qty = -float(row.get("quantity") or 0)
-        kind = usages.get(_m2o(row.get("location_dest_id")), "")
+        kind = usages.get(_m2o(row.get("location_dest_id")) or 0, "")
         if kind == "inventory":
             corrected += qty
             refs.append(str(row.get("reference") or ""))
@@ -148,7 +148,7 @@ def movements_since(
         if row["id"] in outside:
             continue
         qty = float(row.get("quantity") or 0)
-        kind = usages.get(_m2o(row.get("location_id")), "")
+        kind = usages.get(_m2o(row.get("location_id")) or 0, "")
         if kind == "inventory":
             corrected += qty
             refs.append(str(row.get("reference") or ""))

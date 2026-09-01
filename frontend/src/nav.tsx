@@ -48,9 +48,6 @@ export const Icons = {
   chart: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M2.5 2.5v11h11" /><path {...stroke} d="M5.5 10.5V7M8.5 10.5V4.5M11.5 10.5V6" /></svg>
   ),
-  timeMachine: (
-    <svg width="16" height="16" viewBox="0 0 16 16"><circle {...stroke} cx="8.5" cy="8" r="5" /><path {...stroke} d="M8.5 5.5V8l1.8 1.2M3.5 4 1.5 6M1.5 6l2.4.9M1.5 6" /></svg>
-  ),
   sparkle: (
     <svg width="16" height="16" viewBox="0 0 16 16"><path {...stroke} d="M8 1.8l1.5 3.9L13.4 7l-3.9 1.4L8 12.3 6.5 8.4 2.6 7l3.9-1.3L8 1.8Z" /><path {...stroke} d="M12.6 11.2l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" /></svg>
   ),
@@ -102,7 +99,7 @@ export interface NavItem {
 const byRole: Record<string, NavItem[]> = {
   admin: [
     { path: "/reports", label: "Reports", icon: Icons.chart },
-    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.radar },
+    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
     { path: "/centers", label: "Centers", icon: Icons.mapPin },
     { path: "/orders", label: "Catalogs", icon: Icons.clipboard },
@@ -112,9 +109,9 @@ const byRole: Record<string, NavItem[]> = {
   // They live in Odoo — the app's job for them is the delivery form and
   // looking a product up; the scanner, inbox and settings are in the top bar
   // (and Scan is pinned in the phone bottom bar). Incoming, Transfers, Coming
-  // soon, Out of stock and Adjustments left the MENU, not the app: their
-  // routes and role access are untouched, so a link still opens them and
-  // nothing has to be rebuilt to bring one back.
+  // soon and Out of stock left the MENU, not the app: their routes and role
+  // access are untouched, so a link still opens them and nothing has to be
+  // rebuilt to bring one back. (Adjustments left the app entirely, 2026-08-24.)
   warehouse: [
     { path: "/staging2", label: "Send to floor", short: "To floor", icon: Icons.box },
     { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
@@ -124,15 +121,16 @@ const byRole: Record<string, NavItem[]> = {
   // (homeForRoles), and the phone bar keeps only the first TWO destinations
   // before Scan and More. Transfers sits second (Noah, 2026-08-18) so raising
   // one is a tap on any screen; Suggested items moved behind More, since the
-  // transfer form now carries its own suggestions strip.
+  // transfer form now carries its own suggestions strip. Two 2026-08-24
+  // merges: Count review rides the Inventory counting destination (tab bar on
+  // both pages), and Coming soon + Out of stock became ONE "Stock status"
+  // destination the same way — the routes are untouched, only the menu slimmed.
   shoppe_floor: [
     { path: "/restock", label: "Restock", icon: Icons.clipboard },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/suggested-items", label: "Suggested items", short: "Suggested", icon: Icons.sparkle },
     { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
-    { path: "/count-review", label: "Count review", short: "Review", icon: Icons.clipboard },
-    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
+    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Floor Team: the floor toolkit minus creating transfers (the pages hide
@@ -143,8 +141,7 @@ const byRole: Record<string, NavItem[]> = {
     { path: "/request-items", label: "Request items", short: "Request", icon: Icons.bag },
     { path: "/transfer-requests", label: "Transfers", icon: Icons.swap },
     { path: "/inventory-count", label: "Inventory counting", short: "Counting", icon: Icons.scale },
-    { path: "/coming-soon", label: "Coming soon", short: "Incoming", icon: Icons.eta },
-    { path: "/out-of-stock", label: "Out of stock", short: "Stock outs", icon: Icons.scale },
+    { path: "/out-of-stock", label: "Stock status", short: "Stock", icon: Icons.radar },
     { path: "/catalog", label: "Search Inventory", short: "Search", icon: Icons.search },
   ],
   // Order Reviewer — one nav whether the review zone is a field zone or III

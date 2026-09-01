@@ -12,6 +12,7 @@ from pathlib import Path
 
 import openpyxl
 import pytest
+from app.counting.router import CountLineIn
 from app.downloads import attachment_headers, safe_filename
 from app.models import (
     OdooWriteOutcome,
@@ -23,7 +24,6 @@ from app.models import (
 )
 from app.odoo.simulator import OdooSimulator
 from app.odoo.writer import OdooWriter, WriterValidationError
-from app.oos.router import RestockIn
 from app.ordering.export import EXPORT_COLUMNS, _safe_cell, rows_to_csv, rows_to_xlsx
 from app.ordering.inputs import build_bundle_from_workbook
 from app.ordering.rules import OrderingRules
@@ -113,19 +113,20 @@ def test_exports_neutralize_a_formula_name() -> None:
 
 
 # ------------------------------------------- C-11 bounded, finite quantities
-def test_restock_rejects_non_finite_and_negative_counts() -> None:
+def test_counting_rejects_non_finite_and_negative_counts() -> None:
+    """The one door counted numbers enter through (the counting page) keeps
+    the NaN/inf/bounds guard — NaN slipped past `<= 0` checks before."""
     with pytest.raises(ValidationError):
-        RestockIn(counted_qty=float("nan"))
+        CountLineIn(product_id=1, counted_qty=float("nan"))
     with pytest.raises(ValidationError):
-        RestockIn(counted_qty="NaN")  # type: ignore[arg-type]
+        CountLineIn(product_id=1, counted_qty="NaN")  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
-        RestockIn(counted_qty=float("inf"))
+        CountLineIn(product_id=1, counted_qty=float("inf"))
     with pytest.raises(ValidationError):
-        RestockIn(counted_qty=-1)
+        CountLineIn(product_id=1, counted_qty=-1)
     with pytest.raises(ValidationError):
-        RestockIn(counted_qty=100_001)
-    assert RestockIn(counted_qty=7).counted_qty == 7
-    assert RestockIn().counted_qty is None  # plain unmark
+        CountLineIn(product_id=1, counted_qty=1_000_001)
+    assert CountLineIn(product_id=1, counted_qty=7).counted_qty == 7
 
 
 def test_writer_rejects_non_finite_quantities(db, settings_env) -> None:

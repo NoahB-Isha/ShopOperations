@@ -14,7 +14,6 @@ from ..db import get_db
 from ..models import (
     ODOO_FOLDED_LOCATION_NAMES,
     OdooLocation,
-    OdooWriteOutcome,
     Product,
     ProductSource,
     ProductTag,
@@ -30,7 +29,6 @@ from ..models import (
 from ..odoo.connection import get_connection
 from ..odoo.errors import OdooError
 from ..odoo.urls import odoo_record_url
-from ..oos.adjust import AdjustTooLarge, floor_qty_of, reconcile_floor_count
 from ..ratelimit import rate_limit
 from .search import product_search_clause
 
@@ -514,92 +512,6 @@ class ItemLocationsOut(BaseModel):
     locations: list[ItemLocationOut]
     # the four rolled-up numbers the rest of the app shows, for comparison
     buckets: dict[str, float]
-
-
-class FloorCountIn(BaseModel):
-    # A count, not a delta. Bounded and finite: NaN slipped past `<= 0` guards
-    # before (see the security round), and allow_inf_nan=False is the fix.
-    counted_qty: float = Field(ge=0, le=1_000_000, allow_inf_nan=False)
-    note: str = ""
-
-
-class FloorCountOut(BaseModel):
-    product_id: int
-    floor_qty_before: float
-    counted_qty: float
-    delta: float
-    direction: str  # add | reduce | none
-    status: str  # created | simulated | failed | none
-    reference: str
-    picking_name: str
-    url: str
-    error: str
-    note: str
-
-
-@router.post("/{product_id}/floor-count", response_model=FloorCountOut)
-def set_floor_count(
-    product_id: int,
-    body: FloorCountIn,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    authed: AuthedUser = Depends(require_roles(Role.SHOPPE_FLOOR)),
-) -> FloorCountOut:
-    """The Inventory Flow Manager counted the shelf: make Odoo say that.
-
-    Same machinery as the OOS board's "back in stock" (oos/adjust.py) and the
-    same promise — this renders a DRAFT adjustment for a human to validate in
-    Odoo, and the UI shows the link to it. The app never validates stock moves.
-    Counts that match Odoo write nothing at all."""
-    p = db.get(Product, product_id)
-    if p is None:
-        raise HTTPException(404, "Product not found.")
-    if not p.is_stock_tracked or not p.odoo_product_id:
-        raise HTTPException(
-            422, f"'{p.name}' isn't tracked in Odoo, so there's no floor quantity to correct."
-        )
-    before = floor_qty_of(db, product_id)
-    try:
-        outcome = reconcile_floor_count(
-            db, settings, p,
-            floor_qty=before,
-            counted_qty=body.counted_qty,
-            actor_user_id=authed.id,
-            note=(
-                f"Floor count — counted {body.counted_qty:g}, Odoo showed {before:g}"
-                + (f" — {body.note.strip()}" if body.note.strip() else "")
-                + f" — {p.global_sku} {p.name}"
-            ),
-            reference_kind="FLR",
-        )
-    except AdjustTooLarge as e:
-        raise HTTPException(422, str(e)) from e
-    db.commit()
-    delta = round(body.counted_qty - before, 3)
-    if outcome.status == OdooWriteOutcome.CREATED.value:
-        note = (
-            f"Draft {outcome.picking_name} created in Odoo — validate it there and the floor "
-            "figure updates on the next stock sync."
-        )
-    elif outcome.status == OdooWriteOutcome.SIMULATED.value:
-        note = "Simulated — the adjustment feature flag is off, so nothing was written to Odoo."
-    elif outcome.status == OdooWriteOutcome.FAILED.value:
-        note = "Odoo refused the adjustment; nothing changed."
-    else:
-        note = "Odoo already shows that number — nothing to adjust."
-    return FloorCountOut(
-        product_id=p.id,
-        floor_qty_before=before,
-        counted_qty=body.counted_qty,
-        delta=delta,
-        direction=outcome.direction,
-        status=outcome.status,
-        reference=outcome.reference,
-        picking_name=outcome.picking_name,
-        url=outcome.url,
-        error=outcome.error,
-        note=note,
-    )
 
 
 @router.get("/{product_id}/locations", response_model=ItemLocationsOut)

@@ -28,6 +28,7 @@ Rejected counts are neither: a reviewer threw them out and Odoo never heard.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -102,7 +103,7 @@ def recent_counts(
 
 def for_items(
     db: Session,
-    items: list[InventoryCountItem],
+    items: Sequence[InventoryCountItem],
     *,
     now: datetime | None = None,
 ) -> dict[int, RecentCount]:
@@ -238,7 +239,7 @@ def _outranks(candidate: RecentCount, held: RecentCount) -> bool:
     return candidate.counted_at > held.counted_at
 
 
-def _counter_names(db: Session, items: list[InventoryCountItem]) -> dict[int, str]:
+def _counter_names(db: Session, items: Sequence[InventoryCountItem]) -> dict[int, str]:
     ids = {e.counted_by_id for item in items for e in item.entries if e.counted_by_id}
     if not ids:
         return {}

@@ -15,7 +15,6 @@ import {
 } from "../../api/hooks";
 import type { TransferSummaryOut } from "../../api/types";
 import {
-  Badge,
   Button,
   ContextMenu,
   DataTable,
@@ -140,11 +139,6 @@ export function PastTransfersPanel() {
           <TransferStatusChip status={r.status} />
           {r.picking_status !== "created" && r.picking_status !== "none" && (
             <WriteStatusChip status={r.picking_status} />
-          )}
-          {r.open_adjustments > 0 && (
-            <Badge tone="danger" title="Open discrepancies in the adjustments queue">
-              {r.open_adjustments} to review
-            </Badge>
           )}
         </span>
       ),

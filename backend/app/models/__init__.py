@@ -36,10 +36,7 @@ from .notify import (
     NotifyChannelState,
 )
 from .ops import (
-    Adjustment,
-    AdjustmentStatus,
     DiscrepancyReason,
-    FloorOosMark,
     FloorRequest,
     FloorRequestStatus,
     OdooWriteOutcome,
@@ -168,10 +165,7 @@ __all__ = [
     "PurchaseOrderType",
     "Vendor",
     "VendorKind",
-    "Adjustment",
-    "AdjustmentStatus",
     "DiscrepancyReason",
-    "FloorOosMark",
     "OdooWriteOutcome",
     "OrderList",
     "OrderListCenter",

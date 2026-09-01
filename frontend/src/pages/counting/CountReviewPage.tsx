@@ -37,6 +37,9 @@ import {
   useToast,
 } from "../../design";
 import type { BadgeTone } from "../../design";
+import { useAuth } from "../../auth/AuthContext";
+import { SectionTabs } from "../shared/SectionTabs";
+import { countingTabsFor } from "./countingTabs";
 import { usePersistedState } from "../../persist";
 import { OdooLink, fmtQty, fmtWhen, productCode } from "../shared/OpsBits";
 
@@ -411,6 +414,7 @@ function SubmissionRow({
 }
 
 export function CountReviewPage() {
+  const { roles } = useAuth();
   const [tab, setTab] = usePersistedState<"queue" | "submissions">("countReview.tab", "queue");
   const queue = useCountQueue(tab === "queue");
   const counts = useCounts({ openOnly: tab === "submissions" });
@@ -425,6 +429,7 @@ export function CountReviewPage() {
         title="Count review"
         subtitle="Approve a count and it becomes Odoo's number. Recounts come first."
       />
+      <SectionTabs tabs={countingTabsFor(roles)} active="/count-review" />
 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {(

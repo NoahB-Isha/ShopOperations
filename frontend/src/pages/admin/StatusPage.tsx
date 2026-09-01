@@ -321,7 +321,7 @@ function ResetFlowCard() {
       <p className="mb-3 text-[13px] leading-5 text-ink-faint">
         Clears the testing rubble so the real process starts from a known point: every transfer
         request older than {KEEP_HOURS}h and <b>all</b> pallet records go, along with their
-        events and adjustments. Anything requested in the last {KEEP_HOURS}h is kept. The app
+        events. Anything requested in the last {KEEP_HOURS}h is kept. The app
         removes only its <b>own still-draft</b> pickings from Odoo — validated ones, and anything
         a human made, are listed for you instead. The next pallet validated in Odoo is the first
         one the app will see.

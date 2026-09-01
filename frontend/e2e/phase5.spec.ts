@@ -69,20 +69,26 @@ test("sales dashboard: highlights, generated narrative, chart+table, drill-down,
   await expect(page.getByText("Last 12 months", { exact: false }).first()).toBeVisible();
 });
 
-test("out-of-stock scopes: floor board + everywhere/warehouse snapshot lists", async ({ page }) => {
+test("stock status: read-only OOS scopes + the Coming soon tab", async ({ page }) => {
   await login(page, "floor@demo.ishalife.test");
   await page.goto("/out-of-stock");
 
-  // floor roles land on the actionable board (mark button present)
+  // floor roles land on their own scope; the board is READ-ONLY — marking
+  // left the app 2026-08-24 (counting owns counted numbers now)
   await expect(page.getByTestId("scope-floor")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Mark item out of stock" })).toBeVisible();
-
-  // the merged Availability scopes: read-only snapshot lists, no mark button
-  await page.getByTestId("scope-org").click();
-  await expect(page.getByText(/Fully out everywhere/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Mark item out of stock" })).toHaveCount(0);
+
+  // the merged Availability scopes stay reachable (never-stocked peek shows
+  // only off the floor board)
+  await page.getByTestId("scope-org").click();
+  await expect(page.getByRole("button", { name: "Include never-stocked" })).toBeVisible();
   await page.getByTestId("scope-bwhse").click();
-  await expect(page.getByText(/Nothing left at the warehouse/)).toBeVisible();
+  await expect(page.getByTestId("scope-bwhse")).toHaveAttribute("aria-selected", "true");
+
+  // one Stock status destination: the Coming soon tab rides the same shell
+  await page.getByRole("button", { name: "Coming soon" }).click();
+  await expect(page).toHaveURL(/\/coming-soon/);
+  await expect(page.getByLabel("Search items on the way")).toBeVisible();
 });
 
 test("warehouse incoming: pending inbound shipments from the snapshot", async ({ page }) => {

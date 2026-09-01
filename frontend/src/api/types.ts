@@ -400,30 +400,9 @@ export interface TransferSummaryOut {
   updated_at: string;
   line_count: number;
   total_requested: number;
-  open_adjustments: number;
   picking_status: OdooOutcome;
   count_status: OdooOutcome;
   delivery: DeliveryRefOut | null;
-}
-
-export interface AdjustmentOut {
-  id: number;
-  request_id: number | null;
-  delivery_id: number | null;
-  delivery_name: string;
-  product_id: number;
-  sku: string;
-  barcode: string;
-  name: string;
-  qty_expected: number;
-  qty_counted: number;
-  delta: number;
-  status: "open" | "resolved" | "dismissed";
-  note: string;
-  resolution_note: string;
-  resolved_by: string;
-  created_at: string;
-  resolved_at: string | null;
 }
 
 export interface RestockFloorItem {
@@ -848,22 +827,6 @@ export interface Staging2Out {
   pallets: PalletOut[];
 }
 
-export interface OosMarkOut {
-  id: number;
-  note: string;
-  created_by: string;
-  created_at: string;
-  qty_removed: number;
-  picking: {
-    status: "none" | "created" | "simulated" | "failed";
-    reference: string;
-    error: string;
-    picking_id: number | null;
-    picking_name: string;
-    url: string;
-  };
-}
-
 export interface OosItemOut {
   product_id: number;
   sku: string;
@@ -873,7 +836,6 @@ export interface OosItemOut {
   floor_qty: number;
   bwhse_qty: number;
   incoming_label: string;
-  mark: OosMarkOut | null;
 }
 
 // ------------------------------------------------------- purchasing (phase 4)
@@ -1196,10 +1158,6 @@ export interface QaOut {
   generated_at: string;
 }
 
-/* The time-machine PAGE was removed (2026-08-11). Its endpoints stay live —
-   the response shapes live in the backend schemas and in git history; there
-   is no frontend consumer to type any more. */
-
 // ------------------------------------------------ phase 5: availability
 export interface AvailabilityItemOut {
   product_id: number;
@@ -1298,7 +1256,6 @@ export interface ResetFlowOut {
   requests_kept: number;
   pallets_cleared: number;
   events_cleared: number;
-  adjustments_cleared: number;
   drafts_removed: string[];
   already_gone: string[];
   leftovers: {
@@ -1330,20 +1287,6 @@ export interface ItemLocations {
   total: number;
   locations: ItemLocation[];
   buckets: Record<string, number>;
-}
-
-export interface FloorCountOut {
-  product_id: number;
-  floor_qty_before: number;
-  counted_qty: number;
-  delta: number;
-  direction: "add" | "reduce" | "none";
-  status: "created" | "simulated" | "failed" | "none";
-  reference: string;
-  picking_name: string;
-  url: string;
-  error: string;
-  note: string;
 }
 
 // ---------------------------------------------------------- inventory counting

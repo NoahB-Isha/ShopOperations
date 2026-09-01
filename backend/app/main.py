@@ -28,8 +28,6 @@ from .orders.router import router as orders_router
 from .reporting.router import router as reports_router
 from .restock.router import router as restock_router
 from .security_headers import SecurityHeadersMiddleware
-from .timemachine.router import router as timemachine_router
-from .transfers.router import adjustments_router
 from .transfers.router import router as transfers_router
 
 
@@ -74,11 +72,9 @@ def create_app() -> FastAPI:
         oos_router,
         notices_router,
         transfers_router,
-        adjustments_router,
         counting_router,
         availability_router,
         bot_router,
-        timemachine_router,
         reports_router,
         admin_users_router,
         admin_system_router,

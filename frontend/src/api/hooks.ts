@@ -1,7 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiDownload, apiUpload } from "./client";
 import type {
-  AdjustmentOut,
   AuditRow,
   BlacklistSweepOut,
   CanaryResult,
@@ -381,7 +380,6 @@ function useTransferMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transfer-requests"] });
       qc.invalidateQueries({ queryKey: ["transfer-request"] });
-      qc.invalidateQueries({ queryKey: ["adjustments"] });
     },
   });
 }
@@ -402,26 +400,6 @@ export function useTransferAction(
       body: { note: note ?? "" },
     }),
   );
-}
-
-export function useAdjustments(status = "open") {
-  return useQuery({
-    queryKey: ["adjustments", status],
-    queryFn: () => api<AdjustmentOut[]>("/adjustments", { params: { status } }),
-    refetchInterval: 15_000,
-  });
-}
-
-export function useResolveAdjustment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, action, note }: { id: number; action: "resolved" | "dismissed"; note?: string }) =>
-      api<AdjustmentOut>(`/adjustments/${id}/resolve`, {
-        method: "POST",
-        body: { action, note: note ?? "" },
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adjustments"] }),
-  });
 }
 
 // ------------------------------------------------------------------ restock
@@ -567,7 +545,6 @@ import type {
   CountLocationsOut,
   CountOut,
   CountSummaryOut,
-  FloorCountOut,
   ItemLocations,
   OrderingCoverageOut,
   ReleaseStaleOut,
@@ -773,48 +750,6 @@ export function useOosList() {
     queryKey: ["oos"],
     queryFn: () => api<import("./types").OosItemOut[]>("/oos"),
     refetchInterval: 15_000,
-  });
-}
-
-export function useMarkOos() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { product_id: number; note?: string }) =>
-      api<import("./types").OosItemOut>("/oos", { method: "POST", body }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["oos"] }),
-  });
-}
-
-export function useUnmarkOos() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (markId: number) => api<void>(`/oos/${markId}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["oos"] }),
-  });
-}
-
-export interface OosRestockResult {
-  floor_qty_before: number;
-  adjustment: {
-    direction: "add" | "reduce";
-    qty: number;
-    status: "created" | "simulated" | "failed";
-    reference: string;
-    picking_name: string;
-    url: string;
-    error: string;
-  } | null;
-}
-
-export function useRestockOosMark() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ markId, counted_qty }: { markId: number; counted_qty: number | null }) =>
-      api<OosRestockResult>(`/oos/${markId}/restock`, {
-        method: "POST",
-        body: { counted_qty },
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["oos"] }),
   });
 }
 
@@ -1191,10 +1126,6 @@ export function useAskQuestion() {
   });
 }
 
-/* The time-machine PAGE was removed (2026-08-11) — its /time-machine and
-   /admin/time-machine/backfill endpoints stay live for the API, so the
-   hooks that drove the page live on in git history, not here. */
-
 // ---------------------------------------------- phase 5: availability
 export function useAvailabilityMeta() {
   return useQuery({
@@ -1294,7 +1225,6 @@ export function useResetTransferFlow() {
       qc.invalidateQueries({ queryKey: ["transfer-requests"] });
       qc.invalidateQueries({ queryKey: ["deliveries"] });
       qc.invalidateQueries({ queryKey: ["staging2"] });
-      qc.invalidateQueries({ queryKey: ["adjustments"] });
     },
   });
 }
@@ -1311,23 +1241,6 @@ export function useItemLocations(productId: number | null) {
   });
 }
 
-/** The floor counted a shelf: reconcile Odoo to it (draft only). */
-export function useSetFloorCount() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (v: { productId: number; counted_qty: number; note?: string }) =>
-      api<FloorCountOut>(`/products/${v.productId}/floor-count`, {
-        method: "POST",
-        body: { counted_qty: v.counted_qty, note: v.note ?? "" },
-      }),
-    onSuccess: (_out, v) => {
-      qc.invalidateQueries({ queryKey: ["item-locations", v.productId] });
-      qc.invalidateQueries({ queryKey: ["products"] });
-      qc.invalidateQueries({ queryKey: ["restock"] });
-      qc.invalidateQueries({ queryKey: ["oos"] });
-    },
-  });
-}
 
 // ------------------------------------------------------ inventory counting
 export function useCountLocations() {

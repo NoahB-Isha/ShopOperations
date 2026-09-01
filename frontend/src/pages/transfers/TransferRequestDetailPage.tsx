@@ -585,8 +585,8 @@ function ReceiptSummary({ lines }: { lines: TransferLineOut[] }) {
         </div>
       )}
       <span className="text-[12.5px] leading-5 text-on-surface-variant">
-        Both directions are filed in the adjustments queue for the warehouse to reconcile.
-        Staging holds whatever the counts didn't account for.
+        Both directions are recorded on this request's history; the validated count picking in
+        Odoo carries the numbers. Staging holds whatever the counts didn't account for.
       </span>
     </Card>
   );

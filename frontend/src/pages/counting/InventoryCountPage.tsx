@@ -19,6 +19,8 @@ import {
 } from "../../api/hooks";
 import type { CountItemOut, RecentCountOut } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
+import { SectionTabs } from "../shared/SectionTabs";
+import { countingTabsFor } from "./countingTabs";
 import {
   Badge,
   Button,
@@ -321,6 +323,7 @@ export function InventoryCountPage() {
         title="Inventory counting"
         subtitle="Count what's on the shelf, submit it for review. Approved counts become Odoo's number."
       />
+      <SectionTabs tabs={countingTabsFor(roles)} active="/inventory-count" />
 
       {(recounts.data ?? []).length > 0 && (
         <Card className="mb-4">
