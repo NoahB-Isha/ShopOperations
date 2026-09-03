@@ -23,6 +23,11 @@ class UserOut(BaseModel):
     email: str | None
     phone: str | None
     display_name: str
+    # the picked profile art (avatars.tsx owns the icon ids) — empty until chosen
+    avatar_icon: str = ""
+    avatar_color: str = ""
+    # true until the person has been through the first-login setup (save OR skip)
+    needs_profile_setup: bool = False
     is_active: bool
     roles: list[RoleOut]
 
@@ -33,6 +38,9 @@ def user_out(user: User) -> UserOut:
         email=user.email,
         phone=user.phone,
         display_name=user.display_name,
+        avatar_icon=user.avatar_icon or "",
+        avatar_color=user.avatar_color or "",
+        needs_profile_setup=user.profile_setup_at is None,
         is_active=user.is_active,
         roles=[
             RoleOut(

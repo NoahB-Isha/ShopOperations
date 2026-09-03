@@ -176,3 +176,49 @@ def test_verify_supabase_token_both_signing_schemes(monkeypatch):
     with pytest.raises(AuthError) as exc:
         verify_supabase_token(none_tok, settings)
     assert "unsupported alg" in str(exc.value)
+
+
+def test_profile_setup_is_self_service_and_shows_once(client, db):
+    """PATCH /auth/me: the person's own name + avatar, and ANY call (even the
+    'maybe later' empty one) stamps profile_setup_at so the first-login setup
+    appears exactly once. Roles and identifiers stay admin-managed."""
+    mk_user(db, "floor@test.local", (Role.SHOPPE_FLOOR, None, None))
+    headers = login(client, "floor@test.local")
+
+    # fresh user: the setup is owed
+    assert client.get("/api/v1/auth/me", headers=headers).json()["needs_profile_setup"] is True
+
+    r = client.patch(
+        "/api/v1/auth/me",
+        json={"display_name": "  Anandi  ", "avatar_icon": "lotus", "avatar_color": "#a91226"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["display_name"] == "Anandi"  # stripped
+    assert body["avatar_icon"] == "lotus" and body["avatar_color"] == "#a91226"
+    assert body["needs_profile_setup"] is False
+
+    # bounds: empty name refused, icon charset and color shape enforced
+    assert client.patch(
+        "/api/v1/auth/me", json={"display_name": "   "}, headers=headers
+    ).status_code == 422
+    assert client.patch(
+        "/api/v1/auth/me", json={"avatar_icon": "Nope Icon!"}, headers=headers
+    ).status_code == 422
+    assert client.patch(
+        "/api/v1/auth/me", json={"avatar_color": "red"}, headers=headers
+    ).status_code == 422
+
+    # a failed validation changed nothing
+    body = client.get("/api/v1/auth/me", headers=headers).json()
+    assert body["display_name"] == "Anandi" and body["avatar_icon"] == "lotus"
+
+
+def test_profile_skip_still_counts_as_seen(client, db):
+    mk_user(db, "shy@test.local", (Role.SHOPPE_FLOOR, None, None))
+    headers = login(client, "shy@test.local")
+    r = client.patch("/api/v1/auth/me", json={}, headers=headers)  # "maybe later"
+    assert r.status_code == 200
+    assert r.json()["needs_profile_setup"] is False
+    assert r.json()["avatar_icon"] == ""  # nothing was chosen, nothing invented

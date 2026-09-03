@@ -10,7 +10,8 @@ import { Link } from "react-router-dom";
 import { useBlacklistSweep, usePatchProduct, useProducts } from "../api/hooks";
 import type { BlacklistSweepOut, ProductOut } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Toggle, useToast } from "../design";
+import { ProfileSetupDialog } from "../auth/ProfileSetupDialog";
+import { AvatarDisc, Badge, Button, Card, Dialog, EmptyState, Input, PageHeader, Spinner, Toggle, useToast } from "../design";
 import { Icons } from "../nav";
 import {
   PALETTES,
@@ -130,26 +131,41 @@ function AppearanceCard() {
 function AccountCard() {
   const { user, roles } = useAuth();
   const s = useSillyLabel();
+  const [editOpen, setEditOpen] = useState(false);
   return (
     <Card>
       <h2 className="display mb-1 text-[16px]">{s("Account")}</h2>
-      <div className="flex flex-col gap-1.5 text-[13.5px]">
-        <div>
-          <span className="text-on-surface-variant">Signed in as </span>
-          <span className="font-semibold">{user?.display_name || user?.email}</span>
-          {user?.display_name && user?.email && (
-            <span className="text-on-surface-variant"> · {user.email}</span>
-          )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <AvatarDisc
+            icon={user?.avatar_icon}
+            color={user?.avatar_color}
+            name={user?.display_name || user?.email || "?"}
+            size={44}
+          />
+          <div className="flex min-w-0 flex-col gap-1.5 text-[13.5px]">
+            <div className="min-w-0">
+              <span className="text-on-surface-variant">Signed in as </span>
+              <span className="font-semibold">{user?.display_name || user?.email}</span>
+              {user?.display_name && user?.email && (
+                <span className="text-on-surface-variant"> · {user.email}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-on-surface-variant">Roles:</span>
+              {[...roles].map((r) => (
+                <Badge key={r} tone={r === "admin" ? "copper" : "neutral"}>
+                  {r.replace(/_/g, " ")}
+                </Badge>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-on-surface-variant">Roles:</span>
-          {[...roles].map((r) => (
-            <Badge key={r} tone={r === "admin" ? "copper" : "neutral"}>
-              {r.replace(/_/g, " ")}
-            </Badge>
-          ))}
-        </div>
+        <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+          Edit profile…
+        </Button>
       </div>
+      <ProfileSetupDialog open={editOpen} onClose={() => setEditOpen(false)} />
     </Card>
   );
 }

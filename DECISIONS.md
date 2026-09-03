@@ -63,6 +63,27 @@ it painful.
 
 ## Build decisions
 
+**2026-09-01 — Profile personalization: a name, an avatar, once**
+Gamification round 2, Noah's shape: first sign-in offers a chance to set your name and
+pick a fun avatar (icon + color). The decisions that carry weight: **the backend
+stores, the frontend owns the art** — avatar_icon/avatar_color are bounds-checked
+strings, `avatars.tsx` is the one registry, so adding art is a frontend-only change
+and a retired id degrades to the initial disc instead of erroring. **"Seen once" is a
+server fact** (`profile_setup_at`, stamped by ANY self-PATCH including the skip) —
+localStorage would re-nag every device. **`PATCH /auth/me` is deliberately narrow**:
+name and avatar only; roles, identifiers and activation stay admin-managed, so
+self-service can't become privilege drift. Existing users all have the stamp NULL,
+which means the whole team gets the dialog once after deploy — that's the rollout,
+not a bug. The art went through an honest correction: a first batch of thirteen
+hand-drawn companions (sun/moon/flowers/monkey/diya/…) rendered amateurish next to
+real artwork and Noah cut it — "stick with 4, made by a human." The shipped set is
+his own Devi figure (filled paths, viewBox fitted from a measured getBBox — the
+guessed box cropped it) plus three Lucide icons kept verbatim (flower, sun-moon,
+bird; ISC license, stroke-drawn — the registry carries a `stroke` flag so both art
+styles render correctly). Lesson recorded: source icon art from human-made open sets;
+don't freehand path data. Gold discs still flip the glyph dark (the Turmeric rule,
+computed from luminance).
+
 **2026-09-01 — The Devi palette, and the one exception to the locked brand orange**
 A fourth light palette after the Linga Bhairavi imagery Noah supplied (kumkum reds,
 temple gold, lamp-lit creams, the sanctum's dark maroon). The first draft kept the

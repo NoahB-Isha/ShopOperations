@@ -14,6 +14,11 @@ export interface UserOut {
   email: string | null;
   phone: string | null;
   display_name: string;
+  /** picked profile art (avatars.tsx owns the ids) — "" until chosen */
+  avatar_icon: string;
+  avatar_color: string;
+  /** true until the person has seen the first-login setup (save or skip) */
+  needs_profile_setup: boolean;
   is_active: boolean;
   roles: RoleOut[];
 }

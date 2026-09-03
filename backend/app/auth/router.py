@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
@@ -151,6 +151,40 @@ def exchange(
 @router.get("/me", response_model=UserOut)
 def me(authed: AuthedUser = Depends(get_current_user)) -> UserOut:
     return user_out(authed.user)
+
+
+class MeUpdateIn(BaseModel):
+    # None = leave alone. display_name must survive a strip() non-empty; the
+    # avatar fields accept "" to clear. Icon ids are frontend art names
+    # (avatars.tsx owns the set) — the backend only bounds their shape.
+    display_name: str | None = Field(default=None, max_length=160)
+    avatar_icon: str | None = Field(default=None, max_length=40, pattern=r"^[a-z0-9-]*$")
+    avatar_color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(
+    body: MeUpdateIn,
+    db: Session = Depends(get_db),
+    authed: AuthedUser = Depends(get_current_user),
+) -> UserOut:
+    """Self-service profile: the person's own name and avatar, nothing else —
+    roles, contact identifiers and activation stay admin-managed. ANY call,
+    even an empty one (the "maybe later" button), records that the first-login
+    setup has been seen, so it appears exactly once."""
+    user = authed.user
+    if body.display_name is not None:
+        name = body.display_name.strip()
+        if not name:
+            raise HTTPException(422, "The name can't be empty.")
+        user.display_name = name
+    if body.avatar_icon is not None:
+        user.avatar_icon = body.avatar_icon
+    if body.avatar_color is not None:
+        user.avatar_color = body.avatar_color
+    user.profile_setup_at = user.profile_setup_at or utcnow()
+    db.commit()
+    return user_out(user)
 
 
 @router.post("/logout-everywhere", status_code=204)

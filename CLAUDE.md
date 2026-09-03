@@ -829,6 +829,14 @@ Full rationale in DECISIONS.md (2026-08-05 remediation). The posture:
 - Sessions revoke via `users.token_epoch` (in the token, compared in
   `get_current_user`; bumped by `POST /auth/logout-everywhere`, role change,
   deactivation).
+- **`PATCH /auth/me` is the ONE self-service door** (2026-09-01): own
+  display_name + avatar (icon id + color — bounds-checked strings the backend
+  stores but never interprets; `frontend/src/avatars.tsx` is the registry).
+  Roles, identifiers and activation stay admin-managed. ANY call — including
+  the empty "Maybe later" — stamps `profile_setup_at` (first stamp wins),
+  which drives `UserOut.needs_profile_setup`: the first-login setup shows
+  exactly once, and every EXISTING user gets it once after the deploy (that IS
+  the rollout; migration `c4a8e19f6d27`).
 - Output encoding: `ordering/export._safe_cell` neutralizes formula-leading TEXT
   cells only (numbers keep native types — the files are emailed to Coimbatore, and
   openpyxl turns a leading `=` into a real formula cell); `app/downloads.py` is
@@ -928,6 +936,18 @@ items need a silly name too. Dynamic strings pass through untouched.
   focuses a throwaway 16px input synchronously (16px or iOS zooms instead)
   and the real box takes over on mount; already-on-catalog taps focus the box
   directly.
+- **Profile personalization** (2026-09-01): `auth/ProfileSetupDialog` mounts
+  in AppShell whenever `user.needs_profile_setup` — name + avatar picker +
+  color swatches; save or "Maybe later" both PATCH /auth/me (which clears the
+  flag server-side). Settings→Account reopens the same dialog ("Edit
+  profile…"). `src/avatars.tsx` is the DATA-ONLY registry — a small CURATED
+  set (Noah, 2026-09-01: human-made art only; a 15-icon hand-drawn batch was
+  rejected): his "devi" artwork (filled, getBBox-fitted viewBox) + three
+  Lucide icons (flower, sun-moon, bird — ISC, kept verbatim; `stroke: true`
+  renders them stroke-drawn) + `AVATAR_COLORS`. `design/AvatarDisc` renders
+  disc+glyph (a light hue like gold flips the glyph dark via `glyphColorFor`);
+  a retired icon id degrades to the initial disc. The top-bar chip renders
+  the avatar, initial-on-tertiary until one is picked.
 - Settings is the admin surface (account → appearance → Admin pages card linking
   Users + **Dev Tools** — the old Status page — + styleguide/palette-lab); those
   left the main nav. The audit log is a Dev Tools button. On phones the inbox

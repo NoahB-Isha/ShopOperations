@@ -173,6 +173,14 @@ class User(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), unique=True)  # stored lowercased
     phone: Mapped[str | None] = mapped_column(String(40), unique=True)  # normalized +1…
     display_name: Mapped[str] = mapped_column(String(160), default="")
+    # Profile personalization (2026-09-01): a fun avatar picked at first
+    # sign-in. Icon ids name frontend art (avatars.tsx owns the set — the
+    # backend stores, never interprets); color is one of the picker's hexes.
+    # profile_setup_at records that the person has SEEN the first-login setup
+    # (saved or skipped), so it appears exactly once.
+    avatar_icon: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    avatar_color: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    profile_setup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auth_uid: Mapped[str | None] = mapped_column(String(64), unique=True)  # Supabase user id
     invited_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

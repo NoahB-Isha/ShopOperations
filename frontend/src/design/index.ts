@@ -1,3 +1,4 @@
+export { AvatarDisc } from "./AvatarDisc";
 export { Badge, StatusDot, toneForLabel } from "./Badge";
 export type { BadgeTone } from "./Badge";
 export { ContextMenu, isInteractiveTarget, useContextMenu, useRowSelection } from "./ContextMenu";

@@ -12,6 +12,8 @@ interface AuthState {
   isDepartments: boolean;
   signIn: (token: string, user: UserOut) => void;
   signOut: () => void;
+  /** push a fresh /auth/me shape into context (profile edits) */
+  updateUser: (user: UserOut) => void;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthState>({
   isDepartments: false,
   signIn: () => {},
   signOut: () => {},
+  updateUser: () => {},
 });
 
 function departmentsWording(roles: { role: string; zone_kind?: string | null }[]): boolean {
@@ -64,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
         setUser(null);
       },
+      updateUser: setUser,
     }),
     [user, loading],
   );

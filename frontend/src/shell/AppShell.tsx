@@ -5,10 +5,11 @@ import { useAuth } from "../auth/AuthContext";
 import { useFloorRequests, useHealth } from "../api/hooks";
 import { Icons, navForRoles } from "../nav";
 import type { NavItem } from "../nav";
-import { StatusDot } from "../design";
+import { AvatarDisc, StatusDot } from "../design";
 import { ScanButton, ScanSheetLazy } from "../scan/ScanButton";
 import { useSillyLabel } from "../silly";
 import { InboxMenu } from "./InboxMenu";
+import { ProfileSetupDialog } from "../auth/ProfileSetupDialog";
 import { TransferDraftBubble } from "./TransferDraftBubble";
 
 /** The Isha Life "iL" emblem — the provided brand PNG, served from /public
@@ -441,6 +442,11 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
 
   return (
     <div ref={rootRef} className="min-h-dvh md:grid md:grid-cols-[248px_1fr]">
+      {/* first sign-in: name + avatar, shown exactly once (any save or the
+          skip stamps profile_setup_at, which flips needs_profile_setup and
+          closes this). Settings reopens the same dialog for later edits. */}
+      <ProfileSetupDialog open={!!user?.needs_profile_setup} firstRun onClose={() => {}} />
+
       {/* desktop: standard navigation drawer */}
       <aside className="hidden bg-surface-container-low px-3 py-6 md:block">
         <Brand />
@@ -489,10 +495,12 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
               <SettingsButton />
             </div>
             <div className="flex items-center gap-2.5">
-              <span className="grid h-8 w-8 place-items-center rounded-full bg-tertiary-container
-                text-[12.5px] font-bold text-on-tertiary-container">
-                {(user?.display_name || user?.email || "?").slice(0, 1).toUpperCase()}
-              </span>
+              <AvatarDisc
+                icon={user?.avatar_icon}
+                color={user?.avatar_color}
+                name={user?.display_name || user?.email || "?"}
+                size={32}
+              />
               <span className="max-w-40 truncate text-[13px] text-on-surface-variant">
                 {user?.display_name || user?.email}
               </span>
