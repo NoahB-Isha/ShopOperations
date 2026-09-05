@@ -1032,3 +1032,141 @@ def test_the_customer_location_is_what_makes_it_a_sale(client, db, live_env, mon
     )
     assert r.status_code == 422
     assert "III/IAM/09999" in r.json()["detail"]
+
+
+# ---------------------------------------- bulk approval writes ONE per direction
+def test_approve_all_sums_the_submission_into_one_picking_per_direction(
+    client, db, live_env, monkeypatch
+):
+    """One "Approve all" = at most TWO adjustment pickings (Noah, 2026-09-05):
+    every increase rides one addition and every decrease one reduction — never
+    a picking per item. Items that match Odoo still write nothing."""
+    sim = _live_env(db, live_env, monkeypatch)
+    _people(db)
+    flow = login(client, "flow@test.io")
+    floor = login(client, "floorteam@test.io")
+    products = {
+        p.odoo_product_id: p
+        for p in db.scalars(
+            sa_select(Product).where(Product.odoo_product_id.in_([201, 202, 203, 204]))
+        )
+    }
+    up_a, up_b, down, same = products[203], products[202], products[201], products[204]
+    all_ids = [p.id for p in products.values()]
+    qtys = client.post(
+        "/api/v1/counts/stock-at",
+        json={"location_key": "floor", "product_ids": all_ids},
+        headers=floor,
+    ).json()["quantities"]
+
+    count = client.post(
+        "/api/v1/counts",
+        json={
+            "location_key": "floor",
+            "items": [
+                {"product_id": up_a.id, "counted_qty": qtys[str(up_a.id)] + 5},
+                {"product_id": up_b.id, "counted_qty": qtys[str(up_b.id)] + 2},
+                {"product_id": down.id, "counted_qty": qtys[str(down.id)] - 3},
+                {"product_id": same.id, "counted_qty": qtys[str(same.id)]},
+            ],
+        },
+        headers=floor,
+    ).json()
+
+    before = {
+        p["id"]
+        for p in sim.search_read("stock.picking", [], ["id", "origin"])
+        if str(p.get("origin") or "").startswith("ILAPP-CNT-")
+    }
+    r = client.post(f"/api/v1/counts/{count['id']}/approve", json={}, headers=flow)
+    assert r.status_code == 200, r.text
+    by_product = {i["product_id"]: i for i in r.json()["items"]}
+
+    # both increases ride ONE picking; the decrease rides the OTHER
+    assert by_product[up_a.id]["picking_name"] == by_product[up_b.id]["picking_name"]
+    assert by_product[down.id]["picking_name"] != by_product[up_a.id]["picking_name"]
+    assert by_product[same.id]["picking_status"] == "none"  # nothing to adjust
+    for pid in (up_a.id, up_b.id, down.id):
+        assert by_product[pid]["status"] == "approved"
+        assert by_product[pid]["picking_status"] == "validated"
+
+    created = [
+        p
+        for p in sim.search_read("stock.picking", [], ["id", "origin", "state"])
+        if str(p.get("origin") or "").startswith("ILAPP-CNT-") and p["id"] not in before
+    ]
+    assert len(created) == 2, "one addition + one reduction, never one per item"
+    assert all(p["state"] == "done" for p in created)
+    lines_per_picking = sorted(
+        len(sim.search_read("stock.move", [["picking_id", "=", p["id"]]], ["id"]))
+        for p in created
+    )
+    assert lines_per_picking == [1, 2]  # the summed addition carries both items
+
+    # and the stock landed exactly on the counted numbers
+    after = client.post(
+        "/api/v1/counts/stock-at",
+        json={"location_key": "floor", "product_ids": all_ids},
+        headers=floor,
+    ).json()["quantities"]
+    assert after[str(up_a.id)] == qtys[str(up_a.id)] + 5
+    assert after[str(up_b.id)] == qtys[str(up_b.id)] + 2
+    assert after[str(down.id)] == qtys[str(down.id)] - 3
+
+    # the submission's own history says where everything landed
+    notes = [e["note"] for e in r.json()["events"]]
+    assert any("adding 7 across 2 item(s)" in n for n in notes), notes
+    assert any("removing 3 across 1 item(s)" in n for n in notes), notes
+
+
+def test_a_failed_batch_post_keeps_every_approval_and_the_shared_draft(
+    client, db, live_env, monkeypatch
+):
+    """The batch edition of "an approval is a DECISION": Odoo refusing to post
+    the summed picking leaves every item approved, riding the same draft, each
+    carrying the reason."""
+    from app.odoo.writer import OdooWriter
+
+    sim = _live_env(db, live_env, monkeypatch)
+
+    def boom(self, **kwargs):
+        raise OdooWriteError("Odoo said no")
+
+    monkeypatch.setattr(OdooWriter, "validate_adjustment", boom)
+    _people(db)
+    flow = login(client, "flow@test.io")
+    floor = login(client, "floorteam@test.io")
+    products = db.scalars(
+        sa_select(Product).where(Product.odoo_product_id.in_([202, 203]))
+    ).all()
+    ids = [p.id for p in products]
+    qtys = client.post(
+        "/api/v1/counts/stock-at",
+        json={"location_key": "floor", "product_ids": ids},
+        headers=floor,
+    ).json()["quantities"]
+
+    count = client.post(
+        "/api/v1/counts",
+        json={
+            "location_key": "floor",
+            "items": [
+                {"product_id": pid, "counted_qty": qtys[str(pid)] + 2} for pid in ids
+            ],
+        },
+        headers=floor,
+    ).json()
+
+    r = client.post(f"/api/v1/counts/{count['id']}/approve", json={}, headers=flow)
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert {i["picking_name"] for i in items} != {""}
+    assert len({i["picking_name"] for i in items}) == 1  # one shared draft
+    for item in items:
+        assert item["status"] == "approved"  # the decisions survive
+        assert item["picking_status"] == "created"  # the draft stands
+        assert "Odoo said no" in item["picking_error"]  # each row says why
+    state = sim.search_read(
+        "stock.picking", [["name", "=", items[0]["picking_name"]]], ["state"]
+    )
+    assert state and state[0]["state"] == "draft"

@@ -434,25 +434,24 @@ class OdooWriter:
     def create_inventory_reduction(
         self,
         *,
-        product_id: int,
-        qty: float,
+        lines: list[dict],
         note: str = "",
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,
         location_odoo_id: int | None = None,
     ) -> WriteResult:
-        """Create a DRAFT picking on the inventory-reduction operation type
-        ("USA-III: Inventory Adj Reduction") removing `qty` of one product
-        from the floor — the floor team's 'this shelf is actually empty' data
-        cleanup. Draft only; a human confirms it in Odoo."""
+        """Create ONE draft picking on the inventory-reduction operation type
+        ("USA-III: Inventory Adj Reduction") removing the given quantities
+        from the counted location. `lines` = [{"product_id": <app id>,
+        "qty": n}] — a bulk count approval passes its whole decrease set, so
+        the submission lands as one picking, not one per item."""
         return self._create_adjustment_draft(
             operation="create_inventory_reduction",
             label="reduction",
             type_name=self.settings.odoo_reduction_picking_type,
-            need="dest",  # floor → the type's default destination (loss)
-            product_id=product_id,
-            qty=qty,
+            need="dest",  # counted location → the type's default destination (loss)
+            lines=lines,
             note=note,
             reference=reference,
             dry_run=dry_run,
@@ -463,25 +462,23 @@ class OdooWriter:
     def create_inventory_addition(
         self,
         *,
-        product_id: int,
-        qty: float,
+        lines: list[dict],
         note: str = "",
         reference: str | None = None,
         dry_run: bool = False,
         ignore_feature_flag: bool = False,
         location_odoo_id: int | None = None,
     ) -> WriteResult:
-        """Create a DRAFT picking on the inventory-addition operation type
-        ("USA-III: Inventory Adj  Adding Qty") putting `qty` of one product
-        ONTO the floor — the back-in-stock counterpart of the reduction.
-        Draft only; a human confirms it in Odoo."""
+        """Create ONE draft picking on the inventory-addition operation type
+        ("USA-III: Inventory Adj  Adding Qty") putting the given quantities
+        ONTO the counted location — the counterpart of the reduction, same
+        `lines` shape."""
         return self._create_adjustment_draft(
             operation="create_inventory_addition",
             label="addition",
             type_name=self.settings.odoo_addition_picking_type,
-            need="src",  # the type's default source (loss) → floor
-            product_id=product_id,
-            qty=qty,
+            need="src",  # the type's default source (loss) → counted location
+            lines=lines,
             note=note,
             reference=reference,
             dry_run=dry_run,
@@ -496,8 +493,7 @@ class OdooWriter:
         label: str,
         type_name: str,
         need: str,
-        product_id: int,
-        qty: float,
+        lines: list[dict],
         note: str,
         reference: str | None,
         dry_run: bool,
@@ -505,32 +501,41 @@ class OdooWriter:
         location_odoo_id: int | None = None,
     ) -> WriteResult:
         """The shared core of both inventory adjustments — identical
-        discipline, opposite directions.
+        discipline, opposite directions. One picking, one direction, any
+        number of lines: a whole count review sums into a single adjustment
+        rather than one per item.
 
         `location_odoo_id` is the shelf being corrected. It defaults to the
-        FLOOR, which is what the OOS board and the floor-count edit mean; the
-        inventory-counting flow passes the counted location explicitly, because
-        a count can be taken in the warehouse or at SHIP (which has no synced
-        location row of its own — see counting/locations.py)."""
+        FLOOR; the inventory-counting flow passes the counted location
+        explicitly, because a count can be taken in the warehouse or at SHIP
+        (which has no synced location row of its own — see
+        counting/locations.py)."""
         started = time.monotonic()
 
-        # NaN fails EVERY comparison, so `qty <= 0` let it through onto a real
-        # adjustment draft; inf would too. Check finiteness first.
-        if not math.isfinite(qty) or not qty > 0:
-            raise WriterValidationError(f"Quantity must be a positive number (got {qty:g}).")
-        product = self.db.get(Product, int(product_id))
-        if product is None:
-            raise WriterValidationError(f"Unknown product id {product_id}.")
-        if not product.is_stock_tracked or not product.odoo_product_id:
-            raise WriterValidationError(
-                f"'{product.name}' is not stock-tracked in Odoo — nothing to adjust."
+        if not lines:
+            raise WriterValidationError(f"An inventory {label} needs at least one line.")
+        adjustment_lines: list[TransferLine] = []
+        for line in lines:
+            qty = float(line.get("qty", 0))
+            # NaN fails EVERY comparison, so `qty <= 0` let it through onto a
+            # real adjustment draft; inf would too. Check finiteness first.
+            if not math.isfinite(qty) or not qty > 0:
+                raise WriterValidationError(f"Quantity must be a positive number (got {qty:g}).")
+            product = self.db.get(Product, int(line.get("product_id", 0)))
+            if product is None:
+                raise WriterValidationError(f"Unknown product id {line.get('product_id')}.")
+            if not product.is_stock_tracked or not product.odoo_product_id:
+                raise WriterValidationError(
+                    f"'{product.name}' is not stock-tracked in Odoo — nothing to adjust."
+                )
+            adjustment_lines.append(
+                TransferLine(
+                    product_odoo_id=product.odoo_product_id,
+                    description=f"{product.global_sku} {product.name}"[:120],
+                    qty=qty,
+                )
             )
         place_id = location_odoo_id or self._resolve_location("floor").odoo_id
-        line = TransferLine(
-            product_odoo_id=product.odoo_product_id,
-            description=f"{product.global_sku} {product.name}"[:120],
-            qty=qty,
-        )
 
         reference = reference or new_reference("OOS")
         reason = self._forced_dry_run_reason(operation, dry_run, ignore_feature_flag)
@@ -546,7 +551,7 @@ class OdooWriter:
             source_location_id=src_id,
             dest_location_id=dest_id,
             reference=reference,
-            line=line,
+            lines=adjustment_lines,
             note=note,
         )
 

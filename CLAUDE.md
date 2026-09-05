@@ -206,8 +206,10 @@ a command. Mailbox access is read-only IMAP scoped to order threads.
 ## Foundation modules (build on, never around)
 
 - `app/odoo/writer.py` — all writes: add new operations to `OPERATION_FLAGS` + a
-  typed method. Qty guards use `math.isfinite` (NaN passed `qty <= 0`).
-  `button_validate` is on the WRITE_METHODS allow-list for `validate_adjustment`.
+  typed method. Qty guards use `math.isfinite` (NaN passed `qty <= 0`). Multi-line
+  ops (internal transfer, both inventory adjustments) take `lines:
+  [{"product_id", "qty"}]` — one picking, N moves. `button_validate` is on the
+  WRITE_METHODS allow-list for `validate_adjustment`.
 - `app/odoo/simulator.py` — extend RELATIONS / ONE2MANY registries for new query
   shapes. It computes `qty_available` from its quant table (any as-of date serves
   current state — documented), returns False-y for absent date fields, and writes
@@ -553,11 +555,19 @@ in DECISIONS.md 2026-08-17).
   time Odoo hiccuped). Bulk approval SKIPS a stale row rather than 422-ing the
   batch, and says so in the submission event.
   `test_two_counts_of_one_shelf_cannot_both_be_applied` reproduces the bug.
-- Applying runs the shared `oos/adjust.reconcile_floor_count` core (one copy of
-  the delta/ceiling/writer dance, `location_odoo_id`-aware — a count can be taken
-  at SHIP or in the warehouse). `apply_to_odoo` catches WriterValidationError and
-  records `picking_status=failed` instead of 422-ing — an approval is a DECISION
-  and must not be lost to an unmapped location or an off flag.
+- **Applying is BATCHED per submission** (`oos/adjust.reconcile_counts` — the ONE
+  copy of the delta/ceiling/writer dance, `location_odoo_id`-aware since a count
+  can be taken at SHIP or in the warehouse): every increase rides ONE addition
+  picking and every decrease ONE reduction picking (Noah, 2026-09-05 — never a
+  picking per item), each posted once; a single-item approval is a batch of one
+  (`service.apply_all_to_odoo`; `apply_to_odoo` delegates). Failure grain follows
+  the picking grain — an over-ceiling line fails alone, a direction Odoo refuses
+  fails together — and failures are RECORDED (`picking_status=failed`, applied_qty
+  left empty: nothing went to Odoo) instead of 422-ing, because an approval is a
+  DECISION and must not be lost to an unmapped location or an off flag. Bulk
+  approval also reads the whole submission's baseline in one `quantities_at` call
+  (per-item reads are the 429 shape).
+  `test_approve_all_sums_the_submission_into_one_picking_per_direction` locks it.
 - **Posting** (`validate_adjustment` — the one exception to draft-only): two
   guards, both load-bearing — the picking's origin must be app-prefixed AND its
   picking TYPE must be one of the two inventory-adjustment types, because

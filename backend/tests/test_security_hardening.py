@@ -146,7 +146,7 @@ def test_writer_rejects_non_finite_quantities(db, settings_env) -> None:
                 lines=[{"product_id": product.id, "qty": bad}],
             )
         with pytest.raises(WriterValidationError):
-            writer.create_inventory_reduction(product_id=product.id, qty=bad)
+            writer.create_inventory_reduction(lines=[{"product_id": product.id, "qty": bad}])
 
 
 # ------------------------------------------------ C-9d bounded workbook read

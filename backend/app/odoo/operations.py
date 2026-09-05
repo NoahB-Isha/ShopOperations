@@ -105,12 +105,13 @@ def build_inventory_adjustment_payload(
     source_location_id: int | None,
     dest_location_id: int | None,
     reference: str,
-    line: TransferLine,
+    lines: list[TransferLine],
     note: str = "",
 ) -> dict:
     """`stock.picking` create-vals for a DRAFT inventory adjustment (either
-    direction: reduction = floor → loss, addition = loss → floor). The app
-    never validates it; a human confirms the real count in Odoo."""
+    direction: reduction = counted location → loss, addition = loss → counted
+    location). One picking can carry a whole submission — a bulk approval sums
+    its items into one adjustment per direction, never one per item."""
     vals: dict = {
         "picking_type_id": picking_type_id,
         "location_id": source_location_id,
@@ -128,6 +129,7 @@ def build_inventory_adjustment_payload(
                     "location_dest_id": dest_location_id,
                 },
             )
+            for line in lines
         ],
     }
     if note:

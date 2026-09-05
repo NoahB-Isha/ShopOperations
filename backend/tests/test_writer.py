@@ -204,7 +204,9 @@ def _ready_adjustment(db, settings, sim, product):
     """An addition draft, as an approved count produces one."""
     writer = OdooWriter(db, settings, conn=sim)
     return writer.create_inventory_addition(
-        product_id=product.id, qty=4, note="counted 4 more", reference="ILAPP-CNT-TEST01"
+        lines=[{"product_id": product.id, "qty": 4}],
+        note="counted 4 more",
+        reference="ILAPP-CNT-TEST01",
     )
 
 

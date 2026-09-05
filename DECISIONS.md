@@ -63,6 +63,27 @@ it painful.
 
 ## Build decisions
 
+**2026-09-05 — Approve-all applies as ONE picking per direction, never per item**
+Noah: bulk count approval must sum its items — one adjustment transfer for the
+increases, one for the decreases, "please don't do item by item adjustments." A
+reviewer's Approve-all is one judgement about one shelf-walk, so Odoo now gets one
+record per direction instead of a picking per item (a 30-item review used to leave
+~30 pickings plus ~30 validate calls — clutter in Odoo and the shape that courts the
+proxy's 429s; the bulk baseline re-read now also reads the whole submission's
+quantities in ONE `quantities_at` call for the same reason). Mechanics: the writer's
+addition/reduction ops take `lines` (same shape as `create_internal_transfer` — same
+operations, same flags, richer payload; multi-line `move_ids` create-vals are the
+shape transfers already write live), `oos/adjust.reconcile_counts` is the one apply
+core (the single-item approval is a batch of one, so `reconcile_floor_count` and the
+long-dead `floor_qty_of` were deleted), and `counting/service.apply_all_to_odoo`
+records each item's own share/status against the shared picking and posts each
+created picking exactly once. Failure grain follows the picking grain: a line that
+can't be phrased (over the delta ceiling) fails alone; a direction Odoo refuses
+fails together — every rider stays APPROVED with the error on it, drafts stand.
+Also fixed while there: a failed write no longer stamps `applied_qty` (it means
+"what went to Odoo", and nothing did).
+`test_approve_all_sums_the_submission_into_one_picking_per_direction` is the control.
+
 **2026-09-01 — Profile personalization: a name, an avatar, once**
 Gamification round 2, Noah's shape: first sign-in offers a chance to set your name and
 pick a fun avatar (icon + color). The decisions that carry weight: **the backend

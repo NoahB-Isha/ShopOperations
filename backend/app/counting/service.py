@@ -1,10 +1,13 @@
 """The Odoo side of counting: applying an approved count.
 
-Approving an item means "make Odoo say what the shelf says". That is the same
-motion as the OOS board's back-in-stock and the floor-count edit, so it runs
-through the same shared core (oos/adjust.reconcile_floor_count) rather than a
-third copy — with one addition: counts happen at a location that isn't always
-the floor, so the adjustment carries the counted location's Odoo id.
+Approving an item means "make Odoo say what the shelf says". Every approval
+runs through the shared core in oos/adjust — with one addition: counts happen
+at a location that isn't always the floor, so the adjustment carries the
+counted location's Odoo id. A whole-submission approval ("Approve all") is
+applied as a BATCH: the increases sum onto one addition picking and the
+decreases onto one reduction picking (Noah, 2026-09-05), each posted once —
+never one picking per item. The single-item approval is the same machinery
+with a batch of one.
 
 Counting is the app's ONE exception to "the app never validates" (Noah,
 2026-08-22): a reviewer has already held the counted number against Odoo's and
@@ -26,6 +29,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..models import (
     CountEventKind,
+    InventoryCountEntry,
     InventoryCountEvent,
     InventoryCountItem,
     OdooWriteOutcome,
@@ -33,7 +37,7 @@ from ..models import (
 )
 from ..odoo.errors import OdooWriteError
 from ..odoo.writer import OdooWriter, WriterValidationError
-from ..oos.adjust import AdjustTooLarge, reconcile_floor_count
+from ..oos.adjust import AdjustResult, CountedLine, reconcile_counts
 from . import ledger, locations, recent
 from .ledger import LedgerRead
 from .locations import CountLocation
@@ -160,6 +164,7 @@ def read_baseline(
     settings: Settings,
     item: InventoryCountItem,
     location: CountLocation,
+    stock: tuple[dict[int, float], str] | None = None,
 ) -> Baseline:
     """Re-read Odoo NOW and hold it against the number frozen at count time.
 
@@ -167,11 +172,15 @@ def read_baseline(
     DIFFERENCE (counted − what Odoo said then), and applying that difference is
     only correct while Odoo still says the same thing. Two counts of one shelf
     both measured against 9; both differences were applied to it; the shelf
-    record ended at 0 on a product counted 3, 6 and 5."""
+    record ended at 0 on a product counted 3, 6 and 5.
+
+    `stock` is a caller's already-done quantities_at read covering this item's
+    product — the bulk approval reads its whole submission in ONE Odoo call
+    (per-item reads are the shape that once tripped Odoo's rate limiter)."""
     entry = item.latest
     captured = float(entry.odoo_qty) if entry else 0.0
     counted = float(entry.counted_qty) if entry else 0.0
-    qtys, source = locations.quantities_at(db, settings, location, [item.product_id])
+    qtys, source = stock or locations.quantities_at(db, settings, location, [item.product_id])
     pending = recent.pending_adjustment(
         db, location.key, item.product_id, exclude_count_id=item.count_id
     )
@@ -200,6 +209,15 @@ def read_baseline(
     )
 
 
+@dataclass
+class AppliedCount:
+    """What a batch apply did: a history sentence per item id, and one line
+    per shared picking for the submission-level event."""
+
+    notes: dict[int, str]
+    pickings: list[str]
+
+
 def apply_to_odoo(
     db: Session,
     settings: Settings,
@@ -208,55 +226,98 @@ def apply_to_odoo(
     actor_user_id: int | None,
     baseline: Baseline | None = None,
 ) -> str:
-    """Render the adjustment that moves this location's quantity to the counted
-    one, and (flag permitting) post it. Returns a sentence for the item's
-    history.
+    """Apply ONE approved item — the batch machinery with a batch of one.
+    Returns a sentence for the item's history."""
+    return apply_all_to_odoo(db, settings, [(item, baseline)], location, actor_user_id).notes[
+        item.id
+    ]
 
-    The count that gets applied is the LAST entry — the recount, when there was
-    one — compared against the Odoo quantity captured with it.
 
-    `baseline` is the caller's already-done re-read (read_baseline). The
-    caller does it BEFORE deciding, because a stale baseline should stop the
-    approval rather than fail after it."""
-    entry = item.latest
-    if entry is None:
-        return "nothing to apply — this item has no count on it"
-    product = item.product
-    if baseline is not None and baseline.settled and baseline.drifted:
-        # Odoo moved, and moved to exactly what was counted. Nothing to write,
-        # and saying so beats a silent no-op.
+def apply_all_to_odoo(
+    db: Session,
+    settings: Settings,
+    approvals: list[tuple[InventoryCountItem, Baseline | None]],
+    location: CountLocation,
+    actor_user_id: int | None,
+) -> AppliedCount:
+    """Render and (flag permitting) post the adjustments for every approved
+    item in ONE pass: the submission's increases sum onto one addition picking
+    and its decreases onto one reduction picking (Noah, 2026-09-05), each
+    validated once — never item-by-item pickings. Per-item guards (the
+    baseline re-read) are the CALLER's job, done before any decision is
+    recorded; per-item outcomes still land on each item.
+
+    The count that gets applied is each item's LAST entry — the recount, when
+    there was one — compared against the Odoo quantity captured with it. A
+    failed write is recorded on the items, never raised: an approval is a
+    DECISION and must not be lost because Odoo can't be written right now."""
+    notes: dict[int, str] = {}
+    to_write: list[tuple[InventoryCountItem, InventoryCountEntry, Baseline | None]] = []
+    for item, baseline in approvals:
+        entry = item.latest
+        if entry is None:
+            notes[item.id] = "nothing to apply — this item has no count on it"
+            continue
+        if baseline is not None and baseline.settled and baseline.drifted:
+            # Odoo moved, and moved to exactly what was counted. Nothing to
+            # write, and saying so beats a silent no-op.
+            item.applied_qty = float(entry.counted_qty)
+            item.picking_status = OdooWriteOutcome.NONE.value
+            notes[item.id] = (
+                f"Odoo already shows {entry.counted_qty:g} at {location.key} "
+                f"(it was {baseline.captured:g} when counted) — approved with nothing to adjust"
+            )
+            continue
+        to_write.append((item, entry, baseline))
+    if not to_write:
+        return AppliedCount(notes=notes, pickings=[])
+
+    count_id = to_write[0][0].count_id
+    results = reconcile_counts(
+        db,
+        settings,
+        [
+            CountedLine(
+                product=item.product,
+                odoo_qty=float(entry.odoo_qty),
+                counted_qty=float(entry.counted_qty),
+            )
+            for item, entry, _ in to_write
+        ],
+        actor_user_id=actor_user_id,
+        note=(
+            f"Inventory count #{count_id} at {location.key} — "
+            f"{len(to_write)} item(s) reviewed together"
+        ),
+        reference_kind="CNT",
+        location_odoo_id=location.odoo_id,
+    )
+
+    # Record each item's share, then post each CREATED picking exactly once —
+    # its outcome belongs to every item riding it.
+    by_picking: dict[int, list[InventoryCountItem]] = {}
+    for item, entry, _ in to_write:
+        _record(item, entry, results[item.product_id])
+        if item.picking_status == OdooWriteOutcome.CREATED.value and item.odoo_picking_id:
+            by_picking.setdefault(int(item.odoo_picking_id), []).append(item)
+    for members in by_picking.values():
+        lead = members[0]
+        post_adjustment(db, settings, lead, actor_user_id)
+        for other in members[1:]:
+            other.picking_status = lead.picking_status
+            other.picking_error = lead.picking_error
+
+    for item, entry, baseline in to_write:
+        notes[item.id] = _item_note(item, entry, results[item.product_id], location, baseline)
+    return AppliedCount(notes=notes, pickings=_picking_summary(to_write, results))
+
+
+def _record(item: InventoryCountItem, entry: InventoryCountEntry, outcome: AdjustResult) -> None:
+    """Copy a write outcome onto the item — the link between the decision and
+    the stock record it changed. `applied_qty` means "what went to Odoo", so a
+    failed write leaves it empty."""
+    if outcome.status != OdooWriteOutcome.FAILED.value:
         item.applied_qty = float(entry.counted_qty)
-        item.picking_status = OdooWriteOutcome.NONE.value
-        return (
-            f"Odoo already shows {entry.counted_qty:g} at {location.key} "
-            f"(it was {baseline.captured:g} when counted) — approved with nothing to adjust"
-        )
-    try:
-        outcome = reconcile_floor_count(
-            db,
-            settings,
-            product,
-            floor_qty=float(entry.odoo_qty),
-            counted_qty=float(entry.counted_qty),
-            actor_user_id=actor_user_id,
-            note=(
-                f"Inventory count #{item.count_id} at {location.key} — counted "
-                f"{entry.counted_qty:g}, Odoo showed {entry.odoo_qty:g} — "
-                f"{product.global_sku} {product.name}"
-            ),
-            reference_kind="CNT",
-            location_odoo_id=location.odoo_id,
-        )
-    except (AdjustTooLarge, WriterValidationError) as e:
-        # An approval is a DECISION; it must not be lost because Odoo can't be
-        # written right now (an unmapped location, a gated flag, Odoo down).
-        # Record the failure on the item so a reviewer can see it and retry,
-        # rather than 422-ing the review away.
-        item.picking_status = OdooWriteOutcome.FAILED.value
-        item.picking_error = str(e)
-        return f"could not apply: {e}"
-
-    item.applied_qty = float(entry.counted_qty)
     item.picking_status = outcome.status
     item.picking_reference = outcome.reference
     item.picking_error = outcome.error
@@ -264,37 +325,76 @@ def apply_to_odoo(
     item.odoo_picking_name = outcome.picking_name
     item.odoo_picking_url = outcome.url
 
-    drift_note = baseline.applied_note() if baseline is not None else ""
-    if outcome.status == OdooWriteOutcome.CREATED.value:
-        posted = post_adjustment(db, settings, item, actor_user_id)
-        if posted:
-            return (
-                f"{outcome.picking_name} posted in Odoo ({outcome.direction} "
-                f"{outcome.qty:g} at {location.key}) — the count is live{drift_note}"
-            )
-        if item.picking_error:
-            return (
-                f"draft {outcome.picking_name} created ({outcome.direction} "
-                f"{outcome.qty:g} at {location.key}), but posting it failed: "
-                f"{item.picking_error} — validate it in Odoo"
-            )
 
+def _item_note(
+    item: InventoryCountItem,
+    entry: InventoryCountEntry,
+    outcome: AdjustResult,
+    location: CountLocation,
+    baseline: Baseline | None,
+) -> str:
+    """The sentence for this item's history, written AFTER posting so it can
+    say how that went. `outcome.qty` is this item's own share of the shared
+    picking."""
+    drift_note = baseline.applied_note() if baseline is not None else ""
     if outcome.status == "none":
         return (
             f"Odoo already showed {entry.counted_qty:g} at {location.key} — approved with "
             "nothing to adjust"
-        )
-    if outcome.status == OdooWriteOutcome.CREATED.value:
-        return (
-            f"draft {outcome.picking_name} created in Odoo ({outcome.direction} "
-            f"{outcome.qty:g} at {location.key}) — validate it there{drift_note}"
         )
     if outcome.status == OdooWriteOutcome.SIMULATED.value:
         return (
             "adjustment simulated — the inventory-adjustment feature flag is off, so nothing "
             "was written to Odoo"
         )
-    return f"Odoo refused the adjustment: {outcome.error}"
+    if outcome.status == OdooWriteOutcome.FAILED.value:
+        return f"could not apply: {outcome.error}"
+    if item.picking_status == OdooWriteOutcome.VALIDATED.value:
+        return (
+            f"{outcome.picking_name} posted in Odoo ({outcome.direction} "
+            f"{outcome.qty:g} at {location.key}) — the count is live{drift_note}"
+        )
+    if item.picking_error:
+        return (
+            f"draft {outcome.picking_name} created ({outcome.direction} "
+            f"{outcome.qty:g} at {location.key}), but posting it failed: "
+            f"{item.picking_error} — validate it in Odoo"
+        )
+    return (
+        f"draft {outcome.picking_name} created in Odoo ({outcome.direction} "
+        f"{outcome.qty:g} at {location.key}) — validate it there{drift_note}"
+    )
+
+
+def _picking_summary(
+    to_write: list[tuple[InventoryCountItem, InventoryCountEntry, Baseline | None]],
+    results: dict[int, AdjustResult],
+) -> list[str]:
+    """One line per direction that was actually written — the submission
+    event's answer to "where did all of this land?"."""
+    grouped: dict[str, list[tuple[InventoryCountItem, AdjustResult]]] = {}
+    for item, _, _ in to_write:
+        outcome = results[item.product_id]
+        if outcome.reference and outcome.direction in ("add", "reduce"):
+            grouped.setdefault(outcome.reference, []).append((item, outcome))
+    lines: list[str] = []
+    for members in grouped.values():
+        lead_item, lead = members[0]
+        total = round(sum(o.qty for _, o in members), 3)
+        what = (
+            f"{'adding' if lead.direction == 'add' else 'removing'} {total:g} "
+            f"across {len(members)} item(s)"
+        )
+        name = lead.picking_name or lead.reference
+        if lead_item.picking_status == OdooWriteOutcome.VALIDATED.value:
+            lines.append(f"{name} posted in Odoo, {what}")
+        elif lead_item.picking_status == OdooWriteOutcome.CREATED.value:
+            lines.append(f"draft {name} created, {what} — validate it in Odoo")
+        elif lead_item.picking_status == OdooWriteOutcome.SIMULATED.value:
+            lines.append(f"{what} — simulated, the adjustment flag is off")
+        else:
+            lines.append(f"{what} — failed: {lead_item.picking_error or lead.error}")
+    return lines
 
 
 def post_adjustment(

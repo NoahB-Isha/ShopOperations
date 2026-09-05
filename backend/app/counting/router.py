@@ -42,7 +42,7 @@ from ..models import (
     utcnow,
 )
 from . import flow, locations, recent
-from .service import apply_to_odoo, event, read_baseline
+from .service import Baseline, apply_all_to_odoo, apply_to_odoo, event, read_baseline
 
 router = APIRouter(prefix="/counts", tags=["counting"])
 
@@ -779,18 +779,28 @@ def approve_all(
     authed: AuthedUser = Depends(require_roles(*REVIEWERS)),
 ) -> CountOut:
     """Approve every item still open. Items already decided are left alone —
-    an individual decision always outranks a bulk one."""
+    an individual decision always outranks a bulk one.
+
+    The whole batch is APPLIED TOGETHER: one addition picking sums every
+    increase and one reduction picking every decrease (Noah, 2026-09-05) —
+    a 30-item review is two records in Odoo, not thirty."""
     count = _load(db, count_id)
     loc = _resolve_location(db, settings, count.location_key)
-    done = 0
+    open_items = [i for i in count.items if flow.can_review(i.status)]
+    # ONE live read covers the whole submission — the per-item version of this
+    # read is the shape that once put a 65-item review over Odoo's rate limit.
+    stock = (
+        locations.quantities_at(db, settings, loc, [i.product_id for i in open_items])
+        if open_items
+        else None
+    )
+    approvals: list[tuple[InventoryCountItem, Baseline | None]] = []
     skipped = 0
-    for item in count.items:
-        if not flow.can_review(item.status):
-            continue
+    for item in open_items:
         # Same guard as the single-item approval — but one stale row must not
         # throw away the other nineteen decisions, so it is SKIPPED and left
         # open, with the reason on its own timeline.
-        baseline = read_baseline(db, settings, item, loc)
+        baseline = read_baseline(db, settings, item, loc, stock=stock)
         if baseline.blocked:
             skipped += 1
             event(
@@ -802,11 +812,14 @@ def approve_all(
         item.reviewed_by_id = authed.id
         item.reviewed_at = utcnow()
         item.recount_assignee_id = None
-        note = apply_to_odoo(db, settings, item, loc, authed.id, baseline=baseline)
+        approvals.append((item, baseline))
+    applied = apply_all_to_odoo(db, settings, approvals, loc, authed.id)
+    for item, _ in approvals:
         event(db, item, count.id, CountEventKind.APPROVED, body.note.strip() or "approved with the submission", authed.id)
-        event(db, item, count.id, CountEventKind.ODOO, note, authed.id)
-        done += 1
-    summary = f"{done} item(s) approved"
+        event(db, item, count.id, CountEventKind.ODOO, applied.notes[item.id], authed.id)
+    summary = f"{len(approvals)} item(s) approved"
+    if applied.pickings:
+        summary += " — " + "; ".join(applied.pickings)
     if skipped:
         summary += f"; {skipped} left open — Odoo's quantity moved since they were counted"
     if body.note.strip():
