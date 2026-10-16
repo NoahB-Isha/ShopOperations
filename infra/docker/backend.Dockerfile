@@ -5,7 +5,7 @@
 #   docker buildx imagetools inspect python:3.12-slim
 # and write `FROM python:3.12-slim@sha256:<digest> AS base`. The Dependabot
 # `docker` ecosystem entry (.github/dependabot.yml) then keeps the pin current.
-FROM python:3.12-slim AS base
+FROM python:3.14-slim AS base
 
 # `latest` here meant every rebuild could silently change the resolver. `0.9` is
 # a concrete minor tag; pin it by digest for a reproducible build with:
